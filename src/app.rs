@@ -42,20 +42,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum TopCommand {
-    #[command(name = "__runtime-probe", hide = true)]
-    RuntimeProbe {
-        #[arg(long)]
-        onnxruntime: PathBuf,
-        #[arg(long)]
-        sherpa: PathBuf,
-        #[arg(long)]
-        provider: PathBuf,
-        #[arg(long)]
-        registration: String,
-        #[arg(long)]
-        ep_name: String,
-        #[arg(long)]
-        device: String,
+    #[command(name = "__inventory-probe", hide = true)]
+    InventoryProbe {
+        candidate: String,
     },
     Test {
         #[arg(long, conflicts_with = "seconds")]
@@ -190,6 +179,9 @@ enum SetupCommand {
         device: Option<String>,
         #[arg(long, value_name = "DIRECTORY", conflicts_with = "json")]
         dir: Option<PathBuf>,
+        /// Persist the candidate after its isolated probe succeeds.
+        #[arg(long, conflicts_with = "json")]
+        apply: bool,
     },
     /// Explicitly install or manage the optional systemd user service.
     Systemd {
@@ -246,22 +238,13 @@ where
     let config_path = cli.config.unwrap_or_else(|| paths.config_file.clone());
     paths.config_file = config_path.clone();
     let command = match cli.command {
-        TopCommand::RuntimeProbe {
-            onnxruntime,
-            sherpa,
-            provider,
-            registration,
-            ep_name,
-            device,
-        } => {
-            return crate::engine::sherpa::validate_runtime_provider(
-                &onnxruntime,
-                &sherpa,
-                &provider,
-                &registration,
-                &ep_name,
-                &device,
+        TopCommand::InventoryProbe { candidate } => {
+            let candidate = serde_json::from_str(&candidate)?;
+            println!(
+                "{}",
+                serde_json::to_string(&crate::runtime_inventory::child(&candidate))?
             );
+            return Ok(());
         }
         TopCommand::Setup { command } => return setup(command, &config_path, &paths),
         command => command,
@@ -354,7 +337,7 @@ where
             }
             Ok(())
         }
-        TopCommand::RuntimeProbe { .. } | TopCommand::Setup { .. } => unreachable!(),
+        TopCommand::InventoryProbe { .. } | TopCommand::Setup { .. } => unreachable!(),
         TopCommand::Config { command } => config_mutation(command, config, &config_path),
     }
 }
@@ -558,12 +541,14 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
             runtime: None,
             device: None,
             dir: None,
+            apply: false,
         } if !json && setup_is_interactive() => guided_runtime(config_path),
         SetupCommand::Runtime {
             json,
             runtime,
             device,
             dir,
+            apply,
         } => {
             if runtime.is_some() || device.is_some() || dir.is_some() {
                 let current = Config::load(config_path)?;
@@ -580,7 +565,8 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
                         .filter(|_| selected_runtime == current.backend.runtime)
                         .map_or_else(|| "auto".to_owned(), |_| current.backend.device.clone())
                 });
-                save_runtime_selection_with_directory(
+                let candidate = runtime_selection_candidate(
+                    &current,
                     config_path,
                     &RuntimeSelection {
                         runtime: selected_runtime,
@@ -588,6 +574,19 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
                     },
                     dir.as_deref(),
                 )?;
+                let evidence = crate::runtime_inventory::apply_with(
+                    &candidate,
+                    config_path,
+                    apply,
+                    crate::runtime_inventory::probe,
+                )?;
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(
+                        &json!({"candidate":candidate.backend,"probe":evidence,"applied":apply})
+                    )?
+                );
+                return Ok(());
             }
             app_setup::print_runtime(&Config::load(config_path)?, config_path, json)
         }
@@ -690,6 +689,15 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
                 archive.as_deref(),
                 progress_format,
                 service_was_active,
+                |config, path| {
+                    crate::runtime_inventory::apply_with(
+                        config,
+                        path,
+                        false,
+                        crate::runtime_inventory::probe,
+                    )?;
+                    Ok(())
+                },
                 app_setup::model::install,
                 app_setup::menu::install,
                 app_setup::systemd::reload_if_was_active,
@@ -705,6 +713,18 @@ fn setup_is_interactive() -> bool {
 }
 
 trait GuidedPrompts {
+    fn probe_runtime(
+        &mut self,
+        candidate: &Config,
+        path: &Path,
+    ) -> Result<crate::runtime_inventory::Probe> {
+        crate::runtime_inventory::apply_with(
+            candidate,
+            path,
+            false,
+            crate::runtime_inventory::probe,
+        )
+    }
     fn setup_mode(&mut self) -> Result<Option<SetupMode>>;
     fn runtime(&mut self, current: &Config) -> Result<Option<RuntimeSelection>>;
     fn runtime_library_dir(&mut self, _current: &Config) -> Result<Option<PathBuf>> {
@@ -712,8 +732,8 @@ trait GuidedPrompts {
     }
     fn confirm_runtime(
         &mut self,
-        selection: &RuntimeSelection,
-        runtime_directory: Option<&Path>,
+        candidate: &Config,
+        evidence: &crate::runtime_inventory::Probe,
     ) -> Result<bool>;
     fn model(
         &mut self,
@@ -758,10 +778,24 @@ impl GuidedPrompts for TerminalGuidedPrompts {
 
     fn confirm_runtime(
         &mut self,
-        selection: &RuntimeSelection,
-        runtime_directory: Option<&Path>,
+        candidate: &Config,
+        evidence: &crate::runtime_inventory::Probe,
     ) -> Result<bool> {
-        wizard::confirm_runtime_apply(selection.runtime, &selection.device, runtime_directory)
+        Ok(wizard::select(
+            "Review runtime",
+            &serde_json::to_string_pretty(&json!({
+                "paths": candidate.backend,
+                "probe": evidence,
+            }))?,
+            &[
+                wizard::MenuItem::available(
+                    "Apply",
+                    "Save the verified runtime selection atomically",
+                ),
+                wizard::MenuItem::available("Cancel", "Leave config unchanged"),
+            ],
+            1,
+        )? == Some(0))
     }
 
     fn model(
@@ -842,11 +876,18 @@ fn guided_runtime_with(config_path: &Path, prompts: &mut impl GuidedPrompts) -> 
         return Ok(());
     };
     let runtime_directory = prompts.runtime_library_dir(&current)?;
-    if !prompts.confirm_runtime(&selection, runtime_directory.as_deref())? {
+    let candidate = runtime_selection_candidate(
+        &current,
+        config_path,
+        &selection,
+        runtime_directory.as_deref(),
+    )?;
+    let evidence = prompts.probe_runtime(&candidate, config_path)?;
+    if !prompts.confirm_runtime(&candidate, &evidence)? {
         println!("Runtime setup cancelled; no changes were made.");
         return Ok(());
     }
-    save_runtime_selection_with_directory(config_path, &selection, runtime_directory.as_deref())?;
+    candidate.save(config_path)?;
     println!(
         "runtime configured: {} / {}",
         runtime_name(selection.runtime),
@@ -1003,7 +1044,7 @@ where
     FR: FnOnce(bool) -> Result<bool>,
     CH: FnOnce(&Path, &AppPaths) -> Result<()>,
     CJ: FnOnce(&Path, &AppPaths) -> Result<()>,
-    FV: FnOnce(&Config, &Path, bool) -> Result<()>,
+    FV: FnOnce(&Config, &Path) -> Result<()>,
 {
     let current = Config::load(config_path)?;
     let Some(selection) = prompts.runtime(&current)? else {
@@ -1011,9 +1052,13 @@ where
         return Ok(());
     };
     let runtime_directory = prompts.runtime_library_dir(&current)?;
-    let candidate =
-        runtime_selection_candidate(&current, &selection, runtime_directory.as_deref())?;
-    validate_runtime(&candidate, config_path, runtime_directory.is_some())?;
+    let candidate = runtime_selection_candidate(
+        &current,
+        config_path,
+        &selection,
+        runtime_directory.as_deref(),
+    )?;
+    validate_runtime(&candidate, config_path)?;
     let Some(spec) = prompts.model(paths, &current)? else {
         println!("Setup cancelled.");
         return Ok(());
@@ -1107,46 +1152,27 @@ where
     Ok(select(&items, preferred)?.map(|index| &crate::catalog::models()[index]))
 }
 
-fn save_runtime_selection_with_directory(
-    config_path: &Path,
-    selection: &RuntimeSelection,
-    runtime_directory: Option<&Path>,
-) -> Result<()> {
-    save_runtime_selection_impl(config_path, selection, runtime_directory)
+#[cfg(test)]
+fn save_runtime_selection(config_path: &Path, selection: &RuntimeSelection) -> Result<()> {
+    save_runtime_selection_impl_with(config_path, selection, None, |_, _| Ok(()))
 }
 
 #[cfg(test)]
-fn save_runtime_selection(config_path: &Path, selection: &RuntimeSelection) -> Result<()> {
-    save_runtime_selection_impl_with(config_path, selection, None, |_, _, _| Ok(()))
-}
-
-fn save_runtime_selection_impl(
-    config_path: &Path,
-    selection: &RuntimeSelection,
-    runtime_directory: Option<&Path>,
-) -> Result<()> {
-    save_runtime_selection_impl_with(
-        config_path,
-        selection,
-        runtime_directory,
-        validate_runtime_candidate,
-    )
-}
-
 fn save_runtime_selection_impl_with(
     config_path: &Path,
     selection: &RuntimeSelection,
     runtime_directory: Option<&Path>,
-    validate: impl FnOnce(&Config, &Path, bool) -> Result<()>,
+    validate: impl FnOnce(&Config, &Path) -> Result<()>,
 ) -> Result<()> {
     let current = Config::load(config_path)?;
-    let config = runtime_selection_candidate(&current, selection, runtime_directory)?;
-    validate(&config, config_path, runtime_directory.is_some())?;
+    let config = runtime_selection_candidate(&current, config_path, selection, runtime_directory)?;
+    validate(&config, config_path)?;
     config.save(config_path)
 }
 
 fn runtime_selection_candidate(
     current: &Config,
+    config_path: &Path,
     selection: &RuntimeSelection,
     runtime_directory: Option<&Path>,
 ) -> Result<Config> {
@@ -1169,25 +1195,42 @@ fn runtime_selection_candidate(
     if let Some(spec) = crate::catalog::model(&config.model.name) {
         spec.apply_runtime_compatibility(&mut config);
     }
+    // Keep packaged CPU paths relocatable. Persist exact paths for external stacks.
+    let locations = runtime_paths::discover(&config.backend, config_path);
+    let packaged = [&locations.onnxruntime_library, &locations.sherpa_library]
+        .iter()
+        .all(|library| {
+            library.as_ref().is_some_and(|library| {
+                locations
+                    .package_library_dirs
+                    .iter()
+                    .any(|directory| library.starts_with(directory))
+            })
+        });
+    if runtime_directory.is_some()
+        || selection.runtime != Runtime::Default
+        || !config.backend.library_dirs.is_empty()
+        || !packaged
+    {
+        config.backend = crate::runtime_inventory::resolve(&config.backend, config_path);
+    }
     Ok(config)
 }
 
-fn validate_runtime_candidate(
-    config: &Config,
-    config_path: &Path,
-    explicit_directory: bool,
-) -> Result<()> {
-    // Release archives guarantee their sibling default CPU runtime. Keeping
-    // that selection valid before packaging also lets source builds prepare a
-    // config before the release bundle is staged. Explicit runtime directories
-    // and every accelerator must pass the full ABI/provider/device probe.
-    if config.backend.runtime == Runtime::Default && !explicit_directory {
-        return Ok(());
-    }
-    let report = runtime_paths::report(&config.backend, config_path);
-    validate_runtime_candidate_report(config.backend.runtime, &report)
+fn validate_runtime_candidate(config: &Config, config_path: &Path) -> Result<()> {
+    validate_runtime_candidate_with(config, config_path, crate::runtime_inventory::probe)
 }
 
+fn validate_runtime_candidate_with(
+    config: &Config,
+    config_path: &Path,
+    probe: impl FnOnce(&crate::backend::BackendConfig, &Path) -> crate::runtime_inventory::Probe,
+) -> Result<()> {
+    crate::runtime_inventory::apply_with(config, config_path, false, probe)?;
+    Ok(())
+}
+
+#[cfg(test)]
 fn validate_runtime_candidate_report(
     runtime: Runtime,
     report: &runtime_paths::RuntimeLibraryReport,
@@ -1276,13 +1319,14 @@ fn runtime_name(runtime: Runtime) -> &'static str {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn install_everything<FI, FM, FR, CH, CJ>(
+fn install_everything<FV, FI, FM, FR, CH, CJ>(
     spec: &crate::catalog::ModelSpec,
     config_path: &Path,
     paths: &AppPaths,
     archive: Option<&Path>,
     progress_format: ProgressFormat,
     service_was_active: bool,
+    validate_runtime: FV,
     install_model: FI,
     install_menu: FM,
     restart_service: FR,
@@ -1290,6 +1334,7 @@ fn install_everything<FI, FM, FR, CH, CJ>(
     check_json: CJ,
 ) -> Result<()>
 where
+    FV: FnOnce(&Config, &Path) -> Result<()>,
     FI: FnOnce(
         &AppPaths,
         &crate::catalog::ModelSpec,
@@ -1301,9 +1346,11 @@ where
     CH: FnOnce(&Path, &AppPaths) -> Result<()>,
     CJ: FnOnce(&Path, &AppPaths) -> Result<()>,
 {
+    let config = Config::load(config_path)?;
+    validate_runtime(&config, config_path)?;
     install_everything_with_config(
         spec,
-        Config::load(config_path)?,
+        config,
         config_path,
         paths,
         archive,

@@ -55,6 +55,33 @@ impl RuntimeLibraryReport {
 }
 
 pub fn report(config: &BackendConfig, config_path: &Path) -> RuntimeLibraryReport {
+    let mut report = discover(config, config_path);
+    report.remediation.clear();
+    for runtime in [Runtime::Default, Runtime::Openvino, Runtime::Cuda] {
+        let mut candidate = config.clone();
+        if runtime != config.runtime {
+            candidate.provider_library.clear();
+            candidate.device = "auto".into();
+            candidate.device_id = 0;
+        }
+        candidate.runtime = runtime;
+        let state = crate::runtime_inventory::probe(&candidate, config_path);
+        if !state.ready {
+            report.remediation.push(format!(
+                "{}: {}; supply matching ONNX Runtime 1.29.0 and patched sherpa-onnx 1.13.8 plus the selected external provider/vendor stack",
+                crate::runtime_inventory::name(runtime),
+                state.errors.join("; ")
+            ));
+        }
+        report
+            .runtime_loadable
+            .insert(crate::runtime_inventory::name(runtime), state.ready);
+    }
+    report
+}
+
+/// Resolve candidates without loading native code or changing files.
+pub fn discover(config: &BackendConfig, config_path: &Path) -> RuntimeLibraryReport {
     let executable = env::current_exe().ok();
     let mut app_environment_dirs = split_paths(env::var_os(LIBRARY_PATH_ENV).as_deref());
     app_environment_dirs.extend(
@@ -88,14 +115,14 @@ pub fn report(config: &BackendConfig, config_path: &Path) -> RuntimeLibraryRepor
             env::var_os(SHERPA_LIBRARY_ENV).map(PathBuf::from),
             env::var_os(PROVIDER_LIBRARY_ENV).map(PathBuf::from),
         ],
-        provider_dependencies_resolve,
-        |ort, sherpa| crate::engine::sherpa::validate_runtime_libraries(ort, sherpa).is_ok(),
-        provider_runtime_loadable,
+        |_, _| false,
+        |_, _| false,
+        |_, _, _, _, _, _| false,
     )
 }
 
 #[allow(clippy::too_many_arguments)]
-fn report_with(
+pub(crate) fn report_with(
     config: &BackendConfig,
     config_path: &Path,
     executable: Option<&Path>,
@@ -353,7 +380,7 @@ pub fn effective_library_path(
     config: &BackendConfig,
     config_path: &Path,
 ) -> Result<Option<OsString>> {
-    let report = report(config, config_path);
+    let report = discover(config, config_path);
     validate_report(&report)?;
     if report.effective_library_dirs.is_empty() {
         Ok(None)
@@ -369,7 +396,7 @@ pub fn effective_library_path(
 pub fn ensure_engine_library_path(config: &BackendConfig, config_path: &Path) -> Result<()> {
     use std::os::unix::process::CommandExt;
 
-    let report = report(config, config_path);
+    let report = discover(config, config_path);
     let current = env::var_os("LD_LIBRARY_PATH");
     let sentinel = env::var_os(LIBRARY_PATH_READY_ENV).is_some();
     let Some(library_path) = reexec_library_path(&report, current.as_deref(), sentinel)? else {
@@ -386,7 +413,7 @@ pub fn ensure_engine_library_path(config: &BackendConfig, config_path: &Path) ->
 
 #[cfg(not(target_os = "linux"))]
 pub fn ensure_engine_library_path(config: &BackendConfig, config_path: &Path) -> Result<()> {
-    validate_report(&report(config, config_path))
+    validate_report(&discover(config, config_path))
 }
 
 fn reexec_library_path(
@@ -507,6 +534,7 @@ fn library_path_in_directory(name: &str, directory: &Path) -> Option<PathBuf> {
     })
 }
 
+#[cfg(test)]
 fn provider_dependencies_resolve(provider: &Path, search_dirs: &[PathBuf]) -> bool {
     let library_path = env::join_paths(search_dirs).ok();
     let mut command = Command::new("ldd");
@@ -519,63 +547,6 @@ fn provider_dependencies_resolve(provider: &Path, search_dirs: &[PathBuf]) -> bo
             && !String::from_utf8_lossy(&output.stdout).contains("not found")
             && !String::from_utf8_lossy(&output.stderr).contains("not found")
     })
-}
-
-fn provider_runtime_loadable(
-    ort: &Path,
-    sherpa: &Path,
-    provider: &Path,
-    runtime: Runtime,
-    device: &str,
-    search_dirs: &[PathBuf],
-) -> bool {
-    let (registration, ep_name, device) = match (runtime, device) {
-        (Runtime::Openvino, "auto") => (
-            "omawake-readiness-openvino",
-            "OpenVINOExecutionProvider.AUTO",
-            "",
-        ),
-        (Runtime::Openvino, "cpu" | "gpu" | "npu") => (
-            "omawake-readiness-openvino",
-            "OpenVINOExecutionProvider",
-            device,
-        ),
-        (Runtime::Cuda, "auto" | "gpu") => {
-            ("omawake-readiness-cuda", "CUDAExecutionProvider", "gpu")
-        }
-        _ => return false,
-    };
-    let executable = match env::current_exe() {
-        Ok(executable) => executable,
-        Err(_) => return false,
-    };
-    let loader_dirs = deduplicate_paths(
-        search_dirs
-            .iter()
-            .chain(split_paths(env::var_os("LD_LIBRARY_PATH").as_deref()).iter())
-            .cloned(),
-    );
-    let loader_path = match env::join_paths(loader_dirs) {
-        Ok(loader_path) => loader_path,
-        Err(_) => return false,
-    };
-    Command::new(executable)
-        .arg("__runtime-probe")
-        .arg("--onnxruntime")
-        .arg(ort)
-        .arg("--sherpa")
-        .arg(sherpa)
-        .arg("--provider")
-        .arg(provider)
-        .arg("--registration")
-        .arg(registration)
-        .arg("--ep-name")
-        .arg(ep_name)
-        .arg("--device")
-        .arg(device)
-        .env("LD_LIBRARY_PATH", loader_path)
-        .output()
-        .is_ok_and(|output| output.status.success())
 }
 
 fn deduplicate_paths(paths: impl IntoIterator<Item = PathBuf>) -> Vec<PathBuf> {

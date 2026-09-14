@@ -208,18 +208,33 @@ fn render(
     items: &[MenuItem],
     selected: usize,
 ) -> Result<()> {
+    let width = terminal::size()
+        .ok()
+        .filter(|(width, _)| *width > 0)
+        .map_or(80, |(width, _)| width as usize);
+    render_at_width(output, title, help, items, selected, width)
+}
+
+fn render_at_width(
+    output: &mut impl Write,
+    title: &str,
+    help: &str,
+    items: &[MenuItem],
+    selected: usize,
+    width: usize,
+) -> Result<()> {
     queue!(
         output,
         terminal::Clear(ClearType::All),
         cursor::MoveTo(0, 0),
         SetAttribute(Attribute::Bold),
-        Print(title),
+        Print(wrap(title, width, 0)),
         SetAttribute(Attribute::Reset),
         Print("\r\n\r\n"),
-        Print(help),
+        Print(wrap(help, width, 0)),
         Print("\r\n"),
         SetForegroundColor(Color::DarkGrey),
-        Print("↑↓ navigate · Enter select · Esc cancel"),
+        Print(wrap("↑↓ navigate · Enter select · Esc cancel", width, 0)),
         ResetColor,
         Print("\r\n\r\n")
     )?;
@@ -237,18 +252,38 @@ fn render(
         queue!(
             output,
             Print(if index == selected { "  › " } else { "    " }),
-            Print(&item.label),
+            Print(wrap(&item.label, width, 4)),
             SetAttribute(Attribute::Reset),
             ResetColor,
             Print("\r\n      "),
             SetForegroundColor(Color::DarkGrey),
-            Print(&item.detail),
+            Print(wrap(&item.detail, width, 6)),
             ResetColor,
             Print("\r\n\r\n")
         )?;
     }
     output.flush()?;
     Ok(())
+}
+
+fn wrap(text: &str, width: usize, indent: usize) -> String {
+    use unicode_width::UnicodeWidthChar;
+    let limit = width.saturating_sub(indent + 1).max(1);
+    let mut output = String::new();
+    let mut column = 0;
+    for character in text.chars().filter(|character| *character != '\r') {
+        let size = character.width().unwrap_or(0);
+        if character == '\n' || column + size > limit {
+            output.push_str("\r\n");
+            output.push_str(&" ".repeat(indent));
+            column = 0;
+        }
+        if character != '\n' && !character.is_control() {
+            output.push(character);
+            column += size;
+        }
+    }
+    output
 }
 
 pub fn choose_setup_mode() -> Result<Option<SetupMode>> {

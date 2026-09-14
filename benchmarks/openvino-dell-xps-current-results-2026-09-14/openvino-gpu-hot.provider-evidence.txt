@@ -1,0 +1,1 @@
+/tmp/omawake-current-proof/openvino-device-benchmark/run-20260914T223102Z-3079573/openvino-gpu/profiles/hot/openvino-gpu_2026-09-14_17-31-10_245.json

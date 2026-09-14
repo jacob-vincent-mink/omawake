@@ -4,12 +4,14 @@
 ONNX Runtime SDK. It does not clone, build, patch, or copy ONNX Runtime, CUDA,
 OpenVINO, or execution-provider libraries. The resulting sherpa library can
 register compatible provider DSOs at process startup and use the same retained
-`OrtEnv` for CPU, OpenVINO, and CUDA sessions.
+`OrtEnv` for OpenVINO and CUDA sessions. Default CPU inference does not create
+the plugin registry.
 
 The build is pinned to sherpa-onnx `v1.13.8` at
-`11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf`. It applies the checksum-pinned Oma
-runtime patch in [`patches`](patches). TTS is disabled in this build, so the
-resulting companion contains only the wake-word code Omawake uses.
+`11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf`. It applies two checksum-pinned
+patches in [`patches`](patches): the extended ORT plugin-runtime surface, then
+keyword-spotter C-entry exception safety. TTS is disabled, and the patches
+contain no TTS or Supertonic routing changes.
 
 Provide an ONNX Runtime 1.29 shared-library SDK. An official extracted archive
 has the expected layout:
@@ -43,19 +45,31 @@ chain and `libsherpa-onnx-c-api.so` under `lib/`. It leaves
 backends. The installed sherpa libraries use `$ORIGIN` to resolve companion
 libraries in the same directory.
 
-The application must load the selected `libonnxruntime` before loading
-`libsherpa-onnx-c-api`, validate ORT's API version, then retain the Oma runtime
-handle for the entire lifetime of every sherpa engine. Provider libraries are
-registered by explicit path. Destroy streams, generated results, and
-recognizers before destroying the runtime handle; its destructor
-unregisters provider libraries in reverse order and releases the retained
-environment.
+The application loads the selected `libonnxruntime` before
+`libsherpa-onnx-c-api` and validates the ORT and extended API versions. Default
+CPU sessions need no plugin-runtime handle. OpenVINO and CUDA libraries are
+registered by explicit path. Repeated registration of the same name and path
+is idempotent; reusing a name for another path fails. Accelerated keyword
+spotters retain the runtime until their sessions are destroyed, after which
+providers are unregistered once in reverse order.
 
-The patched C ABI reports `SherpaOnnxGetOmaRuntimeAbiVersion(void) == 1`. It exposes
-runtime creation, provider registration, device discovery, error reporting,
-and destruction. OpenVINO and CUDA both use `GetEpDevices` plus
+The extended sherpa API reports `SherpaOnnxGetExtendedApiVersion(void) == 1`.
+Omawake requires this marker for every runtime because it also certifies the
+exception-safe keyword-spotter C boundary; CPU does not otherwise depend on
+plugin registration. The extension exposes runtime creation, provider
+registration, device discovery, thread-local error reporting, and destruction.
+OpenVINO and CUDA both use `GetEpDevices` plus
 `SessionOptionsAppendExecutionProvider_V2`; neither depends on a provider being
 compiled into the ORT core.
+
+The build runs the native contract's provider-independent checks automatically.
+Hardware acceptance also runs `runtime/tests/runtime-contract` in provider mode
+with the provider library, registration name, EP name, device, provider config,
+and KWS model paths. That mode verifies idempotent registration, rejects a
+same-name/different-path registration, keeps the provider alive through keyword
+spotter destruction, permits clean re-registration afterward, and proves that
+accelerated KWS creation without a retained runtime returns `NULL` across the C
+boundary. The current OpenVINO and CUDA reports record those hardware runs.
 
 Provider DSOs remain external runtime inputs:
 

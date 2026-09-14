@@ -22,4 +22,6 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo deny check licenses
       - run: cargo about generate about.hbs > /dev/null
-      - run: cargo llvm-cov --all-targets --locked --fail-under-lines 90.01
+      # CLI tests launch the instrumented binary repeatedly; serial execution
+      # prevents concurrent child processes from clobbering the same profile.
+      - run: cargo llvm-cov --all-targets --locked --fail-under-lines 90.01 -- --test-threads=1

@@ -35,12 +35,11 @@ pub fn checks(path: &Path, paths: &AppPaths) -> Vec<Check> {
         path,
         paths,
         &|config, paths| {
-            let detector = crate::engine::Detector::load(config, paths)?;
-            Ok(format!(
-                "{} initialized {} wake-word mapping(s)",
-                detector.backend_kind,
-                config.wake_words.iter().filter(|word| word.enabled).count()
-            ))
+            let probe = crate::runtime_inventory::probe(&config.backend, &paths.config_file);
+            if !probe.ready {
+                bail!("{}", probe.errors.join("; "));
+            }
+            Ok("runtime/device probe passed; model inference is not verified by this check".into())
         },
         command_exists("systemctl"),
         &systemd::is_active,
@@ -220,6 +219,7 @@ pub fn print_checks_event(path: &Path, paths: &AppPaths) -> Result<()> {
 
 pub fn print_runtime(config: &Config, config_path: &Path, json: bool) -> Result<()> {
     let libraries = crate::runtime_paths::report(&config.backend, config_path);
+    let inventory = crate::runtime_inventory::inventory(&config.backend, config_path);
     let value = serde_json::json!({
         "backends": catalog::backends(),
         "supported_capabilities": crate::backend::supported_capabilities(),
@@ -230,10 +230,35 @@ pub fn print_runtime(config: &Config, config_path: &Path, json: bool) -> Result<
         },
         "models": catalog::models(),
         "libraries": libraries,
+        "inventory": inventory,
+        "loader_environment": std::env::var_os("LD_LIBRARY_PATH")
+            .map(|value| value.to_string_lossy().into_owned()),
     });
     if json {
         println!("{}", serde_json::to_string_pretty(&value)?);
     } else {
+        for state in &inventory {
+            println!(
+                "{} / {}: supported={} discovered={} configured={} loadable={} device_accessible={} ready={} source={}",
+                state.runtime,
+                state.device,
+                state.supported,
+                state.discovered,
+                state.configured,
+                state.probe.loadable,
+                state.probe.device_accessible,
+                state.probe.ready,
+                state.source
+            );
+            for error in &state.probe.errors {
+                println!("  error: {error}");
+            }
+            if !state.probe.ready {
+                for action in &state.remediation {
+                    println!("  fix: {action}");
+                }
+            }
+        }
         println!("Backends:");
         for backend in catalog::backends() {
             println!(

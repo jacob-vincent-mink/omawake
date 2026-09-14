@@ -1,0 +1,565 @@
+diff --git a/sherpa-onnx/c-api/c-api.cc b/sherpa-onnx/c-api/c-api.cc
+index 8ab11a1..1bd703d 100644
+--- a/sherpa-onnx/c-api/c-api.cc
++++ b/sherpa-onnx/c-api/c-api.cc
+@@ -5,7 +5,9 @@
+ #include "sherpa-onnx/c-api/c-api.h"
+ 
+ #include <algorithm>
++#include <cstdio>
+ #include <cstring>
++#include <exception>
+ #include <memory>
+ #include <sstream>
+ #include <string>
+@@ -32,6 +34,7 @@
+ #include "sherpa-onnx/csrc/online-punctuation.h"
+ #include "sherpa-onnx/csrc/online-recognizer.h"
+ #include "sherpa-onnx/csrc/online-speech-denoiser.h"
++#include "sherpa-onnx/csrc/ort-plugin-runtime.h"
+ #include "sherpa-onnx/csrc/resample.h"
+ #include "sherpa-onnx/csrc/speaker-embedding-extractor.h"
+ #include "sherpa-onnx/csrc/speaker-embedding-manager.h"
+@@ -59,6 +62,134 @@ const char *SherpaOnnxGetOnnxruntimeVersionStr() {
+   return sherpa_onnx::GetOnnxruntimeVersionStr();
+ }
+ 
++namespace {
++
++thread_local char g_extended_api_error[2048] = {};
++
++void ClearExtendedApiError() noexcept { g_extended_api_error[0] = '\0'; }
++
++void SetExtendedApiError(const char *message) noexcept {
++  std::snprintf(g_extended_api_error, sizeof(g_extended_api_error), "%s",
++                message ? message : "unknown error");
++}
++
++bool UsesRegisteredExecutionProvider(const std::string &provider) {
++  const auto separator = provider.find(':');
++  const std::string name = sherpa_onnx::ToLowerAscii(
++      sherpa_onnx::Trim(provider.substr(0, separator)));
++  return name == "cuda" || name == "openvino";
++}
++
++}  // namespace
++
++int32_t SherpaOnnxGetExtendedApiVersion(void) { return 1; }
++
++struct SherpaOnnxOrtRuntime {
++  std::shared_ptr<sherpa_onnx::OrtPluginRuntime> impl;
++};
++
++SherpaOnnxOrtRuntime *SherpaOnnxCreateOrtRuntime(void) {
++  ClearExtendedApiError();
++  try {
++    auto impl = sherpa_onnx::CreateOrtPluginRuntime();
++    return new SherpaOnnxOrtRuntime{std::move(impl)};
++  } catch (const std::exception &e) {
++    SetExtendedApiError(e.what());
++    return nullptr;
++  } catch (...) {
++    SetExtendedApiError("unknown exception while creating ONNX Runtime environment");
++    return nullptr;
++  }
++}
++
++int32_t SherpaOnnxOrtRuntimeRegisterExecutionProviderLibrary(
++    SherpaOnnxOrtRuntime *runtime, const char *registration_name,
++    const char *library_path) {
++  ClearExtendedApiError();
++  if (!runtime) {
++    SetExtendedApiError("runtime is null");
++    return 0;
++  }
++  if (!registration_name || !*registration_name || !library_path ||
++      !*library_path) {
++    SetExtendedApiError("registration_name and library_path are required");
++    return 0;
++  }
++
++  try {
++    runtime->impl->Register(registration_name, library_path);
++    return 1;
++  } catch (const std::exception &e) {
++    SetExtendedApiError(e.what());
++    return 0;
++  } catch (...) {
++    SetExtendedApiError("unknown exception while registering provider library");
++    return 0;
++  }
++}
++
++int32_t SherpaOnnxOrtRuntimeHasExecutionProviderDevice(
++    SherpaOnnxOrtRuntime *runtime, const char *ep_name,
++    const char *device_type) {
++  ClearExtendedApiError();
++  if (!runtime) {
++    SetExtendedApiError("runtime is null");
++    return 0;
++  }
++  if (!ep_name || !*ep_name) {
++    SetExtendedApiError("ep_name is required");
++    return 0;
++  }
++
++  try {
++    OrtHardwareDeviceType wanted = OrtHardwareDeviceType_CPU;
++    const bool filter_type = device_type && *device_type;
++    if (filter_type) {
++      const std::string type = sherpa_onnx::ToLowerAscii(device_type);
++      if (type == "cpu") {
++        wanted = OrtHardwareDeviceType_CPU;
++      } else if (type == "gpu") {
++        wanted = OrtHardwareDeviceType_GPU;
++      } else if (type == "npu") {
++        wanted = OrtHardwareDeviceType_NPU;
++      } else {
++        SetExtendedApiError("device_type must be cpu, gpu, npu, or empty");
++        return 0;
++      }
++    }
++
++    const bool found = runtime->impl->WithEnv([&](Ort::Env &env) {
++      for (const auto &device : env.GetEpDevices()) {
++        if (std::strcmp(device.EpName(), ep_name) == 0 &&
++            (!filter_type || device.Device().Type() == wanted)) {
++          return true;
++        }
++      }
++      return false;
++    });
++    if (found) return 1;
++    SetExtendedApiError("no matching execution-provider device");
++    return 0;
++  } catch (const std::exception &e) {
++    SetExtendedApiError(e.what());
++    return 0;
++  } catch (...) {
++    SetExtendedApiError("unknown exception while enumerating provider devices");
++    return 0;
++  }
++}
++
++const char *SherpaOnnxOrtRuntimeGetLastError(
++    const SherpaOnnxOrtRuntime *runtime) {
++  (void)runtime;
++  return g_extended_api_error;
++}
++
++void SherpaOnnxDestroyOrtRuntime(SherpaOnnxOrtRuntime *runtime) {
++  if (!runtime) return;
++  delete runtime;
++}
++
+ // On WASM builds, multi-threading is not supported. Clamp num_threads to 1.
+ static int32_t GetNumThreads(int32_t num_threads) {
+   int32_t n = SHERPA_ONNX_OR(num_threads, 1);
+@@ -972,6 +1103,8 @@ void SherpaOnnxDestroyOfflineStreamResultJson(const char *s) {
+ // ============================================================
+ 
+ struct SherpaOnnxKeywordSpotter {
++  // Declared before impl so C++ destroys sessions before releasing the runtime.
++  std::shared_ptr<sherpa_onnx::OrtPluginRuntime> runtime;
+   std::unique_ptr<sherpa_onnx::KeywordSpotter> impl;
+ };
+ 
+@@ -1057,8 +1190,15 @@ const SherpaOnnxKeywordSpotter *SherpaOnnxCreateKeywordSpotter(
+     return nullptr;
+   }
+ 
++  std::shared_ptr<sherpa_onnx::OrtPluginRuntime> runtime;
++  if (UsesRegisteredExecutionProvider(
++          spotter_config.model_config.provider_config.provider)) {
++    runtime = sherpa_onnx::AcquireOrtPluginRuntime();
++  }
++
+   SherpaOnnxKeywordSpotter *spotter = new SherpaOnnxKeywordSpotter;
+ 
++  spotter->runtime = std::move(runtime);
+   spotter->impl = std::make_unique<sherpa_onnx::KeywordSpotter>(spotter_config);
+ 
+   return spotter;
+diff --git a/sherpa-onnx/c-api/c-api.h b/sherpa-onnx/c-api/c-api.h
+index 5fe0813..8130096 100644
+--- a/sherpa-onnx/c-api/c-api.h
++++ b/sherpa-onnx/c-api/c-api.h
+@@ -160,6 +160,50 @@ SHERPA_ONNX_API const char *SherpaOnnxGetGitDate();
+  */
+ SHERPA_ONNX_API const char *SherpaOnnxGetOnnxruntimeVersionStr();
+ 
++/** Version of the dynamically loaded extended sherpa API. */
++SHERPA_ONNX_API int32_t SherpaOnnxGetExtendedApiVersion(void);
++
++/**
++ * @brief Opaque owner for an ONNX Runtime environment and registered plugin EPs.
++ *
++ * Keyword spotters using a registered EP retain the environment themselves.
++ * Destroying the public runtime handle therefore cannot unregister a provider
++ * while one of those spotters still owns sessions that use it.
++ */
++typedef struct SherpaOnnxOrtRuntime SherpaOnnxOrtRuntime;
++
++/** Create or retain the process-wide plugin environment. */
++SHERPA_ONNX_API SherpaOnnxOrtRuntime *SherpaOnnxCreateOrtRuntime(void);
++
++/**
++ * Register a plugin EP library. Repeating the same name and path is idempotent;
++ * using the same name for a different path is an error.
++ *
++ * @return 1 on success and 0 on error.
++ */
++SHERPA_ONNX_API int32_t
++SherpaOnnxOrtRuntimeRegisterExecutionProviderLibrary(
++    SherpaOnnxOrtRuntime *runtime, const char *registration_name,
++    const char *library_path);
++
++/** Return 1 if the retained environment exposes a matching EP device. */
++SHERPA_ONNX_API int32_t SherpaOnnxOrtRuntimeHasExecutionProviderDevice(
++    SherpaOnnxOrtRuntime *runtime, const char *ep_name,
++    const char *device_type);
++
++/**
++ * Return the last extension error on the calling thread.
++ *
++ * The pointer remains valid until the next create, register, or device-probe
++ * call on this thread. Passing NULL is supported, including after create fails.
++ */
++SHERPA_ONNX_API const char *SherpaOnnxOrtRuntimeGetLastError(
++    const SherpaOnnxOrtRuntime *runtime);
++
++/** Release a public reference to the process-wide plugin environment. */
++SHERPA_ONNX_API void SherpaOnnxDestroyOrtRuntime(
++    SherpaOnnxOrtRuntime *runtime);
++
+ /**
+  * @brief Check whether a file exists.
+  *
+diff --git a/sherpa-onnx/csrc/ort-plugin-runtime.h b/sherpa-onnx/csrc/ort-plugin-runtime.h
+new file mode 100644
+index 0000000..1855c84
+--- /dev/null
++++ b/sherpa-onnx/csrc/ort-plugin-runtime.h
+@@ -0,0 +1,103 @@
++// sherpa-onnx/csrc/ort-plugin-runtime.h
++
++#ifndef SHERPA_ONNX_CSRC_ORT_PLUGIN_RUNTIME_H_
++#define SHERPA_ONNX_CSRC_ORT_PLUGIN_RUNTIME_H_
++
++#include <memory>
++#include <mutex>
++#include <stdexcept>
++#include <string>
++#include <unordered_map>
++#include <utility>
++#include <vector>
++
++#include "onnxruntime_cxx_api.h"  // NOLINT
++#include "sherpa-onnx/csrc/text-utils.h"
++
++namespace sherpa_onnx {
++
++class OrtPluginRuntime {
++ public:
++  OrtPluginRuntime()
++      : env_(ORT_LOGGING_LEVEL_WARNING, "sherpa-onnx-plugin-runtime") {}
++
++  ~OrtPluginRuntime() {
++    // Keyword spotters retain this object until their sessions are destroyed.
++    std::lock_guard<std::mutex> lock(mutex_);
++    for (auto it = registration_order_.rbegin();
++         it != registration_order_.rend(); ++it) {
++      try {
++        env_.UnregisterExecutionProviderLibrary(it->c_str());
++      } catch (...) {
++        // Destructors must not throw across the C boundary.
++      }
++    }
++  }
++
++  OrtPluginRuntime(const OrtPluginRuntime &) = delete;
++  OrtPluginRuntime &operator=(const OrtPluginRuntime &) = delete;
++
++  void Register(const std::string &name, const std::string &path) {
++    std::lock_guard<std::mutex> lock(mutex_);
++    auto existing = registrations_.find(name);
++    if (existing != registrations_.end()) {
++      if (existing->second == path) return;
++      throw std::runtime_error("execution-provider registration '" + name +
++                               "' already uses a different library path");
++    }
++
++    registrations_.emplace(name, path);
++    try {
++      registration_order_.push_back(name);
++    } catch (...) {
++      registrations_.erase(name);
++      throw;
++    }
++    try {
++      env_.RegisterExecutionProviderLibrary(
++          name.c_str(), SHERPA_ONNX_TO_ORT_PATH(path));
++    } catch (...) {
++      registration_order_.pop_back();
++      registrations_.erase(name);
++      throw;
++    }
++  }
++
++  template <typename Callback>
++  decltype(auto) WithEnv(Callback &&callback) {
++    std::lock_guard<std::mutex> lock(mutex_);
++    return std::forward<Callback>(callback)(env_);
++  }
++
++ private:
++  Ort::Env env_;
++  std::mutex mutex_;
++  std::unordered_map<std::string, std::string> registrations_;
++  std::vector<std::string> registration_order_;
++};
++
++inline std::mutex g_ort_plugin_runtime_mutex;
++inline std::weak_ptr<OrtPluginRuntime> g_ort_plugin_runtime;
++
++inline std::shared_ptr<OrtPluginRuntime> CreateOrtPluginRuntime() {
++  std::lock_guard<std::mutex> lock(g_ort_plugin_runtime_mutex);
++  if (auto existing = g_ort_plugin_runtime.lock()) return existing;
++  auto runtime = std::make_shared<OrtPluginRuntime>();
++  g_ort_plugin_runtime = runtime;
++  return runtime;
++}
++
++inline std::shared_ptr<OrtPluginRuntime> AcquireOrtPluginRuntime() {
++  std::lock_guard<std::mutex> lock(g_ort_plugin_runtime_mutex);
++  auto runtime = g_ort_plugin_runtime.lock();
++  if (!runtime) {
++    throw std::runtime_error(
++        "no retained sherpa-onnx ORT plugin runtime; create it and register "
++        "the provider library before creating an engine");
++  }
++  return runtime;
++}
++
++}  // namespace sherpa_onnx
++
++#endif  // SHERPA_ONNX_CSRC_ORT_PLUGIN_RUNTIME_H_
+diff --git a/sherpa-onnx/csrc/session.cc b/sherpa-onnx/csrc/session.cc
+index e5c220c..b9b5254 100755
+--- a/sherpa-onnx/csrc/session.cc
++++ b/sherpa-onnx/csrc/session.cc
+@@ -5,8 +5,11 @@
+ #include "sherpa-onnx/csrc/session.h"
+ 
+ #include <algorithm>
++#include <cstring>
+ #include <fstream>
++#include <optional>
+ #include <sstream>
++#include <stdexcept>
+ #include <string>
+ #include <unordered_map>
+ #include <utility>
+@@ -14,6 +17,7 @@
+ 
+ #include "sherpa-onnx/csrc/file-utils.h"
+ #include "sherpa-onnx/csrc/macros.h"
++#include "sherpa-onnx/csrc/ort-plugin-runtime.h"
+ #include "sherpa-onnx/csrc/provider.h"
+ #include "sherpa-onnx/csrc/text-utils.h"
+ #if defined(__APPLE__) && (ORT_API_VERSION >= 15) && \
+@@ -136,6 +140,50 @@ static void SplitProviderAndConfig(
+   }
+ }
+ 
++#if ORT_API_VERSION >= 22
++static void AppendRegisteredExecutionProvider(
++    Ort::SessionOptions &session_options, const char *ep_name,
++    std::optional<OrtHardwareDeviceType> hardware_type,
++    std::optional<uint32_t> device_ordinal,
++    const std::unordered_map<std::string, std::string> &options) {
++  auto runtime = AcquireOrtPluginRuntime();
++  runtime->WithEnv([&](Ort::Env &env) {
++    std::vector<Ort::ConstEpDevice> selected_devices;
++    std::ostringstream ep_devices;
++    for (const auto &device : env.GetEpDevices()) {
++      ep_devices << device.EpName() << " (hardware="
++                 << static_cast<int32_t>(device.Device().Type()) << "), ";
++      if (std::strcmp(device.EpName(), ep_name) != 0) continue;
++      if (hardware_type && device.Device().Type() != *hardware_type) continue;
++      if (device_ordinal) {
++        const char *ordinal = device.EpOptions().GetValue("device_id");
++        if (ordinal && ToIntOrDefault(ordinal, -1) !=
++                           static_cast<int32_t>(*device_ordinal)) {
++          continue;
++        }
++      }
++      selected_devices.push_back(device);
++      if (device_ordinal) break;
++    }
++
++    if (selected_devices.empty()) {
++      throw std::runtime_error(std::string(ep_name) +
++                               " is not registered in the retained OrtEnv. EP "
++                               "devices: " +
++                               ep_devices.str());
++    }
++
++    try {
++      session_options.AppendExecutionProvider_V2(env, selected_devices, options);
++    } catch (const std::exception &e) {
++      throw std::runtime_error(std::string("Failed to append registered ") +
++                               ep_name + ": " + e.what() +
++                               ". EP devices: " + ep_devices.str());
++    }
++  });
++}
++#endif
++
+ Ort::SessionOptions GetSessionOptionsImpl(
+     int32_t num_threads, const std::string &provider_str,
+     const ProviderConfig *provider_config /*= nullptr*/) {
+@@ -332,28 +380,26 @@ Ort::SessionOptions GetSessionOptionsImpl(
+       // if TRT not available, CUDA will be used
+     }
+     case Provider::kCUDA: {
+-      if (std::find(available_providers.begin(), available_providers.end(),
+-                    "CUDAExecutionProvider") != available_providers.end()) {
+-        // The CUDA provider is available, proceed with setting the options
+-        OrtCUDAProviderOptions options;
+-
+-        if (provider_config != nullptr) {
+-          options.device_id = provider_config->device;
+-          options.cudnn_conv_algo_search = OrtCudnnConvAlgoSearch(
+-              provider_config->cuda_config.cudnn_conv_algo_search);
+-        } else {
+-          options.device_id = 0;
+-          // Default OrtCudnnConvAlgoSearchExhaustive is extremely slow
+-          options.cudnn_conv_algo_search = OrtCudnnConvAlgoSearchHeuristic;
+-          // set more options on need
+-        }
+-        sess_opts.AppendExecutionProvider_CUDA(options);
+-      } else {
+-        SHERPA_ONNX_LOGE(
+-            "Please compile with -DSHERPA_ONNX_ENABLE_GPU=ON. Available "
+-            "providers: %s. Fallback to cpu!",
+-            os.str().c_str());
++#if ORT_API_VERSION >= 22
++      std::unordered_map<std::string, std::string> provider_options(config);
++      provider_options.erase("DEBUG");
++      int32_t device_id = provider_config ? provider_config->device : 0;
++      auto configured_device = provider_options.find("device_id");
++      if (configured_device != provider_options.end()) {
++        device_id = ToIntOrDefault(configured_device->second, device_id);
++        provider_options.erase(configured_device);
+       }
++      if (provider_options.find("cudnn_conv_algo_search") ==
++          provider_options.end()) {
++        provider_options.emplace("cudnn_conv_algo_search", "HEURISTIC");
++      }
++      AppendRegisteredExecutionProvider(
++          sess_opts, "CUDAExecutionProvider", OrtHardwareDeviceType_GPU,
++          static_cast<uint32_t>(device_id), provider_options);
++#else
++      throw std::runtime_error(
++          "CUDA plugin registration requires ONNX Runtime 1.22 or newer");
++#endif
+       break;
+     }
+     case Provider::kDirectML: {
+@@ -457,44 +503,52 @@ Ort::SessionOptions GetSessionOptionsImpl(
+       break;
+     }
+     case Provider::kOpenVINO: {
+-#if ORT_API_VERSION >= 17
+-      if (std::find(available_providers.begin(), available_providers.end(),
+-                    "OpenVINOExecutionProvider") == available_providers.end()) {
+-        SHERPA_ONNX_LOGE(
+-            "OpenVINOExecutionProvider is not available. Install an "
+-            "OpenVINO-enabled ONNX Runtime. Available providers: %s. "
+-            "Fallback to cpu!",
+-            os.str().c_str());
+-        break;
+-      }
+-
++#if ORT_API_VERSION >= 22
+       std::unordered_map<std::string, std::string> provider_options(config);
+       provider_options.erase("DEBUG");
+       if (provider_options.find("device_type") == provider_options.end()) {
+         provider_options.emplace("device_type", "NPU");
+       }
+ 
+-      std::vector<const char *> option_keys;
+-      std::vector<const char *> option_values;
+-      option_keys.reserve(provider_options.size());
+-      option_values.reserve(provider_options.size());
+-      for (const auto &kv : provider_options) {
+-        option_keys.push_back(kv.first.c_str());
+-        option_values.push_back(kv.second.c_str());
++      std::string requested_device =
++          ToLowerAscii(provider_options["device_type"]);
++      provider_options.erase("device_type");
++      for (const auto &[key, value] : provider_options) {
++        (void)value;
++        if (key != "load_config") {
++          throw std::runtime_error(
++              "Unsupported OpenVINO V2 provider option '" + key +
++              "'; the provider schema accepts only device_type and "
++              "load_config");
++        }
++      }
++      if (requested_device == "auto") {
++        AppendRegisteredExecutionProvider(
++            sess_opts, "OpenVINOExecutionProvider.AUTO", std::nullopt,
++            std::nullopt, provider_options);
++        if (!has_graph_optimization_level) {
++          sess_opts.SetGraphOptimizationLevel(
++              GraphOptimizationLevel::ORT_DISABLE_ALL);
++        }
++        break;
++      }
++      OrtHardwareDeviceType hardware_type;
++      if (requested_device == "cpu") {
++        hardware_type = OrtHardwareDeviceType_CPU;
++      } else if (requested_device == "gpu") {
++        hardware_type = OrtHardwareDeviceType_GPU;
++      } else if (requested_device == "npu") {
++        hardware_type = OrtHardwareDeviceType_NPU;
++      } else {
++        throw std::runtime_error(
++            "OpenVINO V2 device_type must be CPU, GPU, or NPU");
+       }
+ 
+-      const auto &api = Ort::GetApi();
+-      OrtStatus *status = api.SessionOptionsAppendExecutionProvider_OpenVINO_V2(
+-          sess_opts, option_keys.data(), option_values.data(),
+-          option_keys.size());
+-      if (status) {
+-        const char *msg = api.GetErrorMessage(status);
+-        SHERPA_ONNX_LOGE(
+-            "Failed to enable OpenVINO Execution Provider: %s. Available "
+-            "providers: %s. Fallback to cpu",
+-            msg, os.str().c_str());
+-        api.ReleaseStatus(status);
+-      } else if (!has_graph_optimization_level) {
++      AppendRegisteredExecutionProvider(
++          sess_opts, "OpenVINOExecutionProvider", hardware_type, std::nullopt,
++          provider_options);
++
++      if (!has_graph_optimization_level) {
+         // OpenVINO performs its own graph optimizations and recommends
+         // receiving the original ONNX graph. Only disable ORT optimizations
+         // after successfully enabling OpenVINO so that a CPU fallback keeps
+@@ -504,10 +558,8 @@ Ort::SessionOptions GetSessionOptionsImpl(
+             GraphOptimizationLevel::ORT_DISABLE_ALL);
+       }
+ #else
+-      SHERPA_ONNX_LOGE(
+-          "OpenVINO requires ONNX Runtime 1.17 or newer. Current API version: "
+-          "%d. Fallback to cpu!",
+-          static_cast<int32_t>(ORT_API_VERSION));
++      throw std::runtime_error(
++          "OpenVINO plugin registration requires ONNX Runtime 1.22 or newer");
+ #endif
+       break;
+     }

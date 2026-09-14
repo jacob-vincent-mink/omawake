@@ -2,6 +2,7 @@
 
 use std::env;
 use std::ffi::{CStr, CString, c_char, c_float, c_void};
+#[cfg(test)]
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::ptr;
@@ -14,22 +15,44 @@ use libloading::os::unix::{Library, RTLD_GLOBAL, RTLD_LOCAL, RTLD_NOW};
 use super::*;
 
 const SHERPA_VERSION: &str = "1.13.8";
-const OMA_RUNTIME_ABI: i32 = 1;
+const EXTENDED_SHERPA_API_VERSION: i32 = 1;
 
 pub(crate) fn validate_runtime_libraries(ort_path: &Path, sherpa_path: &Path) -> Result<()> {
     let (sherpa, ort) = open_runtime_libraries(ort_path, sherpa_path)?;
+    unsafe {
+        for name in [
+            b"SherpaOnnxCreateKeywordSpotter\0".as_slice(),
+            b"SherpaOnnxDestroyKeywordSpotter\0",
+            b"SherpaOnnxCreateKeywordStream\0",
+            b"SherpaOnnxOnlineStreamAcceptWaveform\0",
+            b"SherpaOnnxIsKeywordStreamReady\0",
+            b"SherpaOnnxDecodeKeywordStream\0",
+            b"SherpaOnnxGetKeywordResult\0",
+            b"SherpaOnnxDestroyKeywordResult\0",
+            b"SherpaOnnxDestroyOnlineStream\0",
+            b"SherpaOnnxOnlineStreamInputFinished\0",
+            b"SherpaOnnxCreateOrtRuntime\0",
+            b"SherpaOnnxDestroyOrtRuntime\0",
+            b"SherpaOnnxOrtRuntimeRegisterExecutionProviderLibrary\0",
+            b"SherpaOnnxOrtRuntimeHasExecutionProviderDevice\0",
+            b"SherpaOnnxOrtRuntimeGetLastError\0",
+        ] {
+            let _: *const c_void = symbol(&sherpa, name)?;
+        }
+    }
     drop(sherpa);
     drop(ort);
     Ok(())
 }
 
-pub(crate) fn validate_runtime_provider(
+pub(crate) fn validate_runtime_provider_with(
     ort_path: &Path,
     sherpa_path: &Path,
     provider_path: &Path,
     registration: &str,
     ep_name: &str,
     device: &str,
+    registered: impl FnOnce(),
 ) -> Result<()> {
     let (sherpa, ort) = open_runtime_libraries(ort_path, sherpa_path)?;
     unsafe {
@@ -44,7 +67,10 @@ pub(crate) fn validate_runtime_provider(
         let runtime_error: RuntimeError = symbol(&sherpa, b"SherpaOnnxOrtRuntimeGetLastError\0")?;
         let runtime = create();
         if runtime.is_null() {
-            bail!("create retained sherpa ONNX Runtime environment");
+            bail!(
+                "create retained sherpa ONNX Runtime environment: {}",
+                string(runtime_error(ptr::null()))
+            );
         }
         let guard = RuntimeGuard::new(runtime, destroy);
         let registration = CString::new(registration)?;
@@ -57,6 +83,7 @@ pub(crate) fn validate_runtime_provider(
                 string(runtime_error(runtime))
             );
         }
+        registered();
         if has_device(runtime, ep_name.as_ptr(), device.as_ptr()) == 0 {
             bail!(
                 "requested execution-provider device is unavailable: {}",
@@ -88,13 +115,15 @@ unsafe fn validate_runtime_identity(ort: &Library, sherpa: &Library) -> Result<(
     if actual != SHERPA_VERSION {
         bail!("sherpa-onnx ABI mismatch: expected {SHERPA_VERSION}, loaded {actual}");
     }
-    let abi: OmaRuntimeAbi = unsafe {
-        symbol(sherpa, b"SherpaOnnxGetOmaRuntimeAbiVersion\0")
-            .context("loaded sherpa-onnx is not the required patched Oma runtime")?
+    let abi: ExtendedSherpaApiVersion = unsafe {
+        symbol(sherpa, b"SherpaOnnxGetExtendedApiVersion\0")
+            .context("loaded sherpa-onnx is not the required extended sherpa API")?
     };
     let actual_abi = unsafe { abi() };
-    if actual_abi != OMA_RUNTIME_ABI {
-        bail!("Oma sherpa runtime ABI mismatch: expected {OMA_RUNTIME_ABI}, loaded {actual_abi}");
+    if actual_abi != EXTENDED_SHERPA_API_VERSION {
+        bail!(
+            "extended sherpa API version mismatch: expected {EXTENDED_SHERPA_API_VERSION}, loaded {actual_abi}"
+        );
     }
     let ort_version: VersionString =
         unsafe { symbol(sherpa, b"SherpaOnnxGetOnnxruntimeVersionStr\0")? };
@@ -468,27 +497,33 @@ impl Api {
                     CString::new(device)?,
                 ))
             };
-            let runtime_handle = create_ort_runtime();
-            if runtime_handle.is_null() {
-                bail!("create retained sherpa ONNX Runtime environment");
-            }
-            let mut guard = RuntimeGuard::new(runtime_handle, destroy_ort_runtime);
-            if let Some((registration, provider_path, ep_name, device)) = provider {
-                if register_provider(
-                    runtime_handle,
-                    registration.as_ptr(),
-                    provider_path.as_ptr(),
-                ) == 0
-                {
-                    let message = string(runtime_error(runtime_handle));
-                    bail!("register execution-provider library: {message}");
-                }
-                if has_provider_device(runtime_handle, ep_name.as_ptr(), device.as_ptr()) == 0 {
-                    let message = string(runtime_error(runtime_handle));
-                    bail!("requested execution-provider device is unavailable: {message}");
-                }
-            }
-            let runtime_handle = guard.release();
+            let runtime_handle =
+                if let Some((registration, provider_path, ep_name, device)) = provider {
+                    let runtime_handle = create_ort_runtime();
+                    if runtime_handle.is_null() {
+                        bail!(
+                            "create retained sherpa ONNX Runtime environment: {}",
+                            string(runtime_error(ptr::null()))
+                        );
+                    }
+                    let mut guard = RuntimeGuard::new(runtime_handle, destroy_ort_runtime);
+                    if register_provider(
+                        runtime_handle,
+                        registration.as_ptr(),
+                        provider_path.as_ptr(),
+                    ) == 0
+                    {
+                        let message = string(runtime_error(runtime_handle));
+                        bail!("register execution-provider library: {message}");
+                    }
+                    if has_provider_device(runtime_handle, ep_name.as_ptr(), device.as_ptr()) == 0 {
+                        let message = string(runtime_error(runtime_handle));
+                        bail!("requested execution-provider device is unavailable: {message}");
+                    }
+                    guard.release()
+                } else {
+                    ptr::null_mut()
+                };
             Ok(Rc::new(Self {
                 create_keyword_spotter,
                 destroy_keyword_spotter,
@@ -594,15 +629,13 @@ fn resolve_library(
     if let Some(environment) = env::var_os(variable).filter(|value| !value.is_empty()) {
         return validate_explicit_library(PathBuf::from(environment));
     }
-    let report = crate::runtime_paths::report(&config.backend, &paths.config_file);
-    let ambient = env::var_os("LD_LIBRARY_PATH")
-        .map(|value| env::split_paths(&value).collect::<Vec<_>>())
-        .unwrap_or_default();
-    report
-        .effective_library_dirs
-        .iter()
-        .chain(&ambient)
-        .find_map(|directory| library_in(directory, prefix))
+    let report = crate::runtime_paths::discover(&config.backend, &paths.config_file);
+    let selected = match prefix {
+        "libonnxruntime.so" => report.onnxruntime_library,
+        "libsherpa-onnx-c-api.so" => report.sherpa_library,
+        _ => report.provider_library,
+    };
+    selected
         .with_context(|| {
             format!(
                 "locate {prefix}; set backend.library_dirs, backend.{}_library, or {variable}",
@@ -613,6 +646,7 @@ fn resolve_library(
                 }
             )
         })
+        .and_then(validate_explicit_library)
 }
 
 fn resolve_config_path(path: &Path, config_path: &Path) -> PathBuf {
@@ -634,24 +668,6 @@ fn validate_explicit_library(path: PathBuf) -> Result<PathBuf> {
         );
     }
     Ok(path)
-}
-
-fn library_in(directory: &Path, prefix: &str) -> Option<PathBuf> {
-    let mut matches = fs::read_dir(directory)
-        .ok()?
-        .filter_map(Result::ok)
-        .filter_map(|entry| {
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            (entry
-                .file_type()
-                .is_ok_and(|kind| kind.is_file() || kind.is_symlink())
-                && (name == prefix || name.starts_with(&format!("{prefix}."))))
-            .then(|| entry.path())
-        })
-        .collect::<Vec<_>>();
-    matches.sort();
-    matches.into_iter().next()
 }
 
 fn string(pointer: *const c_char) -> String {
@@ -814,7 +830,7 @@ struct COrtApiBase {
 }
 
 type VersionString = unsafe extern "C" fn() -> *const c_char;
-type OmaRuntimeAbi = unsafe extern "C" fn() -> i32;
+type ExtendedSherpaApiVersion = unsafe extern "C" fn() -> i32;
 type OrtGetApiBase = unsafe extern "C" fn() -> *const COrtApiBase;
 type CreateOrtRuntime = unsafe extern "C" fn() -> *mut COrtRuntime;
 type DestroyOrtRuntime = unsafe extern "C" fn(*mut COrtRuntime);
@@ -934,15 +950,16 @@ const OrtApiBase *OrtGetApiBase(void) { return &base; }
 #include <stdlib.h>
 #include <string.h>
 typedef struct { const char *keyword; const char *tokens; const char *const *tokens_arr; int32_t count; float *timestamps; float start_time; const char *json; } Result;
-static int runtime, spotter, stream, ready;
+static int runtime, runtime_creates, spotter, stream, ready;
 static const char *tokens[] = {"WAKE", "WORD"};
 static float timestamps[] = {0.25f, 0.50f};
 static Result result = {"wake-word", "WAKE WORD", tokens, 2, timestamps, 0.25f, "{}"};
 const char *SherpaOnnxGetVersionStr(void) { return "1.13.8"; }
 const char *SherpaOnnxGetOnnxruntimeVersionStr(void) { return "1.29.0"; }
-int32_t SherpaOnnxGetOmaRuntimeAbiVersion(void) { return 1; }
-void *SherpaOnnxCreateOrtRuntime(void) { return &runtime; }
+int32_t SherpaOnnxGetExtendedApiVersion(void) { return 1; }
+void *SherpaOnnxCreateOrtRuntime(void) { ++runtime_creates; return &runtime; }
 void SherpaOnnxDestroyOrtRuntime(void *p) { (void)p; }
+int32_t SherpaOnnxFakeRuntimeCreateCount(void) { return runtime_creates; }
 int32_t SherpaOnnxOrtRuntimeRegisterExecutionProviderLibrary(void *r, const char *n, const char *p) { return r && n && p; }
 int32_t SherpaOnnxOrtRuntimeHasExecutionProviderDevice(void *r, const char *ep, const char *device) { return r && ep && strcmp(device, "gpu") == 0; }
 const char *SherpaOnnxOrtRuntimeGetLastError(const void *r) { (void)r; return "fake error"; }
@@ -975,7 +992,20 @@ void SherpaOnnxOnlineStreamInputFinished(const void *s) { ready = s != 0; }
         app.backend.runtime = Runtime::Cuda;
         app.backend.device = "gpu".into();
 
+        let default_api = Api::load(&app, &paths, Runtime::Default).unwrap();
+        unsafe {
+            let runtime_create_count: unsafe extern "C" fn() -> i32 =
+                symbol(&default_api._sherpa, b"SherpaOnnxFakeRuntimeCreateCount\0").unwrap();
+            assert_eq!(runtime_create_count(), 0);
+        }
+        drop(default_api);
+
         let api = Api::load(&app, &paths, Runtime::Cuda).unwrap();
+        unsafe {
+            let runtime_create_count: unsafe extern "C" fn() -> i32 =
+                symbol(&api._sherpa, b"SherpaOnnxFakeRuntimeCreateCount\0").unwrap();
+            assert_eq!(runtime_create_count(), 1);
+        }
         let config = KeywordSpotterConfig {
             keywords_buf: Some("WAKE WORD @wake-word".into()),
             ..Default::default()
@@ -1075,6 +1105,18 @@ void SherpaOnnxOnlineStreamInputFinished(const void *s) { ready = s != 0; }
             Err(error) => error,
         };
         assert!(error.to_string().contains("device is unavailable"));
+        let before = b"# Preserve existing config exactly\n";
+        fs::write(&paths.config_file, before).unwrap();
+        let probe = crate::runtime_inventory::child(&unavailable.backend);
+        assert!(probe.loadable && probe.evidence.provider_registration);
+        assert!(!probe.device_accessible && !probe.ready);
+        assert!(
+            crate::runtime_inventory::apply_with(&unavailable, &paths.config_file, true, |_, _| {
+                probe
+            })
+            .is_err()
+        );
+        assert_eq!(fs::read(&paths.config_file).unwrap(), before);
 
         assert!(
             resolve_library(

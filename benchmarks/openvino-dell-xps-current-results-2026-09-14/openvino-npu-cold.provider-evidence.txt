@@ -1,0 +1,1 @@
+/tmp/omawake-current-proof/openvino-device-benchmark/run-20260914T223102Z-3079573/openvino-npu/profiles/cold/openvino-npu_2026-09-14_17-31-12_268.json

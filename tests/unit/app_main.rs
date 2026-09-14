@@ -36,6 +36,14 @@ struct ScriptedGuidedPrompts {
 }
 
 impl GuidedPrompts for ScriptedGuidedPrompts {
+    fn probe_runtime(&mut self, _: &Config, _: &Path) -> Result<crate::runtime_inventory::Probe> {
+        Ok(crate::runtime_inventory::Probe {
+            loadable: true,
+            device_accessible: true,
+            ready: true,
+            ..Default::default()
+        })
+    }
     fn setup_mode(&mut self) -> Result<Option<SetupMode>> {
         Ok(self.mode)
     }
@@ -44,7 +52,7 @@ impl GuidedPrompts for ScriptedGuidedPrompts {
         Ok(self.runtime.clone())
     }
 
-    fn confirm_runtime(&mut self, _: &RuntimeSelection, _: Option<&Path>) -> Result<bool> {
+    fn confirm_runtime(&mut self, _: &Config, _: &crate::runtime_inventory::Probe) -> Result<bool> {
         Ok(self.confirm)
     }
 
@@ -228,10 +236,11 @@ fn guided_full_setup_waits_for_review_and_then_runs_selected_plan() {
     {
         let paths = test_paths(&format!("guided-full-cancel-{index}"));
         let mut prompts = prompts;
-        guided_all_with_services(
+        guided_all_with_services_and_validator(
             &paths.config_file,
             &paths,
             &mut prompts,
+            |_, _| Ok(()),
             |_, _, _, _| unreachable!(),
             |_| unreachable!(),
             |_| false,
@@ -252,10 +261,11 @@ fn guided_full_setup_waits_for_review_and_then_runs_selected_plan() {
         ..Default::default()
     };
     let reloads = std::cell::Cell::new(0);
-    guided_all_with_services(
+    guided_all_with_services_and_validator(
         &paths.config_file,
         &paths,
         &mut prompts,
+        |_, _| Ok(()),
         |paths, model, archive, format| {
             assert_eq!(
                 archive,
@@ -304,7 +314,7 @@ fn guided_full_rejects_the_runtime_before_setup_callbacks_or_config_changes() {
         &paths.config_file,
         &paths,
         &mut prompts,
-        |candidate, _, _| {
+        |candidate, _| {
             assert_eq!(candidate.backend.runtime, Runtime::Cuda);
             bail!("candidate runtime probe failed")
         },
@@ -364,7 +374,7 @@ fn guided_full_rolls_back_existing_and_new_configs_after_later_failures() {
         &existing.config_file,
         &existing,
         &mut prompts,
-        |_, _, _| Ok(()),
+        |_, _| Ok(()),
         |paths, model, _, _| Ok(app_setup::model::model_directory(paths, model)),
         |_| bail!("launcher failed after config save"),
         |_| false,
@@ -388,7 +398,7 @@ fn guided_full_rolls_back_existing_and_new_configs_after_later_failures() {
         &new.config_file,
         &new,
         &mut prompts,
-        |_, _, _| Ok(()),
+        |_, _| Ok(()),
         |paths, model, _, _| Ok(app_setup::model::model_directory(paths, model)),
         |paths| Ok(paths.data_dir.join("applications/omawake.desktop")),
         |_| false,
@@ -428,6 +438,11 @@ fn terminal_prompt_adapter_reports_non_tty_errors() {
     };
     assert!(prompts.setup_mode().is_err());
     assert!(prompts.runtime(&config).is_err());
+    assert!(
+        prompts
+            .confirm_runtime(&config, &crate::runtime_inventory::Probe::default())
+            .is_err()
+    );
     assert!(prompts.model(&paths, &config).is_err());
     assert!(
         prompts
@@ -446,6 +461,8 @@ fn terminal_prompt_adapter_reports_non_tty_errors() {
             )
             .is_err()
     );
+    assert!(guided_runtime(&paths.config_file).is_err());
+    assert!(guided_model(&paths.config_file, &paths).is_err());
 }
 
 impl WakeWordStream for InMemoryWakeWordStream {
@@ -893,7 +910,10 @@ fn runtime_changes_reset_cuda_only_device_state() {
         assert_eq!(saved.backend.device, device);
         assert_eq!(saved.backend.device_id, 0);
         assert!(saved.backend.provider_config.is_empty());
-        assert!(saved.backend.provider_library.as_os_str().is_empty());
+        assert_ne!(
+            saved.backend.provider_library,
+            PathBuf::from("/old/libonnxruntime_providers_cuda.so")
+        );
         assert!(saved.backend.options.is_empty());
     }
 }
@@ -917,7 +937,7 @@ fn runtime_directory_populates_exact_external_library_paths() {
             device: "npu".into(),
         },
         Some(&runtime),
-        |_, _, _| Ok(()),
+        |_, _| Ok(()),
     )
     .unwrap();
     let mut config = Config::load(&paths.config_file).unwrap();
@@ -989,17 +1009,34 @@ fn runtime_candidate_validation_failure_preserves_the_original_config() {
             device: "gpu".into(),
         },
         None,
-        |staged, path, explicit_directory| {
+        |staged, path| {
             assert_eq!(path, paths.config_file);
             assert_eq!(staged.backend.runtime, Runtime::Cuda);
             assert_eq!(staged.backend.device, "gpu");
-            assert!(!explicit_directory);
             bail!("injected ABI probe failure")
         },
     )
     .unwrap_err();
     assert!(error.to_string().contains("injected ABI probe failure"));
     assert_eq!(fs::read(&paths.config_file).unwrap(), original_bytes);
+
+    let mut default = Config::default();
+    default.backend.device = "cpu".into();
+    let error = validate_runtime_candidate_with(&default, &paths.config_file, |backend, path| {
+        assert_eq!(backend.runtime, Runtime::Default);
+        assert_eq!(backend.device, "cpu");
+        assert_eq!(path, paths.config_file);
+        crate::runtime_inventory::Probe {
+            errors: vec!["default CPU payload is not staged".into()],
+            ..Default::default()
+        }
+    })
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("default CPU payload is not staged")
+    );
 
     let error = validate_runtime_candidate_report(
         Runtime::Openvino,
@@ -1130,6 +1167,7 @@ fn metadata_helpers_return_stable_shapes() {
             None,
             progress,
             false,
+            |_, _| Ok(()),
             |_, _, _, _| Ok(paths.data_dir.join("model")),
             |_| Ok(paths.data_dir.join("launcher.desktop")),
             |was_active| {
@@ -1142,6 +1180,7 @@ fn metadata_helpers_return_stable_shapes() {
         .unwrap();
         assert!(!app_setup::systemd::service_path(&paths).exists());
     }
+    let config_before_runtime_failure = fs::read(&paths.config_file).unwrap();
     assert!(
         install_everything(
             spec,
@@ -1150,6 +1189,28 @@ fn metadata_helpers_return_stable_shapes() {
             None,
             ProgressFormat::Human,
             false,
+            |_, _| bail!("runtime failed"),
+            |_, _, _, _| unreachable!(),
+            |_| unreachable!(),
+            |_| unreachable!(),
+            |_, _| unreachable!(),
+            |_, _| unreachable!(),
+        )
+        .is_err()
+    );
+    assert_eq!(
+        fs::read(&paths.config_file).unwrap(),
+        config_before_runtime_failure
+    );
+    assert!(
+        install_everything(
+            spec,
+            &paths.config_file,
+            &paths,
+            None,
+            ProgressFormat::Human,
+            false,
+            |_, _| Ok(()),
             |_, _, _, _| bail!("model failed"),
             |_| unreachable!(),
             |_| unreachable!(),
@@ -2074,6 +2135,7 @@ fn setup_dispatch_covers_checks_catalog_and_safe_failure_paths() {
                 runtime: None,
                 device: None,
                 dir: None,
+                apply: false,
             }),
             config,
             &paths,

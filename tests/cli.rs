@@ -110,6 +110,47 @@ fn guided_setup_accepts_arrow_keys_and_enter_in_a_real_pty() {
         return;
     }
     let root = sandbox();
+    let ort = compile_shared(
+        &root,
+        "guided-onnxruntime",
+        r#"
+#include <stdint.h>
+typedef struct { const void *(*GetApi)(uint32_t); const char *(*GetVersionString)(void); } OrtApiBase;
+static const char *version(void) { return "1.29.0"; }
+static const OrtApiBase base = {0, version};
+const OrtApiBase *OrtGetApiBase(void) { return &base; }
+"#,
+    );
+    let sherpa = compile_shared(
+        &root,
+        "guided-sherpa-onnx-c-api",
+        r#"
+#include <stdint.h>
+const char *SherpaOnnxGetVersionStr(void) { return "1.13.8"; }
+const char *SherpaOnnxGetOnnxruntimeVersionStr(void) { return "1.29.0"; }
+int32_t SherpaOnnxGetExtendedApiVersion(void) { return 1; }
+void *SherpaOnnxCreateOrtRuntime(void) { return 0; }
+void SherpaOnnxDestroyOrtRuntime(void *p) { (void)p; }
+int32_t SherpaOnnxOrtRuntimeRegisterExecutionProviderLibrary(void *r, const char *n, const char *p) { return r && n && p; }
+int32_t SherpaOnnxOrtRuntimeHasExecutionProviderDevice(void *r, const char *e, const char *d) { return r && e && d; }
+const char *SherpaOnnxOrtRuntimeGetLastError(const void *r) { (void)r; return "fixture"; }
+const void *SherpaOnnxCreateKeywordSpotter(const void *p) { return p; }
+void SherpaOnnxDestroyKeywordSpotter(const void *p) { (void)p; }
+const void *SherpaOnnxCreateKeywordStream(const void *p) { return p; }
+void SherpaOnnxOnlineStreamAcceptWaveform(const void *p, int32_t r, const float *s, int32_t n) { (void)p; (void)r; (void)s; (void)n; }
+int32_t SherpaOnnxIsKeywordStreamReady(const void *p, const void *s) { return p && s; }
+void SherpaOnnxDecodeKeywordStream(const void *p, const void *s) { (void)p; (void)s; }
+const void *SherpaOnnxGetKeywordResult(const void *p, const void *s) { return p && s ? p : 0; }
+void SherpaOnnxDestroyKeywordResult(const void *p) { (void)p; }
+void SherpaOnnxDestroyOnlineStream(const void *p) { (void)p; }
+void SherpaOnnxOnlineStreamInputFinished(const void *p) { (void)p; }
+"#,
+    );
+    let config_path = root.join("config/omawake/config.toml");
+    let mut config = Config::default();
+    config.backend.onnxruntime_library = ort;
+    config.backend.sherpa_library = sherpa;
+    config.save(&config_path).unwrap();
     let binary = env!("CARGO_BIN_EXE_omawake");
     assert!(!binary.contains(['\'', '"', ' ']));
     let mut child = Command::new("script")
@@ -125,8 +166,7 @@ fn guided_setup_accepts_arrow_keys_and_enter_in_a_real_pty() {
         .spawn()
         .unwrap();
     let mut input = child.stdin.take().unwrap();
-    // Wait for raw mode, choose Runtime, accept Default, choose CPU, keep
-    // discovery, then accept the final runtime review.
+    // Wait for raw mode, choose Runtime, accept Default, choose CPU, then keep discovery.
     thread::sleep(Duration::from_millis(750));
     input.write_all(b"\x1b[B\r").unwrap();
     input.flush().unwrap();
@@ -140,7 +180,7 @@ fn guided_setup_accepts_arrow_keys_and_enter_in_a_real_pty() {
     input.write_all(b"\r").unwrap();
     input.flush().unwrap();
     thread::sleep(Duration::from_millis(150));
-    input.write_all(b"\r").unwrap();
+    input.write_all(b"\x1b[A\r").unwrap();
     drop(input);
     let deadline = Instant::now() + Duration::from_secs(5);
     while child.try_wait().unwrap().is_none() {
@@ -156,10 +196,9 @@ fn guided_setup_accepts_arrow_keys_and_enter_in_a_real_pty() {
     assert!(terminal.contains("Omawake setup"));
     assert!(terminal.contains("Inference runtime"));
     assert!(terminal.contains("Inference device"));
+    assert!(terminal.contains("Review runtime"));
     assert!(terminal.contains("runtime configured: default / cpu"));
-    let config = Config::load(&root.join("config/omawake/config.toml")).unwrap();
-    assert_eq!(config.backend.runtime, omawake::backend::Runtime::Default);
-    assert_eq!(config.backend.device, "cpu");
+    assert_eq!(Config::load(&config_path).unwrap().backend.device, "cpu");
 }
 
 #[test]
@@ -279,7 +318,7 @@ fn setup_runtime_directory_rejects_unloadable_cpu_and_cuda_stacks_without_persis
             ],
         );
         assert!(!output.status.success());
-        assert!(stderr(&output).contains("runtime validation failed"));
+        assert!(stderr(&output).contains("runtime candidate rejected; config unchanged"));
         assert!(!root.join("config/omawake/config.toml").exists());
         let _ = expected_runtime;
     }
@@ -314,7 +353,7 @@ static float timestamps[] = {0.1f};
 static Result result = {"computer", "WAKE", tokens, 1, timestamps, 0.1f, "{}"};
 const char *SherpaOnnxGetVersionStr(void) { return "1.13.8"; }
 const char *SherpaOnnxGetOnnxruntimeVersionStr(void) { return "1.29.0"; }
-int32_t SherpaOnnxGetOmaRuntimeAbiVersion(void) { return 1; }
+int32_t SherpaOnnxGetExtendedApiVersion(void) { return 1; }
 void *SherpaOnnxCreateOrtRuntime(void) { return &runtime; }
 void SherpaOnnxDestroyOrtRuntime(void *p) { (void)p; }
 int32_t SherpaOnnxOrtRuntimeRegisterExecutionProviderLibrary(void *r, const char *n, const char *p) { return r && n && p && !strstr(p, "rejected"); }
@@ -405,11 +444,58 @@ const char *SherpaOnnxGetOnnxruntimeVersionStr(void) { return "1.29.0"; }
     let rejected = run(&root, &["setup", "runtime"]);
     assert!(rejected.status.success(), "{}", stderr(&rejected));
     assert!(stdout(&rejected).contains("external runtime not found"));
+    let before = fs::read(&config_path).unwrap();
+    let failed = run(
+        &root,
+        &[
+            "setup",
+            "runtime",
+            "--runtime",
+            "openvino",
+            "--device",
+            "npu",
+            "--apply",
+        ],
+    );
+    assert!(!failed.status.success());
+    assert!(stderr(&failed).contains("register execution-provider library"));
+    assert_eq!(fs::read(&config_path).unwrap(), before);
 
     config.backend.runtime = omawake::backend::Runtime::Default;
     config.backend.device = "auto".into();
     config.backend.provider_library = PathBuf::new();
     config.save(&config_path).unwrap();
+
+    let original = fs::read(&config_path).unwrap();
+    let preview = run(
+        &root,
+        &[
+            "setup",
+            "runtime",
+            "--runtime",
+            "default",
+            "--device",
+            "cpu",
+        ],
+    );
+    assert!(preview.status.success(), "{}", stderr(&preview));
+    assert!(stdout(&preview).contains("\"applied\": false"));
+    assert_eq!(fs::read(&config_path).unwrap(), original);
+    let applied = run(
+        &root,
+        &[
+            "setup",
+            "runtime",
+            "--runtime",
+            "default",
+            "--device",
+            "cpu",
+            "--apply",
+        ],
+    );
+    assert!(applied.status.success(), "{}", stderr(&applied));
+    assert!(stdout(&applied).contains("\"applied\": true"));
+    assert_eq!(Config::load(&config_path).unwrap().backend.device, "cpu");
 
     let wav = root.join("input.wav");
     let mut writer = hound::WavWriter::create(

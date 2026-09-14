@@ -25,11 +25,11 @@ executable supports CPU, OpenVINO, and CUDA:
 ```bash
 cargo build --release
 omawake setup runtime --runtime openvino --device npu \
-  --dir /absolute/path/to/runtime-or-sdk
+  --dir /absolute/path/to/runtime-or-sdk --apply
 ```
 
 The normal Linux release archive includes a working CPU default under `lib/`:
-the official ONNX Runtime 1.29.0 CPU library and its matching Oma-patched
+the official ONNX Runtime 1.29.0 CPU library and its matching extended
 sherpa-onnx 1.13.8 C API. An unpacked release therefore needs only a model for
 CPU inference. OpenVINO and CUDA setup points the same executable at a
 user-supplied, ABI-matched ONNX Runtime core, patched sherpa library, provider
@@ -67,7 +67,7 @@ are interactive too:
 
 ```bash
 omawake setup runtime   # CPU works from a release; acceleration accepts external libraries
-omawake setup runtime --runtime openvino --device npu --dir /opt/oma-runtime
+omawake setup runtime --runtime openvino --device npu --dir /opt/oma-runtime --apply
 omawake setup model     # browse, download if needed, and activate a model
 ```
 
@@ -190,10 +190,22 @@ Omawake validates these app-owned directories and re-executes itself once with
 them prepended to `LD_LIBRARY_PATH`. A sentinel prevents re-exec loops. Config
 commands and setup discovery never re-exec, so `omawake setup runtime --json`
 can always report configured, environment, package, effective, and missing paths.
-It loads the exact ORT and sherpa libraries to verify ORT 1.29.0, sherpa 1.13.8,
-and the Oma runtime ABI. For acceleration it then registers the provider DSO in
-an isolated probe process and queries the selected OpenVINO or CUDA device before
-reporting a runtime ready.
+Every native check runs in an isolated process with a 20-second timeout. It
+verifies ORT 1.29.0, sherpa 1.13.8, the extended sherpa API version, keyword API
+exports, and ABI compatibility. Default CPU does not create a plugin runtime;
+acceleration additionally requires provider registration and device access.
+`setup runtime --json` reports an `inventory`
+entry for every runtime/device with support, discovery source, configuration,
+loadability, device access, readiness, resolved paths, evidence, errors, and
+remediation. Runtime readiness does not prove model execution placement.
+
+Explicit runtime/device/directory arguments preview and probe a candidate. Add
+`--apply` to save it after a successful probe. The guided flow probes before its
+Apply/Cancel review. Failure and cancellation leave the config unchanged.
+Packaged CPU paths stay implicit; external selections pin exact libraries and
+dependency directories. Ambient `LD_LIBRARY_PATH` is discovery context only and
+is never saved. Setup does not install native runtimes; model setup and explicit
+`setup systemd` remain separate.
 
 The release package supplies the CPU ONNX Runtime and patched sherpa C API.
 These settings replace that default with an external matching stack for

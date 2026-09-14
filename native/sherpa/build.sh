@@ -3,7 +3,8 @@ set -euo pipefail
 
 SHERPA_TAG=v1.13.8
 SHERPA_COMMIT=11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf
-OMA_RUNTIME_PATCH_SHA256=3ffc93d211fe02696e6cf3a4213bf0a758bf0d93c03ebf01e25ef68213bf9f29
+EXTENDED_RUNTIME_PATCH_SHA256=b462ad2f88bbd5811df8180d40e4bd798569b0a1aa58fd9aaa4a38394e293f86
+EXCEPTION_SAFETY_PATCH_SHA256=ad895ce231ec7ce2d1e9575450b6493c88d2272b8d3bbded8ad4a24a26d8944a
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 work_dir=${OMA_NATIVE_ROOT:-/tmp/oma-native-sherpa}
@@ -31,18 +32,47 @@ verify_checkout() {
   fi
 }
 
-apply_once() {
-  if git -C "$1" apply --check "$2"; then
-    git -C "$1" apply "$2"
-  elif git -C "$1" apply --reverse --check "$2"; then
-    echo "patch already applied: $2"
-  else
-    echo "patch does not apply cleanly: $2" >&2
-    exit 1
-  fi
+apply_patches() {
+  local patch
+  for patch in "${patches[@]}"; do
+    git -C "${sherpa_source}" apply --check "${patch}"
+    git -C "${sherpa_source}" apply "${patch}"
+  done
 }
 
-for command in cmake cp git mkdir patchelf sha256sum; do
+restore_patches() {
+  local patch
+  for patch in "${patches[@]}"; do
+    git -C "${sherpa_source}" apply "${patch}" >/dev/null 2>&1 || true
+  done
+}
+
+verify_or_apply_exact_patch_state() {
+  if [[ -z $(git -C "${sherpa_source}" status --short) ]]; then
+    apply_patches
+    return
+  fi
+
+  local index patch
+  trap restore_patches EXIT
+  for ((index = ${#patches[@]} - 1; index >= 0; --index)); do
+    patch=${patches[index]}
+    git -C "${sherpa_source}" apply --reverse --check "${patch}" || {
+      echo "${sherpa_source} contains changes outside the reviewed patch set" >&2
+      exit 1
+    }
+    git -C "${sherpa_source}" apply --reverse "${patch}"
+  done
+
+  if [[ -n $(git -C "${sherpa_source}" status --short) ]]; then
+    echo "${sherpa_source} contains changes outside the reviewed patch set" >&2
+    exit 1
+  fi
+  apply_patches
+  trap - EXIT HUP INT TERM
+}
+
+for command in cc cmake cp git mkdir patchelf sha256sum; do
   require_command "${command}"
 done
 
@@ -97,8 +127,11 @@ fi
   exit 1
 }
 
-runtime_patch=${script_dir}/patches/sherpa-onnx-oma-runtime-v1.13.8.patch
-printf '%s  %s\n' "${OMA_RUNTIME_PATCH_SHA256}" "${runtime_patch}" | sha256sum -c -
+extended_runtime_patch=${script_dir}/patches/0001-sherpa-onnx-extended-ort-runtime-v1.13.8.patch
+exception_safety_patch=${script_dir}/patches/0002-sherpa-onnx-keyword-spotter-exception-safety-v1.13.8.patch
+patches=("${extended_runtime_patch}" "${exception_safety_patch}")
+printf '%s  %s\n' "${EXTENDED_RUNTIME_PATCH_SHA256}" "${extended_runtime_patch}" | sha256sum -c -
+printf '%s  %s\n' "${EXCEPTION_SAFETY_PATCH_SHA256}" "${exception_safety_patch}" | sha256sum -c -
 
 mkdir -p "${work_dir}"
 if [[ ! -e ${sherpa_source}/.git ]]; then
@@ -106,7 +139,7 @@ if [[ ! -e ${sherpa_source}/.git ]]; then
     https://github.com/k2-fsa/sherpa-onnx.git "${sherpa_source}"
 fi
 verify_checkout "${sherpa_source}" "${SHERPA_COMMIT}"
-apply_once "${sherpa_source}" "${runtime_patch}"
+verify_or_apply_exact_patch_state
 
 env \
   SHERPA_ONNXRUNTIME_INCLUDE_DIR="${ort_include}" \
@@ -126,7 +159,8 @@ cmake -S "${sherpa_source}" -B "${sherpa_build}" \
 
 cmake --build "${sherpa_build}" --target sherpa-onnx-c-api -- -j"${jobs}"
 
-mkdir -p "${runtime_dir}/lib" "${runtime_dir}/include/sherpa-onnx/c-api"
+mkdir -p "${runtime_dir}/lib" "${runtime_dir}/include/sherpa-onnx/c-api" \
+  "${runtime_dir}/tests"
 rm -f \
   "${runtime_dir}/lib/libsherpa-onnx-cxx-api.so" \
   "${runtime_dir}/include/sherpa-onnx/c-api/cxx-api.h"
@@ -134,6 +168,16 @@ cp "${sherpa_build}/lib/libsherpa-onnx-c-api.so" "${runtime_dir}/lib/"
 patchelf --set-rpath "\$ORIGIN" "${runtime_dir}/lib/libsherpa-onnx-c-api.so"
 cp "${sherpa_source}/sherpa-onnx/c-api/c-api.h" \
   "${runtime_dir}/include/sherpa-onnx/c-api/"
+
+cc -std=c11 -Wall -Wextra -Werror -pthread \
+  -I"${runtime_dir}/include" \
+  "${script_dir}/tests/runtime-contract.c" \
+  -L"${runtime_dir}/lib" -lsherpa-onnx-c-api \
+  "-Wl,-rpath,\$ORIGIN/../lib" -Wl,-rpath-link,"${ort_lib}" \
+  -o "${runtime_dir}/tests/runtime-contract"
+env ORT_DISABLE_TELEMETRY=1 \
+  LD_LIBRARY_PATH="${runtime_dir}/lib:${ort_lib}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
+  "${runtime_dir}/tests/runtime-contract"
 
 cat >"${runtime_dir}/env.sh" <<EOF
 export SHERPA_ONNX_LIB_DIR='${runtime_dir}/lib'

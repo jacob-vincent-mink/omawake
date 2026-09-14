@@ -140,14 +140,7 @@ jobs:
           for notice in "${native_licenses[@]}"; do
             cp "licenses/native/${notice}" "dist/${package}/licenses/${notice}"
           done
-          cat > "dist/${package}/RUNTIME.md" <<'EOF'
-          Omawake ships a working CPU default: ONNX Runtime 1.29.0 and the
-          matching Oma-patched sherpa-onnx 1.13.8 C API are under lib/. The one
-          executable also supports user-supplied OpenVINO and CUDA stacks. Run
-          `omawake setup runtime` and provide the matching external core,
-          patched sherpa, provider, and vendor libraries. Acceleration provider
-          plugins are not bundled.
-          EOF
+          cp RUNTIME.md "dist/${package}/RUNTIME.md"
           tar -C dist -cJf "dist/${package}.tar.xz" "${package}"
           (cd dist && sha256sum "${package}.tar.xz" > SHA256SUMS.txt)
           echo "name=${package}" >> "${GITHUB_OUTPUT}"
@@ -169,6 +162,12 @@ jobs:
               raise SystemExit(f"capabilities {sorted(actual)} != {sorted(expected)}")
           if not report["libraries"]["runtime_loadable"]["default"]:
               raise SystemExit("packaged CPU default is not reported loadable")
+          cpu = next(
+              item for item in report["inventory"]
+              if item["runtime"] == "default" and item["device"] == "cpu"
+          )
+          assert cpu["ready"] and cpu["loadable"] and cpu["device_accessible"]
+          assert cpu["source"] == "package" and not cpu["configured"]
           PY
           if readelf -d "${binary}" | grep -E 'libonnxruntime|libsherpa-onnx'; then
             echo "release executable must not link ONNX Runtime or sherpa-onnx" >&2
@@ -240,13 +239,10 @@ jobs:
           sherpa = ctypes.CDLL(os.path.join(lib, "libsherpa-onnx-c-api.so"))
           sherpa.SherpaOnnxGetVersionStr.restype = ctypes.c_char_p
           assert sherpa.SherpaOnnxGetVersionStr() == b"1.13.8"
-          assert sherpa.SherpaOnnxGetOmaRuntimeAbiVersion() == 1
-          sherpa.SherpaOnnxCreateOrtRuntime.restype = ctypes.c_void_p
-          runtime = sherpa.SherpaOnnxCreateOrtRuntime()
-          assert runtime
-          sherpa.SherpaOnnxDestroyOrtRuntime.argtypes = [ctypes.c_void_p]
-          sherpa.SherpaOnnxDestroyOrtRuntime(runtime)
+          assert sherpa.SherpaOnnxGetExtendedApiVersion() == 1
           PY
+          nm -D "${lib}/libsherpa-onnx-c-api.so" | grep -q 'SherpaOnnxGetExtendedApiVersion'
+          ! nm -D "${lib}/libsherpa-onnx-c-api.so" | grep -q 'SherpaOnnxGetOmaRuntimeAbiVersion'
 
       - uses: actions/upload-artifact@v4
         with:
