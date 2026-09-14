@@ -1,0 +1,18 @@
+Third-party Rust dependency licenses
+====================================
+
+Generated from Cargo.lock with cargo-about. The application license is in
+LICENSE; native runtime and model notices are in THIRD_PARTY_NOTICES.md.
+
+{{#each licenses}}
+-------------------------------------------------------------------------------
+{{{name}}}
+
+Used by:
+{{#each used_by}}
+- {{{crate.name}}} {{{crate.version}}}{{#if crate.repository}} ({{{crate.repository}}}){{/if}}
+{{/each}}
+
+{{{text}}}
+
+{{/each}}

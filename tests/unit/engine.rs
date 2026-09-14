@@ -234,18 +234,18 @@ fn backend_assembly_filters_disabled_actions_and_records_metadata() {
     let detector = Detector::from_backend(
         &config,
         Box::new(FakeBackend { detections: vec![] }),
-        "TOKENS @hey-atreyu".into(),
+        "TOKENS @computer".into(),
         Runtime::Cuda,
         true,
         Duration::from_millis(12),
     )
     .unwrap();
     assert_eq!(detector.backend_kind, "fake");
-    assert_eq!(detector.keywords_buffer, "TOKENS @hey-atreyu");
+    assert_eq!(detector.keywords_buffer, "TOKENS @computer");
     assert_eq!(detector.effective_runtime, Runtime::Cuda);
     assert!(detector.fallback_used);
     assert_eq!(detector.load_time, Duration::from_millis(12));
-    assert!(detector.actions.contains_key("hey-atreyu"));
+    assert!(detector.actions.contains_key("computer"));
     assert!(!detector.actions.contains_key("disabled"));
 }
 
@@ -264,7 +264,7 @@ fn injected_loader_exercises_complete_model_preparation_and_cpu_fallback() {
     let detector = Detector::load_with(&config, &paths, |_, directory, runtime, keywords| {
         assert_eq!(directory, fixtures);
         assert_eq!(runtime, Runtime::Default);
-        assert!(keywords.ends_with("@hey-atreyu"));
+        assert!(keywords.ends_with("@computer"));
         Ok(Box::new(FakeBackend { detections: vec![] }))
     })
     .unwrap();
@@ -274,46 +274,36 @@ fn injected_loader_exercises_complete_model_preparation_and_cpu_fallback() {
     config.backend.runtime = Runtime::Cuda;
     config.backend.device = "gpu".into();
     config.backend.fallback = Fallback::Cpu;
+    let mut attempts = Vec::new();
     let detector = Detector::load_with(&config, &paths, |_, _, runtime, _| {
-        assert_eq!(runtime, Runtime::Default);
-        Ok(Box::new(FakeBackend { detections: vec![] }))
+        attempts.push(runtime);
+        if runtime == Runtime::Cuda {
+            Err(anyhow!("CUDA provider unavailable"))
+        } else {
+            Ok(Box::new(FakeBackend { detections: vec![] }))
+        }
     })
     .unwrap();
-    assert!(detector.fallback_used);
-
-    let mut attempts = Vec::new();
-    let detector =
-        Detector::load_with_capabilities(&config, &paths, &["cpu", "cuda"], |_, _, runtime, _| {
-            attempts.push(runtime);
-            if runtime == Runtime::Cuda {
-                Err(anyhow!("CUDA provider unavailable"))
-            } else {
-                Ok(Box::new(FakeBackend { detections: vec![] }))
-            }
-        })
-        .unwrap();
     assert_eq!(attempts, [Runtime::Cuda, Runtime::Default]);
     assert_eq!(detector.effective_runtime, Runtime::Default);
     assert!(detector.fallback_used);
 
     config.backend.fallback = Fallback::Error;
-    let error =
-        Detector::load_with_capabilities(&config, &paths, &["cpu", "cuda"], |_, _, _, _| {
-            Err(anyhow!("CUDA provider unavailable"))
-        })
-        .err()
-        .unwrap();
+    let error = Detector::load_with(&config, &paths, |_, _, _, _| {
+        Err(anyhow!("CUDA provider unavailable"))
+    })
+    .err()
+    .unwrap();
     assert_eq!(error.to_string(), "CUDA provider unavailable");
 
     config.backend.fallback = Fallback::Cpu;
     let mut attempts = 0;
-    let error =
-        Detector::load_with_capabilities(&config, &paths, &["cpu", "cuda"], |_, _, runtime, _| {
-            attempts += 1;
-            Err(anyhow!("{runtime:?} initialization failed"))
-        })
-        .err()
-        .unwrap();
+    let error = Detector::load_with(&config, &paths, |_, _, runtime, _| {
+        attempts += 1;
+        Err(anyhow!("{runtime:?} initialization failed"))
+    })
+    .err()
+    .unwrap();
     assert_eq!(attempts, 2);
     assert!(error.to_string().contains("CPU fallback also failed"));
 
@@ -500,10 +490,10 @@ fn generates_private_openvino_config_with_npu_defaults_and_overrides() {
         .backend
         .options
         .insert("ProfilingFilePrefix".into(), "/tmp/omawake-profile".into());
-    config
-        .backend
-        .options
-        .insert("enable_qdq_optimizer".into(), "False".into());
+    config.backend.options.insert(
+        "load_config".into(),
+        r#"{"NPU":{"NPU_QDQ_OPTIMIZATION":"NO"}}"#.into(),
+    );
 
     let provider = openvino_provider(&config, &paths).unwrap();
     let provider_path = Path::new(provider.strip_prefix("openvino:").unwrap());
@@ -514,13 +504,21 @@ fn generates_private_openvino_config_with_npu_defaults_and_overrides() {
     );
     let contents = fs::read_to_string(provider_path).unwrap();
     assert!(contents.contains("device_type=NPU\n"));
-    assert!(contents.contains("disable_dynamic_shapes=True\n"));
-    assert!(contents.contains("enable_qdq_optimizer=False\n"));
+    let load_config = contents
+        .lines()
+        .find_map(|line| line.strip_prefix("load_config="))
+        .unwrap();
+    let load_config: serde_json::Value = serde_json::from_str(load_config).unwrap();
+    assert_eq!(load_config["NPU"]["NPU_QDQ_OPTIMIZATION"], "NO");
+    assert_eq!(
+        load_config["NPU"]["CACHE_DIR"],
+        paths
+            .state_dir
+            .join("cache/openvino/npu/compiled")
+            .display()
+            .to_string()
+    );
     assert!(contents.contains("ProfilingFilePrefix=/tmp/omawake-profile\n"));
-    assert!(contents.contains(&format!(
-        "cache_dir={}\n",
-        paths.state_dir.join("cache/openvino/npu/compiled").display()
-    )));
 
     #[cfg(unix)]
     {
@@ -531,28 +529,19 @@ fn generates_private_openvino_config_with_npu_defaults_and_overrides() {
         );
     }
 
-    config
-        .backend
-        .options
-        .insert("disable_dynamic_shapes".into(), "False".into());
+    config.backend.options.insert(
+        "load_config".into(),
+        r#"{"NPU":{"NPU_PLATFORM":"5010","NPU_QDQ_OPTIMIZATION":"NO"}}"#.into(),
+    );
     openvino_provider(&config, &paths).unwrap();
     let replaced = fs::read_to_string(provider_path).unwrap();
-    assert!(replaced.contains("disable_dynamic_shapes=False\n"));
-}
-
-#[test]
-fn separates_openvino_caches_by_canonical_device() {
-    let root = temp("openvino-devices");
-    let paths = paths(&root);
-    let mut config = Config::default();
-    config.backend.runtime = Runtime::Openvino;
-    config.backend.device = "hetero:gpu, cpu".into();
-    let provider = openvino_provider(&config, &paths).unwrap();
-    let provider_path = Path::new(provider.strip_prefix("openvino:").unwrap());
-    assert!(provider_path.ends_with("openvino/hetero-gpu-cpu/provider.config"));
-    let contents = fs::read_to_string(provider_path).unwrap();
-    assert!(contents.contains("device_type=HETERO:GPU,CPU\n"));
-    assert!(!contents.contains("enable_qdq_optimizer"));
+    let load_config = replaced
+        .lines()
+        .find_map(|line| line.strip_prefix("load_config="))
+        .unwrap();
+    let load_config: serde_json::Value = serde_json::from_str(load_config).unwrap();
+    assert_eq!(load_config["NPU"]["NPU_PLATFORM"], "5010");
+    assert_eq!(load_config["NPU"]["NPU_QDQ_OPTIMIZATION"], "NO");
 }
 
 #[test]
@@ -590,7 +579,7 @@ fn rejects_unsafe_or_conflicting_openvino_options() {
         ("bad=key", "value"),
         ("good_key", "nul\0value"),
         ("good_key", "first\nsecond"),
-        ("cache_dir", "/tmp/shared"),
+        ("unknown_option", "value"),
         ("device_type", "CPU"),
     ] {
         config.backend.options.clear();
@@ -605,6 +594,13 @@ fn rejects_unsafe_or_conflicting_openvino_options() {
         .options
         .insert("device_type".into(), "GPU".into());
     assert!(openvino_provider(&config, &paths).is_ok());
+
+    config.backend.options.clear();
+    config
+        .backend
+        .options
+        .insert("load_config".into(), "[]".into());
+    assert!(openvino_provider(&config, &paths).is_err());
 }
 
 #[test]
@@ -702,12 +698,11 @@ fn accelerator_model_guard_rejects_the_known_lossy_encoder() {
     config.backend.runtime = Runtime::Openvino;
     config.backend.device = "npu".into();
 
-    let error =
-        Detector::load_with_capabilities(&config, &paths, &["cpu", "openvino"], |_, _, _, _| {
-            panic!("compatibility must be checked before loading the backend")
-        })
-        .err()
-        .unwrap();
+    let error = Detector::load_with(&config, &paths, |_, _, _, _| {
+        panic!("compatibility must be checked before loading the backend")
+    })
+    .err()
+    .unwrap();
     assert!(error.to_string().contains("loses detections"));
 }
 

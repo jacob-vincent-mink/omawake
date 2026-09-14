@@ -56,12 +56,12 @@ fn real_sentencepiece_model_compiles_enabled_keywords() {
     let compiler = KeywordCompiler::open(&path).unwrap();
     let compiled = compiler
         .compile(&[
-            word("hey-atreyu", " Hey Atreyu ", true, &["true"]),
+            word("computer", " Computer ", true, &["true"]),
             word("lovely-child", "Lovely Child", true, &["true"]),
             word("disabled", "Forever", false, &["true"]),
         ])
         .unwrap();
-    assert!(compiled.contains("@hey-atreyu"));
+    assert!(compiled.contains("@computer"));
     assert!(compiled.contains("@lovely-child"));
     assert!(!compiled.contains("@disabled"));
     assert!(compiler.compile(&[]).is_err());

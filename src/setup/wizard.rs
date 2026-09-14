@@ -1,4 +1,6 @@
-use std::io::{self, Write};
+use std::collections::BTreeMap;
+use std::io::{self, BufRead, Write};
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use crossterm::{
@@ -288,33 +290,131 @@ fn setup_mode(index: usize) -> SetupMode {
 }
 
 pub fn choose_runtime(
-    compiled: &[&str],
+    loadable: &BTreeMap<&str, bool>,
+    library_context: &str,
     current_runtime: Runtime,
     current_device: &str,
 ) -> Result<Option<RuntimeSelection>> {
     choose_runtime_with(
         &mut TerminalPrompter,
-        compiled,
+        loadable,
+        library_context,
         current_runtime,
         current_device,
     )
 }
 
+pub fn choose_runtime_directory(current: &[PathBuf]) -> Result<Option<PathBuf>> {
+    let mut input = io::stdin().lock();
+    choose_runtime_directory_with(&mut TerminalPrompter, current, || {
+        let mut line = String::new();
+        print!("Runtime library directory: ");
+        io::stdout().flush()?;
+        input.read_line(&mut line)?;
+        Ok(line)
+    })
+}
+
+pub fn choose_model_archive(model: &str) -> Result<Option<PathBuf>> {
+    let mut input = io::stdin().lock();
+    choose_model_archive_with(&mut TerminalPrompter, model, || {
+        let mut line = String::new();
+        print!("Licensed model archive: ");
+        io::stdout().flush()?;
+        input.read_line(&mut line)?;
+        Ok(line)
+    })
+}
+
+fn choose_model_archive_with(
+    prompter: &mut impl Prompter,
+    model: &str,
+    mut read_line: impl FnMut() -> Result<String>,
+) -> Result<Option<PathBuf>> {
+    let items = [
+        MenuItem::available(
+            "Choose licensed archive",
+            format!("Provide a local archive for {model}; Omawake verifies its pinned hash"),
+        ),
+        MenuItem::available("Back", "Return without installing a model."),
+    ];
+    if prompter.choose(
+        "Model archive",
+        "This model cannot be downloaded until its license terms are verified.",
+        &items,
+        0,
+    )? != Some(0)
+    {
+        return Ok(None);
+    }
+    let raw = read_line()?;
+    let archive = Path::new(raw.trim());
+    if !archive.is_absolute() || !archive.is_file() {
+        bail!(
+            "model archive must be an absolute existing file: {}",
+            archive.display()
+        );
+    }
+    Ok(Some(archive.to_owned()))
+}
+
+fn choose_runtime_directory_with(
+    prompter: &mut impl Prompter,
+    current: &[PathBuf],
+    mut read_line: impl FnMut() -> Result<String>,
+) -> Result<Option<PathBuf>> {
+    let configured = if current.is_empty() {
+        "No configured runtime directory".to_owned()
+    } else {
+        format!(
+            "Keep {}",
+            current
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(":")
+        )
+    };
+    let items = [
+        MenuItem::available("Use current discovery", configured),
+        MenuItem::available(
+            "Choose runtime directory",
+            "Point Omawake at external ONNX Runtime, patched sherpa, and provider libraries",
+        ),
+    ];
+    if prompter.choose(
+        "Runtime libraries",
+        "You can keep detected/configured paths or enter an absolute runtime directory.",
+        &items,
+        0,
+    )? != Some(1)
+    {
+        return Ok(None);
+    }
+    let raw = read_line()?;
+    let directory = Path::new(raw.trim());
+    if !directory.is_absolute() || !directory.is_dir() {
+        bail!(
+            "runtime library directory must be an absolute existing directory: {}",
+            directory.display()
+        );
+    }
+    Ok(Some(directory.to_owned()))
+}
+
 fn choose_runtime_with(
     prompter: &mut impl Prompter,
-    compiled: &[&str],
+    loadable: &BTreeMap<&str, bool>,
+    library_context: &str,
     current_runtime: Runtime,
     current_device: &str,
 ) -> Result<Option<RuntimeSelection>> {
-    let items = runtime_items(compiled);
+    let items = runtime_items(loadable);
     let preferred = runtime_index(current_runtime);
-    let Some(index) = prompter.choose(
-        "Inference runtime",
-        "Unavailable runtimes remain visible so installed capabilities are clear.",
-        &items,
-        preferred,
-    )?
-    else {
+    let help = format!(
+        "All runtimes remain selectable so you can configure an external stack after choosing.\r\n{library_context}"
+    );
+    let Some(index) = prompter.choose("Inference runtime", &help, &items, preferred)? else {
         return Ok(None);
     };
     let runtime = runtime_at(index);
@@ -338,24 +438,33 @@ fn choose_runtime_with(
     }))
 }
 
-fn runtime_items(compiled: &[&str]) -> [MenuItem; 3] {
-    let available = |capability: &str| compiled.contains(&capability);
+fn runtime_items(loadable: &BTreeMap<&str, bool>) -> [MenuItem; 3] {
     [
-        MenuItem::available("Default", "Built in · CPU through sherpa-onnx"),
-        if available("openvino") {
-            MenuItem::available("OpenVINO", "Built in · Intel CPU, GPU, or NPU")
+        if loadable.get("default").copied().unwrap_or(false) {
+            MenuItem::available("Default", "ONNX Runtime and sherpa detected · CPU")
         } else {
-            MenuItem::unavailable(
-                "OpenVINO",
-                "Unavailable in this build · install/build with --features openvino",
+            MenuItem::available(
+                "Default",
+                "Runtime not detected · release archives include it, or choose a library directory",
             )
         },
-        if available("cuda") {
-            MenuItem::available("CUDA", "Built in · NVIDIA GPU")
+        if loadable.get("openvino").copied().unwrap_or(false) {
+            MenuItem::available(
+                "OpenVINO",
+                "External OpenVINO provider detected · Intel CPU, GPU, or NPU",
+            )
         } else {
-            MenuItem::unavailable(
+            MenuItem::available(
+                "OpenVINO",
+                "External OpenVINO provider not detected · select to configure its library directory",
+            )
+        },
+        if loadable.get("cuda").copied().unwrap_or(false) {
+            MenuItem::available("CUDA", "External CUDA provider detected · NVIDIA GPU")
+        } else {
+            MenuItem::available(
                 "CUDA",
-                "Unavailable in this build · install/build with --features cuda",
+                "External CUDA provider not detected · select to configure its library directory",
             )
         },
     ]
@@ -386,6 +495,42 @@ pub fn confirm_apply(
         model,
         service_was_active,
     )
+}
+
+pub fn confirm_runtime_apply(
+    runtime: Runtime,
+    device: &str,
+    runtime_directory: Option<&Path>,
+) -> Result<bool> {
+    confirm_runtime_apply_with(&mut TerminalPrompter, runtime, device, runtime_directory)
+}
+
+fn confirm_runtime_apply_with(
+    prompter: &mut impl Prompter,
+    runtime: Runtime,
+    device: &str,
+    runtime_directory: Option<&Path>,
+) -> Result<bool> {
+    let source = runtime_directory.map_or_else(
+        || "Use configured, packaged, or system runtime discovery".to_owned(),
+        |directory| format!("Use runtime libraries from {}", directory.display()),
+    );
+    let items = [
+        MenuItem::available(
+            "Apply runtime",
+            format!("Runtime: {} / {device} · {source}", runtime_name(runtime)),
+        ),
+        MenuItem::available("Cancel", "Return without changing the config."),
+    ];
+    Ok(matches!(
+        prompter.choose(
+            "Review runtime setup",
+            "The selected stack is validated before the config is saved.",
+            &items,
+            0,
+        )?,
+        Some(0)
+    ))
 }
 
 fn confirm_apply_with(

@@ -9,9 +9,8 @@ Prepare and optionally run isolated Omawake benchmarks for default CPU and
 OpenVINO CPU, GPU, and NPU. The command never records from a microphone.
 
 Environment:
-  OMAWAKE_CPU_BIN       default-link CPU binary
-  OMAWAKE_OPENVINO_BIN  OpenVINO-enabled shared-link binary
-  OMAWAKE_OPENVINO_LIBRARY_PATH  colon-separated shared-library search path
+  OMAWAKE_BIN            runtime-neutral Omawake binary
+  OMAWAKE_OPENVINO_LIBRARY_PATH  colon-separated external OpenVINO stack path
   OMAWAKE_MODEL_DIR     installed official KWS model directory
   OMAWAKE_BENCH_ROOT    parent for preserved run artifacts
   OMAWAKE_WARMUP        warmup iterations per WAV (default: 2)
@@ -22,7 +21,8 @@ Environment:
   OMAWAKE_NPU_QDQ_OPTIMIZER  True or False (default: True)
   OMAWAKE_NPU_BUSY_COUNTER  optional readable npu_busy_time_us sysfs path
 
-The OpenVINO binaries and their native loader environment must already exist.
+The external OpenVINO runtime stack and its native loader environment must
+already exist. The same Omawake executable is used for every lane.
 The harness also requires jq to validate every measured detection set.
 EOF
 }
@@ -42,15 +42,11 @@ fi
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 repo_dir=$(cd -- "$script_dir/.." && pwd -P)
 model_id=sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01
-cpu_bin=${OMAWAKE_CPU_BIN:-$repo_dir/target/release/omawake}
-openvino_bin=${OMAWAKE_OPENVINO_BIN:-$repo_dir/target-openvino/release/omawake}
-if [[ $cpu_bin != /* ]]; then
-  cpu_bin=$PWD/$cpu_bin
+omawake_bin=${OMAWAKE_BIN:-$repo_dir/target/release/omawake}
+if [[ $omawake_bin != /* ]]; then
+  omawake_bin=$PWD/$omawake_bin
 fi
-if [[ $openvino_bin != /* ]]; then
-  openvino_bin=$PWD/$openvino_bin
-fi
-openvino_library_path=${OMAWAKE_OPENVINO_LIBRARY_PATH:-$(dirname -- "$openvino_bin")}
+openvino_library_path=${OMAWAKE_OPENVINO_LIBRARY_PATH:-$(dirname -- "$omawake_bin")}
 if [[ -n ${LD_LIBRARY_PATH:-} ]]; then
   openvino_library_path=$openvino_library_path:$LD_LIBRARY_PATH
 fi
@@ -147,18 +143,9 @@ done
 model_dir=$(cd -- "$model_dir" && pwd -P)
 wav_files=("$model_dir/test_wavs/0.wav" "$model_dir/test_wavs/1.wav")
 
-if ! $dry_run; then
-  binaries=()
-  [[ -n ${seen_lanes[default-cpu]:-} ]] && binaries+=("$cpu_bin")
-  if ((${#lanes[@]} > ${#binaries[@]})); then
-    binaries+=("$openvino_bin")
-  fi
-  for binary in "${binaries[@]}"; do
-    if [[ ! -x $binary ]]; then
-      printf 'omawake benchmark: binary is not executable: %s\n' "$binary" >&2
-      exit 1
-    fi
-  done
+if ! $dry_run && [[ ! -x $omawake_bin ]]; then
+  printf 'omawake benchmark: binary is not executable: %s\n' "$omawake_bin" >&2
+  exit 1
 fi
 
 toml_escape() {
@@ -204,14 +191,12 @@ npu_busy_counter=$(find_npu_busy_counter)
 
 {
   printf 'created_utc=%s\n' "$timestamp"
-  printf 'repo=%s\nmodel=%s\ncpu_binary=%s\nopenvino_binary=%s\n' \
-    "$repo_dir" "$model_dir" "$cpu_bin" "$openvino_bin"
+  printf 'repo=%s\nmodel=%s\nbinary=%s\n' \
+    "$repo_dir" "$model_dir" "$omawake_bin"
   printf 'openvino_library_path=%s\n' "$openvino_library_path"
-  for binary in "$cpu_bin" "$openvino_bin"; do
-    if [[ -f $binary ]]; then
-      sha256sum "$binary"
-    fi
-  done
+  if [[ -f $omawake_bin ]]; then
+    sha256sum "$omawake_bin"
+  fi
   printf 'cold_warmup=0\ncold_iterations=1\nhot_warmup=%s\nhot_iterations=%s\nthreads=%s\n' \
     "$warmup" "$iterations" "$threads"
   printf 'lanes=%s\naccelerator_model_variant=%s\nnpu_qdq_optimizer=%s\n' \
@@ -246,8 +231,7 @@ write_config() {
     if [[ $runtime == openvino ]]; then
       printf 'ProfilingFilePrefix = "%s"\n' "$escaped_profile"
       if [[ $device == npu ]]; then
-        printf 'load_config = "{\\"NPU\\":{\\"NPU_PLATFORM\\":\\"5010\\"}}"\n'
-        printf 'enable_qdq_optimizer = "%s"\n' "$npu_qdq_optimizer"
+        printf 'load_config = "{\\"NPU\\":{\\"NPU_PLATFORM\\":\\"5010\\",\\"NPU_QDQ_OPTIMIZATION\\":\\"%s\\"}}"\n' "$npu_qdq_optimizer"
       fi
     fi
     printf '\n[model]\nname = "%s"\ndirectory = "%s"\n' "$model_id" "$escaped_model"
@@ -304,10 +288,10 @@ prepare_lane() {
 
 for lane in "${lanes[@]}"; do
   case "$lane" in
-    default-cpu) prepare_lane "$lane" default cpu "$cpu_bin" ;;
-    openvino-cpu) prepare_lane "$lane" openvino cpu "$openvino_bin" ;;
-    openvino-gpu) prepare_lane "$lane" openvino gpu "$openvino_bin" ;;
-    openvino-npu) prepare_lane "$lane" openvino npu "$openvino_bin" ;;
+    default-cpu) prepare_lane "$lane" default cpu "$omawake_bin" ;;
+    openvino-cpu) prepare_lane "$lane" openvino cpu "$omawake_bin" ;;
+    openvino-gpu) prepare_lane "$lane" openvino gpu "$omawake_bin" ;;
+    openvino-npu) prepare_lane "$lane" openvino npu "$omawake_bin" ;;
   esac
 done
 

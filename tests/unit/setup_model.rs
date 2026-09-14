@@ -107,6 +107,9 @@ fn spec(archive_bytes: &[u8], url: &str) -> &'static ModelSpec {
         backend: "sherpa-onnx",
         family: "zipformer-kws",
         description: "test model",
+        license: "MIT",
+        license_status: "verified",
+        downloadable: true,
         archive_url: leak(url.to_owned()),
         archive_size: archive_bytes.len() as u64,
         archive_sha256: leak(digest(archive_bytes)),
@@ -170,6 +173,13 @@ fn local_archive_install_is_verified_idempotent_and_repairable() {
     let installed = install(&paths, spec, Some(&archive_path), ProgressFormat::Json).unwrap();
     assert_eq!(installed, model_directory(&paths, spec));
     assert!(installed.join(".omawake-model.json").is_file());
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(installed.join(".omawake-model.json")).unwrap()).unwrap();
+    assert_eq!(manifest["provenance"]["source"], "user-supplied-archive");
+    assert_eq!(
+        manifest["provenance"]["archive_sha256"],
+        spec.archive_sha256
+    );
     verify(&paths, spec).unwrap();
     install(&paths, spec, Some(&archive_path), ProgressFormat::Human).unwrap();
     fs::write(installed.join("model.bin"), b"bad").unwrap();
@@ -217,6 +227,26 @@ fn install_without_override_uses_injected_downloader() {
         fs::read(installed.join("model.bin")).unwrap(),
         b"tiny model"
     );
+}
+
+#[test]
+fn unverified_model_cannot_be_downloaded_automatically() {
+    let root = temp("unverified-license");
+    let archive_bytes = archive("tiny-root", "model.bin", b"tiny model");
+    let mut blocked = *spec(&archive_bytes, "https://example.invalid/model");
+    blocked.downloadable = false;
+    blocked.license = "unknown";
+    blocked.license_status = "unverified";
+    let blocked = Box::leak(Box::new(blocked));
+    let error = install_with_download(
+        &paths(&root),
+        blocked,
+        None,
+        ProgressFormat::Human,
+        |_, _, _| panic!("an unverified model must not reach the downloader"),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("license not verified"));
 }
 
 #[test]

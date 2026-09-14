@@ -101,8 +101,9 @@ fn check_printers_fail_when_remediation_is_required() {
     assert!(print_checks(&paths.config_file, &paths, false).is_err());
     assert!(print_checks(&paths.config_file, &paths, true).is_err());
     assert!(print_checks_event(&paths.config_file, &paths).is_err());
-    print_runtime(false).unwrap();
-    print_runtime(true).unwrap();
+    let config = Config::default();
+    print_runtime(&config, &paths.config_file, false).unwrap();
+    print_runtime(&config, &paths.config_file, true).unwrap();
 }
 
 #[test]

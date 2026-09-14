@@ -8,15 +8,14 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
-use sherpa_onnx::KeywordSpotterConfig;
 
-use crate::backend::{Fallback, Runtime, compiled_capabilities};
+use crate::backend::{Fallback, Runtime};
 use crate::config::{Config, WakeWord};
 use crate::keyword::KeywordCompiler;
 use crate::paths::AppPaths;
 
-mod sherpa;
-use self::sherpa::SherpaOnnxBackend;
+pub(crate) mod sherpa;
+use self::sherpa::{KeywordSpotterConfig, SherpaOnnxBackend, read_wave};
 
 pub trait WakeWordBackend {
     fn kind(&self) -> &'static str;
@@ -61,14 +60,13 @@ pub struct ActionResult {
 }
 
 pub fn wav_duration(path: &Path) -> Result<Duration> {
-    let wave = sherpa_onnx::Wave::read(path.to_string_lossy().as_ref())
-        .with_context(|| format!("read WAV metadata {}", path.display()))?;
-    let sample_rate = wave.sample_rate();
+    let (sample_rate, samples) =
+        read_wave(path).with_context(|| format!("read WAV metadata {}", path.display()))?;
     if sample_rate <= 0 {
         bail!("WAV sample rate must be positive: {}", path.display());
     }
     Ok(Duration::from_secs_f64(
-        wave.num_samples().max(0) as f64 / sample_rate as f64,
+        samples.len() as f64 / sample_rate as f64,
     ))
 }
 
@@ -76,7 +74,7 @@ impl Detector {
     pub fn load(config: &Config, paths: &AppPaths) -> Result<Self> {
         if config.backend.kind != "sherpa-onnx" {
             bail!(
-                "wake-word backend {} is not available in this build; run `omawake setup runtime`",
+                "unsupported wake-word backend {}; run `omawake setup runtime`",
                 config.backend.kind
             );
         }
@@ -87,32 +85,13 @@ impl Detector {
         })
     }
 
-    pub fn load_with<F>(config: &Config, paths: &AppPaths, load_backend: F) -> Result<Self>
-    where
-        F: FnMut(&Config, &Path, Runtime, &str) -> Result<Box<dyn WakeWordBackend>>,
-    {
-        Self::load_with_capabilities(config, paths, compiled_capabilities(), load_backend)
-    }
-
-    fn load_with_capabilities<F>(
-        config: &Config,
-        paths: &AppPaths,
-        capabilities: &[&str],
-        mut load_backend: F,
-    ) -> Result<Self>
+    pub fn load_with<F>(config: &Config, paths: &AppPaths, mut load_backend: F) -> Result<Self>
     where
         F: FnMut(&Config, &Path, Runtime, &str) -> Result<Box<dyn WakeWordBackend>>,
     {
         config.backend.validate_shape()?;
-        let (mut effective_runtime, mut fallback_used) =
-            match config.backend.validate_capabilities(capabilities) {
-                Ok(()) => (config.backend.runtime, false),
-                Err(error) if config.backend.fallback == Fallback::Cpu => {
-                    eprintln!("omawake: warning: {error}; falling back to cpu");
-                    (Runtime::Default, true)
-                }
-                Err(error) => return Err(error.into()),
-            };
+        let mut effective_runtime = config.backend.runtime;
+        let mut fallback_used = false;
         if effective_runtime == Runtime::Openvino
             && let Some(spec) = crate::catalog::model(&config.model.name)
             && spec.uses_openvino_accelerator(config)
@@ -358,16 +337,27 @@ fn openvino_provider(config: &Config, paths: &AppPaths) -> Result<String> {
     }
 
     let canonical = config.backend.canonical_device()?.to_ascii_uppercase();
+    let mut supplied_load_config = None;
     for (key, value) in &config.backend.options {
         validate_provider_option(key, value)?;
         match key.as_str() {
-            "cache_dir" => {
-                bail!("backend.options.cache_dir is managed by Omawake for each OpenVINO device")
-            }
-            "device_type" if value != &canonical => {
+            "device_type" if !value.eq_ignore_ascii_case(&canonical) => {
                 bail!("backend.options.device_type must match canonical device {canonical}")
             }
-            _ => {}
+            "device_type" => {}
+            "load_config" => {
+                supplied_load_config = Some(
+                    serde_json::from_str::<serde_json::Value>(value)
+                        .context("backend.options.load_config must be valid JSON")?,
+                );
+            }
+            "ProfilingFilePrefix"
+            | "GraphOptimizationLevel"
+            | "LogSeverityLevel"
+            | "EnableMemPattern"
+            | "EnableCpuMemArena" => {}
+            key if key.starts_with("SessionConfig.") && key.len() > "SessionConfig.".len() => {}
+            _ => bail!("unsupported OpenVINO provider option backend.options.{key}"),
         }
     }
     let device_directory = paths
@@ -396,17 +386,37 @@ fn openvino_provider(config: &Config, paths: &AppPaths) -> Result<String> {
     })?;
     make_directory_private(&cache_directory)?;
 
-    let cache_value = utf8_path(&cache_directory)?.to_owned();
-    let mut properties = std::collections::BTreeMap::from([
-        ("cache_dir".to_owned(), cache_value.clone()),
-        ("device_type".to_owned(), canonical.clone()),
-    ]);
+    let mut load_config = supplied_load_config.unwrap_or_else(|| serde_json::json!({}));
+    let load_config_object = load_config
+        .as_object_mut()
+        .context("backend.options.load_config must be a JSON object")?;
+    let device_properties = load_config_object
+        .entry(canonical.clone())
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .with_context(|| {
+            format!("backend.options.load_config.{canonical} must be a JSON object")
+        })?;
+    device_properties.insert(
+        "CACHE_DIR".into(),
+        serde_json::Value::String(utf8_path(&cache_directory)?.to_owned()),
+    );
     if canonical == "NPU" {
-        properties.insert("disable_dynamic_shapes".into(), "True".into());
-        properties.insert("enable_qdq_optimizer".into(), "True".into());
+        device_properties
+            .entry("NPU_QDQ_OPTIMIZATION")
+            .or_insert_with(|| serde_json::Value::String("YES".into()));
     }
+    let mut properties = std::collections::BTreeMap::from([
+        ("device_type".to_owned(), canonical.clone()),
+        (
+            "load_config".to_owned(),
+            serde_json::to_string(&load_config)?,
+        ),
+    ]);
     for (key, value) in &config.backend.options {
-        properties.insert(key.clone(), value.clone());
+        if !matches!(key.as_str(), "device_type" | "load_config") {
+            properties.insert(key.clone(), value.clone());
+        }
     }
 
     let mut contents = String::new();

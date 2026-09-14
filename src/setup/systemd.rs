@@ -6,6 +6,7 @@ use std::process::{Command, Stdio};
 use anyhow::{Context, Result, bail};
 
 use crate::paths::AppPaths;
+use crate::{config::Config, runtime_paths};
 
 const UNIT: &str = "omawake.service";
 
@@ -47,11 +48,9 @@ fn generate_with_library_path(
 pub fn install(paths: &AppPaths, config: &Path, start: bool) -> Result<PathBuf> {
     let path = service_path(paths);
     let binary = std::env::current_exe()?.canonicalize()?;
-    let unit = generate_with_library_path(
-        &binary,
-        config,
-        std::env::var_os("LD_LIBRARY_PATH").as_deref(),
-    );
+    let app_config = Config::load(config)?;
+    let library_path = runtime_paths::effective_library_path(&app_config.backend, config)?;
+    let unit = generate_with_library_path(&binary, config, library_path.as_deref());
     write_atomic(&path, unit.as_bytes())?;
     systemctl(["daemon-reload"])?;
     if start {

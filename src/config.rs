@@ -55,15 +55,10 @@ impl Default for Config {
             audio: AudioConfig::default(),
             daemon: DaemonConfig::default(),
             wake_words: vec![WakeWord {
-                id: "hey-atreyu".into(),
-                phrase: "Hey Atreyu".into(),
+                id: "computer".into(),
+                phrase: "Computer".into(),
                 enabled: true,
-                command: vec![
-                    "omarchy-shell".into(),
-                    "-q".into(),
-                    "omarchy.atreyu".into(),
-                    "voiceToggle".into(),
-                ],
+                command: vec!["notify-send".into(), "Wake word heard".into()],
             }],
         }
     }

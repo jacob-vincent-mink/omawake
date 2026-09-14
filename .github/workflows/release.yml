@@ -16,54 +16,81 @@ defaults:
 
 jobs:
   linux-x86_64:
-    name: linux-x86_64-all-runtimes
+    name: linux-x86_64
     runs-on: ubuntu-22.04
-    timeout-minutes: 300
-    container:
-      image: nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04@sha256:61f6c08f2b59036cb935e56d1e31a6b64e3ae2c7ddb86d33fa0b044c7917b719
+    timeout-minutes: 90
     env:
-      DEBIAN_FRONTEND: noninteractive
       OMA_BUILD_JOBS: "4"
-      OMA_CUDA_ARCHITECTURES: "75;80;86;89;90;100;120"
-      OMA_NATIVE_ROOT: /tmp/oma-native-unified
+      OMA_NATIVE_ROOT: /tmp/omawake-native
+      OMA_ORT_ROOT: /tmp/onnxruntime-linux-x64-1.29.0
+      ORT_ARCHIVE_SHA256: c3fddc4f139a045b0c4902c57410f0694f1c2fdf9b6939fbe38b1aeae7cd14ba
+      ORT_VERSION: 1.29.0
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install build tools
+      - name: Install build dependencies
         run: |
           set -euo pipefail
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential ca-certificates curl git libasound2-dev libbz2-dev \
-            ninja-build patchelf pkg-config python3 python3-dev python3-numpy \
-            python3-packaging python3-protobuf tar xz-utils
-
-      - name: Install pinned CMake
-        run: |
-          set -euo pipefail
-          archive=/tmp/cmake-3.31.6-linux-x86_64.tar.gz
-          install_dir=/opt/cmake-3.31.6-linux-x86_64
-          curl -fsSL --retry 3 -o "${archive}" \
-            https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-linux-x86_64.tar.gz
-          printf '%s  %s\n' \
-            '5a1133ff103c71eb5120e2cc3de922733e7d8a26a98ae716397e8676adb367bf' \
-            "${archive}" | sha256sum -c -
-          tar -C /opt -xzf "${archive}"
-          "${install_dir}/bin/cmake" --version
-          printf '%s\n' "${install_dir}/bin" >> "${GITHUB_PATH}"
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ca-certificates cmake curl git libasound2-dev patchelf pkg-config xz-utils
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Build unified ONNX runtime
-        run: native/unified/build.sh
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about@0.9.2
 
-      - name: Build the one all-runtime executable
+      - name: Download the pinned CPU ONNX Runtime SDK
         run: |
           set -euo pipefail
-          source "${OMA_NATIVE_ROOT}/runtime/env.sh"
-          cargo build --release --locked --all-features
+          archive="/tmp/onnxruntime-linux-x64-${ORT_VERSION}.tgz"
+          curl -fsSL --retry 3 -o "${archive}" \
+            "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz"
+          printf '%s  %s\n' "${ORT_ARCHIVE_SHA256}" "${archive}" | sha256sum -c -
+          tar -C /tmp -xzf "${archive}"
+          test -f "${OMA_ORT_ROOT}/include/onnxruntime_cxx_api.h"
+          test -f "${OMA_ORT_ROOT}/lib/libonnxruntime.so.${ORT_VERSION}"
 
-      - name: Stage self-contained base runtime
+      - name: Build the patched sherpa companion library
+        run: |
+          set -euo pipefail
+          native/sherpa/build.sh
+          deps="${OMA_NATIVE_ROOT}/sherpa-build/_deps"
+          cmp "${deps}/kaldi_native_fbank-src/LICENSE" licenses/native/KALDI-NATIVE-FBANK-LICENSE
+          cmp "${deps}/kissfft-src/COPYING" licenses/native/KISSFFT-COPYING
+          cmp "${deps}/kissfft-src/LICENSES/BSD-3-Clause" licenses/native/KISSFFT-BSD-3-CLAUSE
+          cmp "${deps}/kaldi_decoder-src/LICENSE" licenses/native/KALDI-DECODER-LICENSE
+          cmp "${deps}/kaldifst-src/LICENSE" licenses/native/KALDIFST-LICENSE
+          cmp "${deps}/openfst-src/COPYING" licenses/native/OPENFST-COPYING
+          cmp "${deps}/openfst-src/AUTHORS" licenses/native/OPENFST-AUTHORS
+          cmp "${deps}/simple-sentencepiece-src/LICENSE" licenses/native/SIMPLE-SENTENCEPIECE-LICENSE
+          cmp "${deps}/eigen-src/COPYING.README" licenses/native/EIGEN-COPYING-README
+          cmp "${deps}/eigen-src/COPYING.MPL2" licenses/native/EIGEN-MPL-2.0
+          cmp "${deps}/eigen-src/COPYING.APACHE" licenses/native/EIGEN-APACHE-2.0
+          cmp "${deps}/eigen-src/COPYING.BSD" licenses/native/EIGEN-BSD
+          cmp "${deps}/eigen-src/COPYING.MINPACK" licenses/native/EIGEN-MINPACK
+          cmp "${deps}/json-src/LICENSE.MIT" licenses/native/NLOHMANN-JSON-MIT
+          link_file="${OMA_NATIVE_ROOT}/sherpa-build/sherpa-onnx/c-api/CMakeFiles/sherpa-onnx-c-api.dir/link.txt"
+          test -f "${link_file}"
+          grep -oE '[^[:space:]]+\.a' "${link_file}" | sed 's|.*/||' | sort -u \
+            > /tmp/actual-sherpa-archives.txt
+          cat > /tmp/expected-sherpa-archives.txt <<'EOF'
+          libkaldi-decoder-core.a
+          libkaldi-native-fbank-core.a
+          libkissfft-float.a
+          libsherpa-onnx-core.a
+          libsherpa-onnx-fst.a
+          libsherpa-onnx-fstfar.a
+          libsherpa-onnx-kaldifst-core.a
+          libssentencepiece_core.a
+          EOF
+          diff -u /tmp/expected-sherpa-archives.txt /tmp/actual-sherpa-archives.txt
+
+      - name: Build the runtime-neutral executable
+        run: cargo build --release --locked
+
+      - name: Stage the release
         id: package
         run: |
           set -euo pipefail
@@ -78,43 +105,148 @@ jobs:
             }
             version=${tag_version}
           fi
-          package="omawake-${version}-linux-x86_64-all-runtimes"
+          package="omawake-${version}-linux-x86_64"
           mkdir -p "dist/${package}/lib" "dist/${package}/licenses"
+          cargo about generate about.hbs > "dist/${package}/licenses/RUST-DEPENDENCIES.txt"
           cp target/release/omawake "dist/${package}/omawake"
-          cp -a "${OMA_NATIVE_ROOT}"/runtime/lib/lib*.so* "dist/${package}/lib/"
-          cp "${OMA_NATIVE_ROOT}/onnxruntime/LICENSE" \
-            "dist/${package}/licenses/ONNX-RUNTIME-LICENSE"
-          cp "${OMA_NATIVE_ROOT}/sherpa-onnx/LICENSE" \
-            "dist/${package}/licenses/SHERPA-ONNX-LICENSE"
-          patchelf --set-rpath '$ORIGIN/lib' "dist/${package}/omawake"
-          while IFS= read -r library; do
-            patchelf --set-rpath '$ORIGIN' "${library}"
-          done < <(find "dist/${package}/lib" -maxdepth 1 -type f -name '*.so*')
-          printf '%s\n' \
-            'This package contains one Omawake executable with CPU, OpenVINO, and CUDA enabled.' \
-            'The bundled sherpa-onnx and ONNX Runtime libraries provide the CPU base.' \
-            'OpenVINO and CUDA use the provider libraries in lib/ and require compatible host' \
-            'OpenVINO or NVIDIA CUDA/cuDNN runtime libraries and drivers, respectively.' \
-            > "dist/${package}/RUNTIME.md"
+          cp "${OMA_ORT_ROOT}/lib/libonnxruntime.so.${ORT_VERSION}" "dist/${package}/lib/"
+          ln -s "libonnxruntime.so.${ORT_VERSION}" "dist/${package}/lib/libonnxruntime.so.1"
+          ln -s libonnxruntime.so.1 "dist/${package}/lib/libonnxruntime.so"
+          cp "${OMA_NATIVE_ROOT}/runtime/lib/libsherpa-onnx-c-api.so" "dist/${package}/lib/"
+          cp "${OMA_ORT_ROOT}/LICENSE" "dist/${package}/licenses/ONNX-RUNTIME-LICENSE"
+          cp "${OMA_ORT_ROOT}/ThirdPartyNotices.txt" \
+            "dist/${package}/licenses/ONNX-RUNTIME-THIRD-PARTY-NOTICES"
+          cp "${OMA_NATIVE_ROOT}/sherpa-onnx/LICENSE" "dist/${package}/licenses/SHERPA-ONNX-LICENSE"
+          cp LICENSE "dist/${package}/licenses/OMAWAKE-LICENSE"
+          cp THIRD_PARTY_NOTICES.md "dist/${package}/licenses/OMAWAKE-THIRD-PARTY-NOTICES"
+          cp licenses/OMARCHY-LICENSE "dist/${package}/licenses/OMARCHY-LICENSE"
+          cp native/sherpa/NOTICE "dist/${package}/licenses/SHERPA-ONNX-NOTICE"
+          native_licenses=(
+            EIGEN-APACHE-2.0
+            EIGEN-BSD
+            EIGEN-COPYING-README
+            EIGEN-MINPACK
+            EIGEN-MPL-2.0
+            KALDI-DECODER-LICENSE
+            KALDI-NATIVE-FBANK-LICENSE
+            KALDIFST-LICENSE
+            KISSFFT-BSD-3-CLAUSE
+            KISSFFT-COPYING
+            NLOHMANN-JSON-MIT
+            OPENFST-AUTHORS
+            OPENFST-COPYING
+            SIMPLE-SENTENCEPIECE-LICENSE
+          )
+          for notice in "${native_licenses[@]}"; do
+            cp "licenses/native/${notice}" "dist/${package}/licenses/${notice}"
+          done
+          cat > "dist/${package}/RUNTIME.md" <<'EOF'
+          Omawake ships a working CPU default: ONNX Runtime 1.29.0 and the
+          matching Oma-patched sherpa-onnx 1.13.8 C API are under lib/. The one
+          executable also supports user-supplied OpenVINO and CUDA stacks. Run
+          `omawake setup runtime` and provide the matching external core,
+          patched sherpa, provider, and vendor libraries. Acceleration provider
+          plugins are not bundled.
+          EOF
           tar -C dist -cJf "dist/${package}.tar.xz" "${package}"
           (cd dist && sha256sum "${package}.tar.xz" > SHA256SUMS.txt)
           echo "name=${package}" >> "${GITHUB_OUTPUT}"
 
-      - name: Verify the packaged executable and capabilities
+      - name: Verify the release contract
         run: |
           set -euo pipefail
           package='${{ steps.package.outputs.name }}'
-          "dist/${package}/omawake" --version
-          "dist/${package}/omawake" setup runtime --json > /tmp/runtime.json
+          binary="dist/${package}/omawake"
+          "${binary}" --version
+          "${binary}" setup runtime --json > /tmp/runtime.json
           python3 - <<'PY'
           import json
           with open("/tmp/runtime.json", encoding="utf-8") as handle:
-              actual = set(json.load(handle)["compiled_capabilities"])
+              report = json.load(handle)
+          actual = set(report["supported_capabilities"])
           expected = {"cpu", "openvino", "cuda"}
           if actual != expected:
-              raise SystemExit(f"compiled capabilities {sorted(actual)} != {sorted(expected)}")
+              raise SystemExit(f"capabilities {sorted(actual)} != {sorted(expected)}")
+          if not report["libraries"]["runtime_loadable"]["default"]:
+              raise SystemExit("packaged CPU default is not reported loadable")
           PY
-          readelf -d "dist/${package}/omawake" | grep -F 'Library runpath: [$ORIGIN/lib]'
+          if readelf -d "${binary}" | grep -E 'libonnxruntime|libsherpa-onnx'; then
+            echo "release executable must not link ONNX Runtime or sherpa-onnx" >&2
+            exit 1
+          fi
+          lib="dist/${package}/lib"
+          for required in \
+            libonnxruntime.so \
+            libonnxruntime.so.1 \
+            "libonnxruntime.so.${ORT_VERSION}" \
+            libsherpa-onnx-c-api.so; do
+            test -e "${lib}/${required}"
+          done
+          [[ $(find "${lib}" -maxdepth 1 \( -type f -o -type l \) | wc -l) == 4 ]]
+          ! compgen -G "${lib}/libonnxruntime_providers_*.so*" >/dev/null
+          licenses="dist/${package}/licenses"
+          expected_licenses=(
+            EIGEN-APACHE-2.0
+            EIGEN-BSD
+            EIGEN-COPYING-README
+            EIGEN-MINPACK
+            EIGEN-MPL-2.0
+            KALDI-DECODER-LICENSE
+            KALDI-NATIVE-FBANK-LICENSE
+            KALDIFST-LICENSE
+            KISSFFT-BSD-3-CLAUSE
+            KISSFFT-COPYING
+            NLOHMANN-JSON-MIT
+            OMAWAKE-LICENSE
+            OMAWAKE-THIRD-PARTY-NOTICES
+            OMARCHY-LICENSE
+            ONNX-RUNTIME-LICENSE
+            ONNX-RUNTIME-THIRD-PARTY-NOTICES
+            OPENFST-AUTHORS
+            OPENFST-COPYING
+            RUST-DEPENDENCIES.txt
+            SHERPA-ONNX-LICENSE
+            SHERPA-ONNX-NOTICE
+            SIMPLE-SENTENCEPIECE-LICENSE
+          )
+          [[ $(find "${licenses}" -maxdepth 1 -type f | wc -l) == ${#expected_licenses[@]} ]]
+          for notice in "${expected_licenses[@]}"; do
+            test -f "${licenses}/${notice}"
+          done
+          cmp "${OMA_ORT_ROOT}/LICENSE" "${licenses}/ONNX-RUNTIME-LICENSE"
+          cmp "${OMA_ORT_ROOT}/ThirdPartyNotices.txt" \
+            "${licenses}/ONNX-RUNTIME-THIRD-PARTY-NOTICES"
+          cmp "${OMA_NATIVE_ROOT}/sherpa-onnx/LICENSE" \
+            "${licenses}/SHERPA-ONNX-LICENSE"
+          cmp LICENSE "${licenses}/OMAWAKE-LICENSE"
+          cmp THIRD_PARTY_NOTICES.md "${licenses}/OMAWAKE-THIRD-PARTY-NOTICES"
+          cmp licenses/OMARCHY-LICENSE "${licenses}/OMARCHY-LICENSE"
+          cmp native/sherpa/NOTICE "${licenses}/SHERPA-ONNX-NOTICE"
+          for notice in \
+            EIGEN-APACHE-2.0 EIGEN-BSD EIGEN-COPYING-README EIGEN-MINPACK \
+            EIGEN-MPL-2.0 KALDI-DECODER-LICENSE KALDI-NATIVE-FBANK-LICENSE \
+            KALDIFST-LICENSE KISSFFT-BSD-3-CLAUSE KISSFFT-COPYING \
+            NLOHMANN-JSON-MIT OPENFST-AUTHORS OPENFST-COPYING \
+            SIMPLE-SENTENCEPIECE-LICENSE; do
+            cmp "licenses/native/${notice}" "${licenses}/${notice}"
+          done
+          test -s "${licenses}/RUST-DEPENDENCIES.txt"
+          LIB="${lib}" python3 - <<'PY'
+          import ctypes
+          import os
+
+          lib = os.environ["LIB"]
+          ctypes.CDLL(os.path.join(lib, "libonnxruntime.so"), mode=ctypes.RTLD_GLOBAL)
+          sherpa = ctypes.CDLL(os.path.join(lib, "libsherpa-onnx-c-api.so"))
+          sherpa.SherpaOnnxGetVersionStr.restype = ctypes.c_char_p
+          assert sherpa.SherpaOnnxGetVersionStr() == b"1.13.8"
+          assert sherpa.SherpaOnnxGetOmaRuntimeAbiVersion() == 1
+          sherpa.SherpaOnnxCreateOrtRuntime.restype = ctypes.c_void_p
+          runtime = sherpa.SherpaOnnxCreateOrtRuntime()
+          assert runtime
+          sherpa.SherpaOnnxDestroyOrtRuntime.argtypes = [ctypes.c_void_p]
+          sherpa.SherpaOnnxDestroyOrtRuntime(runtime)
+          PY
 
       - uses: actions/upload-artifact@v4
         with:

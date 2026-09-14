@@ -1,9 +1,9 @@
 use super::*;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::io::Cursor;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use omawake::engine::{WakeWordBackend, WakeWordStream};
+use crate::engine::{WakeWordBackend, WakeWordStream};
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 
@@ -30,7 +30,8 @@ impl WakeWordBackend for InMemoryBackend {
 struct ScriptedGuidedPrompts {
     mode: Option<SetupMode>,
     runtime: Option<RuntimeSelection>,
-    model: Option<&'static omawake::catalog::ModelSpec>,
+    model: Option<&'static crate::catalog::ModelSpec>,
+    archive: Option<PathBuf>,
     confirm: bool,
 }
 
@@ -43,12 +44,24 @@ impl GuidedPrompts for ScriptedGuidedPrompts {
         Ok(self.runtime.clone())
     }
 
+    fn confirm_runtime(&mut self, _: &RuntimeSelection, _: Option<&Path>) -> Result<bool> {
+        Ok(self.confirm)
+    }
+
     fn model(
         &mut self,
         _: &AppPaths,
         _: &Config,
-    ) -> Result<Option<&'static omawake::catalog::ModelSpec>> {
+    ) -> Result<Option<&'static crate::catalog::ModelSpec>> {
         Ok(self.model)
+    }
+
+    fn model_archive(
+        &mut self,
+        _: &AppPaths,
+        _: &crate::catalog::ModelSpec,
+    ) -> Result<Option<PathBuf>> {
+        Ok(self.archive.clone())
     }
 
     fn confirm(&mut self, _: &RuntimeSelection, _: &str, _: bool) -> Result<bool> {
@@ -62,12 +75,29 @@ fn guided_setup_dispatch_and_runtime_actions_are_testable_without_a_terminal() {
     let mut cancelled = ScriptedGuidedPrompts::default();
     guided_setup_with(&paths.config_file, &paths, &mut cancelled).unwrap();
 
+    // Each partial flow must treat Back as a clean cancellation without writing
+    // a config or installing anything.
+    guided_runtime_with(&paths.config_file, &mut ScriptedGuidedPrompts::default()).unwrap();
+    guided_model_with(
+        &paths.config_file,
+        &paths,
+        &mut ScriptedGuidedPrompts::default(),
+    )
+    .unwrap();
+    guided_all_with(
+        &paths.config_file,
+        &paths,
+        &mut ScriptedGuidedPrompts::default(),
+    )
+    .unwrap();
+
     let mut runtime = ScriptedGuidedPrompts {
         mode: Some(SetupMode::Runtime),
         runtime: Some(RuntimeSelection {
             runtime: Runtime::Default,
             device: "cpu".into(),
         }),
+        confirm: true,
         ..Default::default()
     };
     guided_setup_with(&paths.config_file, &paths, &mut runtime).unwrap();
@@ -100,36 +130,65 @@ fn guided_setup_dispatch_and_runtime_actions_are_testable_without_a_terminal() {
 
 #[test]
 fn guided_model_activates_installed_and_downloaded_choices() {
-    let paths = test_paths("guided-model");
-    let spec = &omawake::catalog::models()[0];
-    for already_installed in [true, false] {
-        let mut prompts = ScriptedGuidedPrompts {
-            model: Some(spec),
-            ..Default::default()
-        };
-        guided_model_with_services(
-            &paths.config_file,
-            &paths,
-            &mut prompts,
-            |_, _| {
-                if already_installed {
-                    Ok(())
-                } else {
-                    bail!("missing")
-                }
-            },
-            |paths, model, archive, format| {
-                assert!(archive.is_none());
-                assert_eq!(format, ProgressFormat::Human);
-                Ok(app_setup::model::model_directory(paths, model))
-            },
-        )
-        .unwrap();
-        assert_eq!(
-            Config::load(&paths.config_file).unwrap().model.name,
-            spec.id
-        );
-    }
+    let spec = &crate::catalog::models()[0];
+    let paths = test_paths("guided-model-installed");
+    let mut installed = ScriptedGuidedPrompts {
+        model: Some(spec),
+        ..Default::default()
+    };
+    guided_model_with_services(
+        &paths.config_file,
+        &paths,
+        &mut installed,
+        |_, _| Ok(()),
+        |_, _, _, _| unreachable!(),
+    )
+    .unwrap();
+    assert_eq!(
+        Config::load(&paths.config_file).unwrap().model.name,
+        spec.id
+    );
+
+    let paths = test_paths("guided-model-archive");
+    let archive = paths.data_dir.join("licensed-model.tar.bz2");
+    fs::create_dir_all(&paths.data_dir).unwrap();
+    fs::write(&archive, b"fixture").unwrap();
+    let mut missing = ScriptedGuidedPrompts {
+        model: Some(spec),
+        archive: Some(archive.clone()),
+        ..Default::default()
+    };
+    guided_model_with_services(
+        &paths.config_file,
+        &paths,
+        &mut missing,
+        |_, _| bail!("missing"),
+        |paths, model, selected_archive, format| {
+            assert_eq!(selected_archive, Some(archive.as_path()));
+            assert_eq!(format, ProgressFormat::Human);
+            Ok(app_setup::model::model_directory(paths, model))
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        Config::load(&paths.config_file).unwrap().model.name,
+        spec.id
+    );
+
+    let paths = test_paths("guided-model-archive-cancel");
+    let mut cancelled_archive = ScriptedGuidedPrompts {
+        model: Some(spec),
+        ..Default::default()
+    };
+    guided_model_with_services(
+        &paths.config_file,
+        &paths,
+        &mut cancelled_archive,
+        |_, _| bail!("missing"),
+        |_, _, _, _| unreachable!(),
+    )
+    .unwrap();
+    assert!(!paths.config_file.exists());
 
     let mut no_model = ScriptedGuidedPrompts::default();
     guided_model_with_services(
@@ -144,7 +203,7 @@ fn guided_model_activates_installed_and_downloaded_choices() {
 
 #[test]
 fn guided_full_setup_waits_for_review_and_then_runs_selected_plan() {
-    let spec = &omawake::catalog::models()[0];
+    let spec = &crate::catalog::models()[0];
     let selection = RuntimeSelection {
         runtime: Runtime::Default,
         device: "cpu".into(),
@@ -159,6 +218,7 @@ fn guided_full_setup_waits_for_review_and_then_runs_selected_plan() {
         ScriptedGuidedPrompts {
             runtime: Some(selection.clone()),
             model: Some(spec),
+            archive: Some(PathBuf::from("/tmp/licensed-model.tar.bz2")),
             confirm: false,
             ..Default::default()
         },
@@ -187,6 +247,7 @@ fn guided_full_setup_waits_for_review_and_then_runs_selected_plan() {
     let mut prompts = ScriptedGuidedPrompts {
         runtime: Some(selection),
         model: Some(spec),
+        archive: Some(paths.data_dir.join("licensed-model.tar.bz2")),
         confirm: true,
         ..Default::default()
     };
@@ -195,7 +256,11 @@ fn guided_full_setup_waits_for_review_and_then_runs_selected_plan() {
         &paths.config_file,
         &paths,
         &mut prompts,
-        |paths, model, _, format| {
+        |paths, model, archive, format| {
+            assert_eq!(
+                archive,
+                Some(paths.data_dir.join("licensed-model.tar.bz2").as_path())
+            );
             assert_eq!(format, ProgressFormat::Human);
             Ok(app_setup::model::model_directory(paths, model))
         },
@@ -221,28 +286,134 @@ fn guided_full_setup_waits_for_review_and_then_runs_selected_plan() {
 }
 
 #[test]
+fn guided_full_rejects_the_runtime_before_setup_callbacks_or_config_changes() {
+    let paths = test_paths("guided-full-invalid-runtime");
+    fs::create_dir_all(paths.config_file.parent().unwrap()).unwrap();
+    let original = b"# preserve this exact file\n[backend]\nruntime = \"default\"\n";
+    fs::write(&paths.config_file, original).unwrap();
+    let callbacks = std::cell::Cell::new(0);
+    let mut prompts = ScriptedGuidedPrompts {
+        runtime: Some(RuntimeSelection {
+            runtime: Runtime::Cuda,
+            device: "gpu".into(),
+        }),
+        ..Default::default()
+    };
+
+    let error = guided_all_with_services_and_validator(
+        &paths.config_file,
+        &paths,
+        &mut prompts,
+        |candidate, _, _| {
+            assert_eq!(candidate.backend.runtime, Runtime::Cuda);
+            bail!("candidate runtime probe failed")
+        },
+        |_, _, _, _| {
+            callbacks.set(callbacks.get() + 1);
+            unreachable!()
+        },
+        |_| {
+            callbacks.set(callbacks.get() + 1);
+            unreachable!()
+        },
+        |_| {
+            callbacks.set(callbacks.get() + 1);
+            false
+        },
+        |_| {
+            callbacks.set(callbacks.get() + 1);
+            unreachable!()
+        },
+        |_, _| {
+            callbacks.set(callbacks.get() + 1);
+            unreachable!()
+        },
+        |_, _| {
+            callbacks.set(callbacks.get() + 1);
+            unreachable!()
+        },
+    )
+    .unwrap_err();
+
+    assert!(error.to_string().contains("candidate runtime probe failed"));
+    assert_eq!(callbacks.get(), 0);
+    assert_eq!(fs::read(&paths.config_file).unwrap(), original);
+}
+
+#[test]
+fn guided_full_rolls_back_existing_and_new_configs_after_later_failures() {
+    let spec = &crate::catalog::models()[0];
+    let selection = RuntimeSelection {
+        runtime: Runtime::Default,
+        device: "cpu".into(),
+    };
+
+    let existing = test_paths("guided-full-rollback-existing");
+    fs::create_dir_all(existing.config_file.parent().unwrap()).unwrap();
+    let original =
+        b"# byte-for-byte rollback\n[backend]\nruntime = \"default\"\ndevice = \"auto\"\n";
+    fs::write(&existing.config_file, original).unwrap();
+    let mut prompts = ScriptedGuidedPrompts {
+        runtime: Some(selection.clone()),
+        model: Some(spec),
+        archive: Some(existing.data_dir.join("licensed-model.tar.bz2")),
+        confirm: true,
+        ..Default::default()
+    };
+    let error = guided_all_with_services_and_validator(
+        &existing.config_file,
+        &existing,
+        &mut prompts,
+        |_, _, _| Ok(()),
+        |paths, model, _, _| Ok(app_setup::model::model_directory(paths, model)),
+        |_| bail!("launcher failed after config save"),
+        |_| false,
+        |_| unreachable!(),
+        |_, _| unreachable!(),
+        |_, _| unreachable!(),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("launcher failed"));
+    assert_eq!(fs::read(&existing.config_file).unwrap(), original);
+
+    let new = test_paths("guided-full-rollback-new");
+    let mut prompts = ScriptedGuidedPrompts {
+        runtime: Some(selection),
+        model: Some(spec),
+        archive: Some(new.data_dir.join("licensed-model.tar.bz2")),
+        confirm: true,
+        ..Default::default()
+    };
+    let error = guided_all_with_services_and_validator(
+        &new.config_file,
+        &new,
+        &mut prompts,
+        |_, _, _| Ok(()),
+        |paths, model, _, _| Ok(app_setup::model::model_directory(paths, model)),
+        |paths| Ok(paths.data_dir.join("applications/omawake.desktop")),
+        |_| false,
+        |_| unreachable!(),
+        |_, _| bail!("final setup check failed"),
+        |_, _| unreachable!(),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("final setup check failed"));
+    assert!(!new.config_file.exists());
+}
+
+#[test]
 fn guided_model_catalog_exposes_status_metadata_and_selection() {
     let paths = test_paths("guided-model-catalog");
-    let active = omawake::catalog::models()[0].id;
+    let active = crate::catalog::models()[0].id;
     let selected = choose_model_with(&paths, active, |items, preferred| {
         assert_eq!(preferred, 0);
-        assert!(items[0].label.contains("active · download required"));
-        assert!(items[0].detail.contains("backend: sherpa-onnx"));
-        assert!(items[0].detail.contains("MiB"));
+        assert!(items[0].enabled);
+        assert!(items[0].label.contains("user-supplied archive required"));
+        assert!(items[0].detail.contains("licensed local archive"));
         Ok(Some(0))
     })
-    .unwrap()
     .unwrap();
-    assert_eq!(selected.id, active);
-    assert!(
-        choose_model_with(&paths, "different", |items, preferred| {
-            assert_eq!(preferred, 0);
-            assert!(items[0].label.contains("· download"));
-            Ok(None)
-        })
-        .unwrap()
-        .is_none()
-    );
+    assert_eq!(selected.map(|model| model.id), Some(active));
 }
 
 #[test]
@@ -252,10 +423,17 @@ fn terminal_prompt_adapter_reports_non_tty_errors() {
     }
     let paths = test_paths("terminal-prompts");
     let config = Config::default();
-    let mut prompts = TerminalGuidedPrompts;
+    let mut prompts = TerminalGuidedPrompts {
+        config_path: paths.config_file.clone(),
+    };
     assert!(prompts.setup_mode().is_err());
     assert!(prompts.runtime(&config).is_err());
     assert!(prompts.model(&paths, &config).is_err());
+    assert!(
+        prompts
+            .model_archive(&paths, &crate::catalog::models()[0])
+            .is_err()
+    );
     assert!(
         prompts
             .confirm(
@@ -407,19 +585,19 @@ fn io_or_skip<T>(result: std::io::Result<T>) -> Option<T> {
 
 #[test]
 fn word_alias_parses_remove() {
-    let cli = Cli::try_parse_from(["omawake", "word", "remove", "hey-atreyu"]).unwrap();
+    let cli = Cli::try_parse_from(["omawake", "word", "remove", "computer"]).unwrap();
     assert!(matches!(
         cli.command,
         TopCommand::WakeWord {
             command: WakeWordCommand::Remove { ref id }
-        } if id == "hey-atreyu"
+        } if id == "computer"
     ));
 }
 
 #[test]
 fn last_wake_word_can_be_removed() {
     let mut config = Config::default();
-    remove_wake_word(&mut config, "hey-atreyu").unwrap();
+    remove_wake_word(&mut config, "computer").unwrap();
     assert!(config.wake_words.is_empty());
     assert!(validate_wake_words(&config.wake_words).is_ok());
 }
@@ -495,6 +673,26 @@ fn command_line_surface_parses_representative_forms() {
         Cli::try_parse_from(["omawake", "setup", "systemd", "--status", "--uninstall"]).is_err()
     );
     assert!(Cli::try_parse_from(["omawake", "setup", "all", "--no-start"]).is_err());
+    for args in [
+        ["omawake", "test", "--audio", "input.wav"].as_slice(),
+        ["omawake", "test", "--seconds", "1"].as_slice(),
+        ["omawake", "benchmark", "input.wav"].as_slice(),
+        ["omawake", "daemon"].as_slice(),
+    ] {
+        assert!(command_uses_engine(
+            &Cli::try_parse_from(args).unwrap().command
+        ));
+    }
+    for args in [
+        ["omawake", "test"].as_slice(),
+        ["omawake", "status"].as_slice(),
+        ["omawake", "config", "get"].as_slice(),
+        ["omawake", "setup", "runtime"].as_slice(),
+    ] {
+        assert!(!command_uses_engine(
+            &Cli::try_parse_from(args).unwrap().command
+        ));
+    }
     let denied = || std::io::Error::from(std::io::ErrorKind::PermissionDenied);
     assert!(io_or_skip::<()>(Err(denied())).is_none());
     assert!(anyhow_or_skip::<()>(Err(denied().into())).is_none());
@@ -519,6 +717,19 @@ fn config_helpers_cover_every_supported_key_and_validation() {
         ("backend.fallback", "CPU"),
         ("backend.device_id", "2"),
         ("backend.provider_config", "provider.json"),
+        ("backend.library_dirs", "/opt/oma/lib:/opt/vendor/lib"),
+        (
+            "backend.onnxruntime_library",
+            "/opt/oma/lib/libonnxruntime.so",
+        ),
+        (
+            "backend.sherpa_library",
+            "/opt/oma/lib/libsherpa-onnx-c-api.so",
+        ),
+        (
+            "backend.provider_library",
+            "/opt/oma/lib/libonnxruntime_providers_openvino.so",
+        ),
         ("model.name", "custom-model"),
         ("model.directory", "/models/custom"),
         ("model.sample_rate", "8000"),
@@ -573,7 +784,7 @@ fn config_mutation_saves_and_wake_words_compile_when_model_exists() {
     let accelerated = Config::load(&paths.config_file).unwrap();
     assert_eq!(
         accelerated.model.encoder,
-        omawake::catalog::models()[0].openvino_accelerator_encoder
+        crate::catalog::models()[0].openvino_accelerator_encoder
     );
     config_mutation(
         ConfigCommand::Unset {
@@ -609,7 +820,7 @@ fn config_mutation_saves_and_wake_words_compile_when_model_exists() {
     assert!(
         wake_word_command(
             WakeWordCommand::Add {
-                id: "hey-atreyu".into(),
+                id: "computer".into(),
                 phrase: "Duplicate".into(),
                 command: vec!["true".into()],
             },
@@ -629,6 +840,7 @@ fn runtime_changes_reset_cuda_only_device_state() {
     cuda.backend.device = "gpu".into();
     cuda.backend.device_id = 3;
     cuda.backend.provider_config = "cuda.conf".into();
+    cuda.backend.provider_library = "/old/libonnxruntime_providers_cuda.so".into();
     cuda.backend
         .options
         .insert("gpu_mem_limit".into(), "1024".into());
@@ -647,6 +859,7 @@ fn runtime_changes_reset_cuda_only_device_state() {
     assert_eq!(openvino.backend.device, "auto");
     assert_eq!(openvino.backend.device_id, 0);
     assert!(openvino.backend.provider_config.is_empty());
+    assert!(openvino.backend.provider_library.as_os_str().is_empty());
     assert!(openvino.backend.options.is_empty());
 
     cuda.save(&paths.config_file).unwrap();
@@ -662,17 +875,17 @@ fn runtime_changes_reset_cuda_only_device_state() {
     assert_eq!(default.backend.runtime, Runtime::Default);
     assert_eq!(default.backend.device_id, 0);
     assert!(default.backend.provider_config.is_empty());
+    assert!(default.backend.provider_library.as_os_str().is_empty());
     assert!(default.backend.options.is_empty());
 
     for (runtime, device) in [(Runtime::Openvino, "npu"), (Runtime::Default, "cpu")] {
         cuda.save(&paths.config_file).unwrap();
-        save_runtime_selection_with_capabilities(
+        save_runtime_selection(
             &paths.config_file,
             &RuntimeSelection {
                 runtime,
                 device: device.into(),
             },
-            &["cpu", "openvino", "cuda"],
         )
         .unwrap();
         let saved = Config::load(&paths.config_file).unwrap();
@@ -680,8 +893,153 @@ fn runtime_changes_reset_cuda_only_device_state() {
         assert_eq!(saved.backend.device, device);
         assert_eq!(saved.backend.device_id, 0);
         assert!(saved.backend.provider_config.is_empty());
+        assert!(saved.backend.provider_library.as_os_str().is_empty());
         assert!(saved.backend.options.is_empty());
     }
+}
+
+#[test]
+fn runtime_directory_populates_exact_external_library_paths() {
+    let paths = test_paths("runtime-directory");
+    let runtime = paths.data_dir.join("runtime");
+    fs::create_dir_all(&runtime).unwrap();
+    for library in [
+        "libonnxruntime.so.1.29.0",
+        "libsherpa-onnx-c-api.so.1.13.8",
+        "libonnxruntime_providers_openvino.so",
+    ] {
+        fs::write(runtime.join(library), b"fixture").unwrap();
+    }
+    save_runtime_selection_impl_with(
+        &paths.config_file,
+        &RuntimeSelection {
+            runtime: Runtime::Openvino,
+            device: "npu".into(),
+        },
+        Some(&runtime),
+        |_, _, _| Ok(()),
+    )
+    .unwrap();
+    let mut config = Config::load(&paths.config_file).unwrap();
+    assert_eq!(
+        config.backend.library_dirs.as_slice(),
+        std::slice::from_ref(&runtime)
+    );
+    assert_eq!(
+        config.backend.onnxruntime_library,
+        runtime.join("libonnxruntime.so.1.29.0")
+    );
+    assert_eq!(
+        config.backend.sherpa_library,
+        runtime.join("libsherpa-onnx-c-api.so.1.13.8")
+    );
+    assert_eq!(
+        config.backend.provider_library,
+        runtime.join("libonnxruntime_providers_openvino.so")
+    );
+
+    assert!(configure_runtime_directory(&mut Config::default(), Path::new("relative")).is_err());
+
+    let sdk = paths.data_dir.join("sdk");
+    let base = sdk.join("lib");
+    let provider = sdk.join("runtime/lib/intel64/Release");
+    fs::create_dir_all(&base).unwrap();
+    fs::create_dir_all(&provider).unwrap();
+    fs::write(base.join("libonnxruntime.so"), b"fixture").unwrap();
+    fs::write(base.join("libsherpa-onnx-c-api.so"), b"fixture").unwrap();
+    fs::write(
+        provider.join("libonnxruntime_providers_openvino.so"),
+        b"fixture",
+    )
+    .unwrap();
+    configure_runtime_directory(&mut config, &sdk).unwrap();
+    assert_eq!(config.backend.library_dirs, [base, provider]);
+}
+
+fn runtime_report(runtime: Runtime, loadable: bool) -> runtime_paths::RuntimeLibraryReport {
+    runtime_paths::RuntimeLibraryReport {
+        onnxruntime_library: None,
+        sherpa_library: None,
+        provider_library: None,
+        configured_library_dirs: Vec::new(),
+        environment_library_dirs: Vec::new(),
+        package_library_dirs: Vec::new(),
+        effective_library_dirs: Vec::new(),
+        missing_library_dirs: Vec::new(),
+        runtime_loadable: BTreeMap::from([(runtime_name(runtime), loadable)]),
+        remediation: if loadable {
+            Vec::new()
+        } else {
+            vec!["injected provider/device probe failure".into()]
+        },
+    }
+}
+
+#[test]
+fn runtime_candidate_validation_failure_preserves_the_original_config() {
+    let paths = test_paths("runtime-candidate-validation");
+    let original = Config::default();
+    original.save(&paths.config_file).unwrap();
+    let original_bytes = fs::read(&paths.config_file).unwrap();
+
+    let error = save_runtime_selection_impl_with(
+        &paths.config_file,
+        &RuntimeSelection {
+            runtime: Runtime::Cuda,
+            device: "gpu".into(),
+        },
+        None,
+        |staged, path, explicit_directory| {
+            assert_eq!(path, paths.config_file);
+            assert_eq!(staged.backend.runtime, Runtime::Cuda);
+            assert_eq!(staged.backend.device, "gpu");
+            assert!(!explicit_directory);
+            bail!("injected ABI probe failure")
+        },
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("injected ABI probe failure"));
+    assert_eq!(fs::read(&paths.config_file).unwrap(), original_bytes);
+
+    let error = validate_runtime_candidate_report(
+        Runtime::Openvino,
+        &runtime_report(Runtime::Openvino, false),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("configuration was not changed"));
+    assert!(
+        error
+            .to_string()
+            .contains("injected provider/device probe failure")
+    );
+    validate_runtime_candidate_report(Runtime::Cuda, &runtime_report(Runtime::Cuda, true)).unwrap();
+}
+
+#[test]
+fn guided_runtime_apply_and_cancel_share_the_review_step() {
+    let paths = test_paths("guided-runtime-review");
+    let selection = RuntimeSelection {
+        runtime: Runtime::Default,
+        device: "cpu".into(),
+    };
+    let mut cancel = ScriptedGuidedPrompts {
+        runtime: Some(selection.clone()),
+        confirm: false,
+        ..Default::default()
+    };
+    guided_runtime_with(&paths.config_file, &mut cancel).unwrap();
+    assert!(!paths.config_file.exists());
+
+    let mut apply = ScriptedGuidedPrompts {
+        runtime: Some(selection),
+        confirm: true,
+        ..Default::default()
+    };
+    guided_runtime_with(&paths.config_file, &mut apply).unwrap();
+    assert_eq!(
+        Config::load(&paths.config_file).unwrap().backend.device,
+        "cpu"
+    );
 }
 
 #[test]
@@ -1710,7 +2068,17 @@ fn setup_dispatch_covers_checks_catalog_and_safe_failure_paths() {
 
     for json in [false, true] {
         assert!(setup(Some(SetupCommand::Check { json }), config, &paths).is_err());
-        setup(Some(SetupCommand::Runtime { json }), config, &paths).unwrap();
+        setup(
+            Some(SetupCommand::Runtime {
+                json,
+                runtime: None,
+                device: None,
+                dir: None,
+            }),
+            config,
+            &paths,
+        )
+        .unwrap();
         setup(
             Some(SetupCommand::Model {
                 list: true,
@@ -1979,7 +2347,7 @@ fn real_detector_forwards_control_metadata_without_native_backend() {
     let detector = Detector::from_backend(
         &config,
         Box::new(InMemoryBackend),
-        "HEY ATREYU @hey-atreyu".into(),
+        "COMPUTER @computer".into(),
         Runtime::Cuda,
         true,
         Duration::from_millis(17),
@@ -1995,12 +2363,10 @@ fn real_detector_forwards_control_metadata_without_native_backend() {
     );
     assert_eq!(
         DetectorControl::keywords_buffer(&detector),
-        "HEY ATREYU @hey-atreyu"
+        "COMPUTER @computer"
     );
     assert_eq!(
-        DetectorControl::run(&detector, "hey-atreyu")
-            .unwrap()
-            .status,
+        DetectorControl::run(&detector, "computer").unwrap().status,
         0
     );
 

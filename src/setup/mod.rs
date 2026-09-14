@@ -75,7 +75,7 @@ fn checks_with(
         .find(|backend| backend.kind == config.backend.kind)
     {
         Some(backend) if backend.built => {
-            result.push(ok("backend", format!("{} is compiled", backend.kind)))
+            result.push(ok("backend", format!("{} is supported", backend.kind)))
         }
         Some(backend) => result.push(fail(
             "backend",
@@ -218,16 +218,18 @@ pub fn print_checks_event(path: &Path, paths: &AppPaths) -> Result<()> {
     Ok(())
 }
 
-pub fn print_runtime(json: bool) -> Result<()> {
+pub fn print_runtime(config: &Config, config_path: &Path, json: bool) -> Result<()> {
+    let libraries = crate::runtime_paths::report(&config.backend, config_path);
     let value = serde_json::json!({
         "backends": catalog::backends(),
-        "compiled_capabilities": crate::backend::compiled_capabilities(),
+        "supported_capabilities": crate::backend::supported_capabilities(),
         "runtime_device_matrix": {
             "default": ["auto", "cpu"],
             "cuda": ["auto", "gpu"],
-            "openvino": ["auto", "cpu", "gpu", "npu", "AUTO:<devices>", "HETERO:<devices>", "MULTI:<devices>"]
+            "openvino": ["auto", "cpu", "gpu", "npu"]
         },
         "models": catalog::models(),
+        "libraries": libraries,
     });
     if json {
         println!("{}", serde_json::to_string_pretty(&value)?);
@@ -242,33 +244,98 @@ pub fn print_runtime(json: bool) -> Result<()> {
             );
         }
         println!(
-            "Compiled runtime capabilities: {}",
-            crate::backend::compiled_capabilities().join(", ")
+            "Runtime loader capabilities: {}",
+            crate::backend::supported_capabilities().join(", ")
+        );
+        println!("Runtime library discovery:");
+        println!(
+            "  configured: {}",
+            format_paths(&libraries.configured_library_dirs)
+        );
+        println!(
+            "  environment ({}): {}",
+            crate::runtime_paths::LIBRARY_PATH_ENV,
+            format_paths(&libraries.environment_library_dirs)
+        );
+        println!(
+            "  package: {}",
+            format_paths(&libraries.package_library_dirs)
+        );
+        println!(
+            "  effective: {}",
+            format_paths(&libraries.effective_library_dirs)
+        );
+        println!(
+            "  missing: {}",
+            format_paths(&libraries.missing_library_dirs)
+        );
+        println!(
+            "  ONNX Runtime: {}",
+            libraries
+                .onnxruntime_library
+                .as_deref()
+                .map_or_else(|| "(not found)".into(), |path| path.display().to_string())
+        );
+        println!(
+            "  sherpa: {}",
+            libraries
+                .sherpa_library
+                .as_deref()
+                .map_or_else(|| "(not found)".into(), |path| path.display().to_string())
+        );
+        println!(
+            "  provider: {}",
+            libraries.provider_library.as_deref().map_or_else(
+                || "(not selected)".into(),
+                |path| path.display().to_string()
+            )
         );
         println!("Runtime/device choices:");
-        println!("  default   auto, cpu                 available");
+        println!(
+            "  default   auto, cpu                 {}",
+            if libraries.runtime_loadable["default"] {
+                "runtime ready"
+            } else {
+                "runtime not found"
+            }
+        );
         println!(
             "  openvino  auto, cpu, gpu, npu       {}",
-            if crate::backend::compiled_capabilities().contains(&"openvino") {
-                "available"
+            if libraries.runtime_loadable["openvino"] {
+                "external runtime ready"
             } else {
-                "unavailable (requires an OpenVINO build)"
+                "external runtime not found"
             }
         );
         println!(
             "  cuda      auto, gpu                 {}",
-            if crate::backend::compiled_capabilities().contains(&"cuda") {
-                "available"
+            if libraries.runtime_loadable["cuda"] {
+                "external runtime ready"
             } else {
-                "unavailable in this build"
+                "external runtime not found"
             }
         );
         println!(
             "Configure backend.runtime and backend.device independently; unsupported combinations fail unless fallback = \"cpu\"."
         );
-        println!("Browse downloadable models with `omawake setup model --list`.");
+        println!("Browse catalog models and license status with `omawake setup model --list`.");
+        for remediation in &libraries.remediation {
+            println!("  fix: {remediation}");
+        }
     }
     Ok(())
+}
+
+fn format_paths(paths: &[std::path::PathBuf]) -> String {
+    if paths.is_empty() {
+        "(none)".into()
+    } else {
+        paths
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(":")
+    }
 }
 
 fn command_exists(name: &str) -> bool {

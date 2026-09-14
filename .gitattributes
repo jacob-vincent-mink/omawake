@@ -1,0 +1,3 @@
+# Preserve byte-exact upstream legal texts and source patches.
+licenses/native/** -whitespace
+native/sherpa/patches/** -whitespace

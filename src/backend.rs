@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -10,16 +11,6 @@ pub enum Runtime {
     Default,
     Openvino,
     Cuda,
-}
-
-impl Runtime {
-    pub const fn capability(self) -> &'static str {
-        match self {
-            Self::Default => "cpu",
-            Self::Openvino => "openvino",
-            Self::Cuda => "cuda",
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -40,6 +31,10 @@ pub struct BackendConfig {
     pub fallback: Fallback,
     pub device_id: u32,
     pub provider_config: String,
+    pub library_dirs: Vec<PathBuf>,
+    pub onnxruntime_library: PathBuf,
+    pub sherpa_library: PathBuf,
+    pub provider_library: PathBuf,
     pub options: BTreeMap<String, String>,
 }
 
@@ -53,6 +48,10 @@ impl Default for BackendConfig {
             fallback: Fallback::Error,
             device_id: 0,
             provider_config: String::new(),
+            library_dirs: Vec::new(),
+            onnxruntime_library: PathBuf::new(),
+            sherpa_library: PathBuf::new(),
+            provider_library: PathBuf::new(),
             options: BTreeMap::new(),
         }
     }
@@ -66,11 +65,6 @@ pub enum BackendError {
     InvalidDevice { runtime: Runtime, device: String },
     #[error("backend device_id is only valid with runtime cuda")]
     InvalidDeviceId,
-    #[error("backend runtime {runtime:?} is unavailable in this build (requires {capability})")]
-    CapabilityUnavailable {
-        runtime: Runtime,
-        capability: &'static str,
-    },
 }
 
 impl BackendConfig {
@@ -88,30 +82,10 @@ impl BackendConfig {
         self.canonical_device()?;
         Ok(())
     }
-
-    pub fn validate_capabilities(&self, compiled: &[&str]) -> Result<(), BackendError> {
-        self.validate_shape()?;
-        let required = self.runtime.capability();
-        if compiled.contains(&required) {
-            Ok(())
-        } else {
-            Err(BackendError::CapabilityUnavailable {
-                runtime: self.runtime,
-                capability: required,
-            })
-        }
-    }
 }
 
-pub const fn compiled_capabilities() -> &'static [&'static str] {
-    #[cfg(all(feature = "openvino", feature = "cuda"))]
-    return &["cpu", "openvino", "cuda"];
-    #[cfg(all(feature = "openvino", not(feature = "cuda")))]
-    return &["cpu", "openvino"];
-    #[cfg(all(not(feature = "openvino"), feature = "cuda"))]
-    return &["cpu", "cuda"];
-    #[cfg(not(any(feature = "openvino", feature = "cuda")))]
-    &["cpu"]
+pub const fn supported_capabilities() -> &'static [&'static str] {
+    &["cpu", "openvino", "cuda"]
 }
 
 pub fn canonical_device(runtime: Runtime, raw: &str) -> Result<String, BackendError> {
@@ -132,30 +106,14 @@ pub fn canonical_device(runtime: Runtime, raw: &str) -> Result<String, BackendEr
             "gpu" => Ok("gpu".into()),
             _ => Err(invalid()),
         },
-        Runtime::Openvino => canonical_openvino_device(trimmed).ok_or_else(invalid),
+        Runtime::Openvino => match trimmed.to_ascii_lowercase().as_str() {
+            "auto" => Ok("auto".into()),
+            "cpu" => Ok("cpu".into()),
+            "gpu" => Ok("gpu".into()),
+            "npu" => Ok("npu".into()),
+            _ => Err(invalid()),
+        },
     }
-}
-
-fn canonical_openvino_device(raw: &str) -> Option<String> {
-    let upper = raw.to_ascii_uppercase();
-    if matches!(upper.as_str(), "AUTO" | "NPU" | "GPU" | "CPU") {
-        return Some(upper.to_ascii_lowercase());
-    }
-
-    let (mode, entries) = upper.split_once(':')?;
-    if !matches!(mode, "AUTO" | "HETERO" | "MULTI") {
-        return None;
-    }
-    let devices: Vec<_> = entries.split(',').map(str::trim).collect();
-    let minimum = if mode == "AUTO" { 1 } else { 2 };
-    if devices.len() < minimum
-        || devices
-            .iter()
-            .any(|item| !matches!(*item, "CPU" | "GPU" | "NPU"))
-    {
-        return None;
-    }
-    Some(format!("{mode}:{}", devices.join(",")))
 }
 
 #[cfg(test)]

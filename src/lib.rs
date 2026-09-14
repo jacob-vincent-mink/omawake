@@ -1,3 +1,4 @@
+pub mod app;
 pub mod audio;
 pub mod backend;
 pub mod catalog;
@@ -6,4 +7,5 @@ pub mod engine;
 pub mod keyword;
 pub mod paths;
 pub mod protocol;
+pub mod runtime_paths;
 pub mod setup;

@@ -1,0 +1,670 @@
+{
+  "backend": {
+    "effective_runtime": "openvino",
+    "fallback_used": false,
+    "kind": "sherpa-onnx",
+    "placement_verified": false,
+    "requested_device": "cpu",
+    "requested_runtime": "openvino"
+  },
+  "benchmark": "omawake-file-detection",
+  "files": [
+    {
+      "audio_duration_milliseconds": 6625.0,
+      "iterations": [
+        {
+          "detections": [
+            {
+              "id": "light-up",
+              "start_time": 0.0,
+              "timestamps": [
+                3.0,
+                3.0399999618530273,
+                3.0799999237060547,
+                3.1599998474121094
+              ],
+              "tokens": [
+                " ",
+                "L",
+                "IGHT",
+                " UP"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 261.98402500000003,
+          "iteration": 1,
+          "real_time_factor": 0.03954475849056604
+        },
+        {
+          "detections": [
+            {
+              "id": "light-up",
+              "start_time": 0.0,
+              "timestamps": [
+                3.0,
+                3.0399999618530273,
+                3.0799999237060547,
+                3.1599998474121094
+              ],
+              "tokens": [
+                " ",
+                "L",
+                "IGHT",
+                " UP"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 248.76913100000002,
+          "iteration": 2,
+          "real_time_factor": 0.037550057509433965
+        },
+        {
+          "detections": [
+            {
+              "id": "light-up",
+              "start_time": 0.0,
+              "timestamps": [
+                3.0,
+                3.0399999618530273,
+                3.0799999237060547,
+                3.1599998474121094
+              ],
+              "tokens": [
+                " ",
+                "L",
+                "IGHT",
+                " UP"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 243.87483500000002,
+          "iteration": 3,
+          "real_time_factor": 0.036811295849056604
+        },
+        {
+          "detections": [
+            {
+              "id": "light-up",
+              "start_time": 0.0,
+              "timestamps": [
+                3.0,
+                3.0399999618530273,
+                3.0799999237060547,
+                3.1599998474121094
+              ],
+              "tokens": [
+                " ",
+                "L",
+                "IGHT",
+                " UP"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 253.63199699999998,
+          "iteration": 4,
+          "real_time_factor": 0.03828407501886792
+        },
+        {
+          "detections": [
+            {
+              "id": "light-up",
+              "start_time": 0.0,
+              "timestamps": [
+                3.0,
+                3.0399999618530273,
+                3.0799999237060547,
+                3.1599998474121094
+              ],
+              "tokens": [
+                " ",
+                "L",
+                "IGHT",
+                " UP"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 260.594943,
+          "iteration": 5,
+          "real_time_factor": 0.03933508573584906
+        },
+        {
+          "detections": [
+            {
+              "id": "light-up",
+              "start_time": 0.0,
+              "timestamps": [
+                3.0,
+                3.0399999618530273,
+                3.0799999237060547,
+                3.1599998474121094
+              ],
+              "tokens": [
+                " ",
+                "L",
+                "IGHT",
+                " UP"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 264.41599199999996,
+          "iteration": 6,
+          "real_time_factor": 0.0399118478490566
+        },
+        {
+          "detections": [
+            {
+              "id": "light-up",
+              "start_time": 0.0,
+              "timestamps": [
+                3.0,
+                3.0399999618530273,
+                3.0799999237060547,
+                3.1599998474121094
+              ],
+              "tokens": [
+                " ",
+                "L",
+                "IGHT",
+                " UP"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 256.60175000000004,
+          "iteration": 7,
+          "real_time_factor": 0.03873233962264151
+        },
+        {
+          "detections": [
+            {
+              "id": "light-up",
+              "start_time": 0.0,
+              "timestamps": [
+                3.0,
+                3.0399999618530273,
+                3.0799999237060547,
+                3.1599998474121094
+              ],
+              "tokens": [
+                " ",
+                "L",
+                "IGHT",
+                " UP"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 253.53420100000002,
+          "iteration": 8,
+          "real_time_factor": 0.03826931335849057
+        },
+        {
+          "detections": [
+            {
+              "id": "light-up",
+              "start_time": 0.0,
+              "timestamps": [
+                3.0,
+                3.0399999618530273,
+                3.0799999237060547,
+                3.1599998474121094
+              ],
+              "tokens": [
+                " ",
+                "L",
+                "IGHT",
+                " UP"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 256.736725,
+          "iteration": 9,
+          "real_time_factor": 0.03875271320754717
+        },
+        {
+          "detections": [
+            {
+              "id": "light-up",
+              "start_time": 0.0,
+              "timestamps": [
+                3.0,
+                3.0399999618530273,
+                3.0799999237060547,
+                3.1599998474121094
+              ],
+              "tokens": [
+                " ",
+                "L",
+                "IGHT",
+                " UP"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 250.321476,
+          "iteration": 10,
+          "real_time_factor": 0.03778437373584905
+        }
+      ],
+      "path": "/home/jacob/.local/share/omawake/models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/test_wavs/0.wav",
+      "summary": {
+        "p50_milliseconds": 253.63199699999998,
+        "p50_real_time_factor": 0.03828407501886792,
+        "p95_milliseconds": 264.41599199999996,
+        "p95_real_time_factor": 0.0399118478490566,
+        "samples": 10
+      }
+    },
+    {
+      "audio_duration_milliseconds": 16715.0,
+      "iterations": [
+        {
+          "detections": [
+            {
+              "id": "lovely-child",
+              "start_time": 0.0,
+              "timestamps": [
+                5.359999656677246,
+                5.559999942779541,
+                5.839999675750732,
+                6.0,
+                6.039999961853027
+              ],
+              "tokens": [
+                " LOVE",
+                "LY",
+                " CHI",
+                "L",
+                "D"
+              ]
+            },
+            {
+              "id": "forever",
+              "start_time": 0.0,
+              "timestamps": [
+                10.880000114440918,
+                10.960000038146973,
+                11.0
+              ],
+              "tokens": [
+                " FOR",
+                "E",
+                "VER"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 660.3733520000001,
+          "iteration": 1,
+          "real_time_factor": 0.03950782841758899
+        },
+        {
+          "detections": [
+            {
+              "id": "lovely-child",
+              "start_time": 0.0,
+              "timestamps": [
+                5.359999656677246,
+                5.559999942779541,
+                5.839999675750732,
+                6.0,
+                6.039999961853027
+              ],
+              "tokens": [
+                " LOVE",
+                "LY",
+                " CHI",
+                "L",
+                "D"
+              ]
+            },
+            {
+              "id": "forever",
+              "start_time": 0.0,
+              "timestamps": [
+                10.880000114440918,
+                10.960000038146973,
+                11.0
+              ],
+              "tokens": [
+                " FOR",
+                "E",
+                "VER"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 672.178686,
+          "iteration": 2,
+          "real_time_factor": 0.04021410026921926
+        },
+        {
+          "detections": [
+            {
+              "id": "lovely-child",
+              "start_time": 0.0,
+              "timestamps": [
+                5.359999656677246,
+                5.559999942779541,
+                5.839999675750732,
+                6.0,
+                6.039999961853027
+              ],
+              "tokens": [
+                " LOVE",
+                "LY",
+                " CHI",
+                "L",
+                "D"
+              ]
+            },
+            {
+              "id": "forever",
+              "start_time": 0.0,
+              "timestamps": [
+                10.880000114440918,
+                10.960000038146973,
+                11.0
+              ],
+              "tokens": [
+                " FOR",
+                "E",
+                "VER"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 639.045438,
+          "iteration": 3,
+          "real_time_factor": 0.03823185390367933
+        },
+        {
+          "detections": [
+            {
+              "id": "lovely-child",
+              "start_time": 0.0,
+              "timestamps": [
+                5.359999656677246,
+                5.559999942779541,
+                5.839999675750732,
+                6.0,
+                6.039999961853027
+              ],
+              "tokens": [
+                " LOVE",
+                "LY",
+                " CHI",
+                "L",
+                "D"
+              ]
+            },
+            {
+              "id": "forever",
+              "start_time": 0.0,
+              "timestamps": [
+                10.880000114440918,
+                10.960000038146973,
+                11.0
+              ],
+              "tokens": [
+                " FOR",
+                "E",
+                "VER"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 622.762755,
+          "iteration": 4,
+          "real_time_factor": 0.03725771791803769
+        },
+        {
+          "detections": [
+            {
+              "id": "lovely-child",
+              "start_time": 0.0,
+              "timestamps": [
+                5.359999656677246,
+                5.559999942779541,
+                5.839999675750732,
+                6.0,
+                6.039999961853027
+              ],
+              "tokens": [
+                " LOVE",
+                "LY",
+                " CHI",
+                "L",
+                "D"
+              ]
+            },
+            {
+              "id": "forever",
+              "start_time": 0.0,
+              "timestamps": [
+                10.880000114440918,
+                10.960000038146973,
+                11.0
+              ],
+              "tokens": [
+                " FOR",
+                "E",
+                "VER"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 620.531071,
+          "iteration": 5,
+          "real_time_factor": 0.037124204068202216
+        },
+        {
+          "detections": [
+            {
+              "id": "lovely-child",
+              "start_time": 0.0,
+              "timestamps": [
+                5.359999656677246,
+                5.559999942779541,
+                5.839999675750732,
+                6.0,
+                6.039999961853027
+              ],
+              "tokens": [
+                " LOVE",
+                "LY",
+                " CHI",
+                "L",
+                "D"
+              ]
+            },
+            {
+              "id": "forever",
+              "start_time": 0.0,
+              "timestamps": [
+                10.880000114440918,
+                10.960000038146973,
+                11.0
+              ],
+              "tokens": [
+                " FOR",
+                "E",
+                "VER"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 636.988983,
+          "iteration": 6,
+          "real_time_factor": 0.038108823392162726
+        },
+        {
+          "detections": [
+            {
+              "id": "lovely-child",
+              "start_time": 0.0,
+              "timestamps": [
+                5.359999656677246,
+                5.559999942779541,
+                5.839999675750732,
+                6.0,
+                6.039999961853027
+              ],
+              "tokens": [
+                " LOVE",
+                "LY",
+                " CHI",
+                "L",
+                "D"
+              ]
+            },
+            {
+              "id": "forever",
+              "start_time": 0.0,
+              "timestamps": [
+                10.880000114440918,
+                10.960000038146973,
+                11.0
+              ],
+              "tokens": [
+                " FOR",
+                "E",
+                "VER"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 638.907548,
+          "iteration": 7,
+          "real_time_factor": 0.03822360442716124
+        },
+        {
+          "detections": [
+            {
+              "id": "lovely-child",
+              "start_time": 0.0,
+              "timestamps": [
+                5.359999656677246,
+                5.559999942779541,
+                5.839999675750732,
+                6.0,
+                6.039999961853027
+              ],
+              "tokens": [
+                " LOVE",
+                "LY",
+                " CHI",
+                "L",
+                "D"
+              ]
+            },
+            {
+              "id": "forever",
+              "start_time": 0.0,
+              "timestamps": [
+                10.880000114440918,
+                10.960000038146973,
+                11.0
+              ],
+              "tokens": [
+                " FOR",
+                "E",
+                "VER"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 652.0717390000001,
+          "iteration": 8,
+          "real_time_factor": 0.03901117194137003
+        },
+        {
+          "detections": [
+            {
+              "id": "lovely-child",
+              "start_time": 0.0,
+              "timestamps": [
+                5.359999656677246,
+                5.559999942779541,
+                5.839999675750732,
+                6.0,
+                6.039999961853027
+              ],
+              "tokens": [
+                " LOVE",
+                "LY",
+                " CHI",
+                "L",
+                "D"
+              ]
+            },
+            {
+              "id": "forever",
+              "start_time": 0.0,
+              "timestamps": [
+                10.880000114440918,
+                10.960000038146973,
+                11.0
+              ],
+              "tokens": [
+                " FOR",
+                "E",
+                "VER"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 634.756353,
+          "iteration": 9,
+          "real_time_factor": 0.037975252946455276
+        },
+        {
+          "detections": [
+            {
+              "id": "lovely-child",
+              "start_time": 0.0,
+              "timestamps": [
+                5.359999656677246,
+                5.559999942779541,
+                5.839999675750732,
+                6.0,
+                6.039999961853027
+              ],
+              "tokens": [
+                " LOVE",
+                "LY",
+                " CHI",
+                "L",
+                "D"
+              ]
+            },
+            {
+              "id": "forever",
+              "start_time": 0.0,
+              "timestamps": [
+                10.880000114440918,
+                10.960000038146973,
+                11.0
+              ],
+              "tokens": [
+                " FOR",
+                "E",
+                "VER"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 650.6962,
+          "iteration": 10,
+          "real_time_factor": 0.0389288782530661
+        }
+      ],
+      "path": "/home/jacob/.local/share/omawake/models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/test_wavs/1.wav",
+      "summary": {
+        "p50_milliseconds": 638.907548,
+        "p50_real_time_factor": 0.03822360442716124,
+        "p95_milliseconds": 672.178686,
+        "p95_real_time_factor": 0.04021410026921926,
+        "samples": 10
+      }
+    }
+  ],
+  "measured_iterations": 10,
+  "model_load_milliseconds": 652.0734,
+  "schema_version": 1,
+  "summary": {
+    "p50_milliseconds": 264.41599199999996,
+    "p50_real_time_factor": 0.03826931335849057,
+    "p95_milliseconds": 660.3733520000001,
+    "p95_real_time_factor": 0.0399118478490566,
+    "samples": 20
+  },
+  "warmup_iterations": 2
+}

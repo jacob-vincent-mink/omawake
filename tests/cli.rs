@@ -59,6 +59,10 @@ fn fake_systemctl(root: &Path, exit: i32) -> PathBuf {
 }
 
 fn run_with_path(root: &Path, args: &[&str], path: &Path) -> Output {
+    let owned_libraries = root.join("owned-libraries");
+    let ambient_libraries = root.join("ambient-libraries");
+    fs::create_dir_all(&owned_libraries).unwrap();
+    fs::create_dir_all(&ambient_libraries).unwrap();
     Command::new(env!("CARGO_BIN_EXE_omawake"))
         .args(args)
         .env("HOME", root)
@@ -67,6 +71,8 @@ fn run_with_path(root: &Path, args: &[&str], path: &Path) -> Output {
         .env("XDG_STATE_HOME", root.join("state"))
         .env("XDG_RUNTIME_DIR", root.join("run"))
         .env("OMAWAKE_SYSTEMCTL_LOG", root.join("systemctl.log"))
+        .env("OMAWAKE_LIBRARY_PATH", &owned_libraries)
+        .env("LD_LIBRARY_PATH", &ambient_libraries)
         .env("PATH", path)
         .stdin(Stdio::null())
         .output()
@@ -79,6 +85,22 @@ fn stdout(output: &Output) -> String {
 
 fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
+}
+
+#[cfg(target_os = "linux")]
+fn compile_shared(root: &Path, name: &str, source: &str) -> PathBuf {
+    let source_path = root.join(format!("{name}.c"));
+    let library_path = root.join(format!("lib{name}.so"));
+    fs::write(&source_path, source).unwrap();
+    let output = Command::new("cc")
+        .args(["-shared", "-fPIC"])
+        .arg(&source_path)
+        .arg("-o")
+        .arg(&library_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", stderr(&output));
+    library_path
 }
 
 #[cfg(unix)]
@@ -103,7 +125,8 @@ fn guided_setup_accepts_arrow_keys_and_enter_in_a_real_pty() {
         .spawn()
         .unwrap();
     let mut input = child.stdin.take().unwrap();
-    // Wait for raw mode, choose Runtime, accept Default, then choose CPU.
+    // Wait for raw mode, choose Runtime, accept Default, choose CPU, keep
+    // discovery, then accept the final runtime review.
     thread::sleep(Duration::from_millis(750));
     input.write_all(b"\x1b[B\r").unwrap();
     input.flush().unwrap();
@@ -112,6 +135,12 @@ fn guided_setup_accepts_arrow_keys_and_enter_in_a_real_pty() {
     input.flush().unwrap();
     thread::sleep(Duration::from_millis(150));
     input.write_all(b"\x1b[B\r").unwrap();
+    input.flush().unwrap();
+    thread::sleep(Duration::from_millis(150));
+    input.write_all(b"\r").unwrap();
+    input.flush().unwrap();
+    thread::sleep(Duration::from_millis(150));
+    input.write_all(b"\r").unwrap();
     drop(input);
     let deadline = Instant::now() + Duration::from_secs(5);
     while child.try_wait().unwrap().is_none() {
@@ -136,9 +165,9 @@ fn guided_setup_accepts_arrow_keys_and_enter_in_a_real_pty() {
 #[test]
 fn word_alias_add_remove_and_empty_configuration_round_trip() {
     let root = sandbox();
-    let remove = run(&root, &["word", "remove", "hey-atreyu"]);
+    let remove = run(&root, &["word", "remove", "computer"]);
     assert!(remove.status.success(), "{}", stderr(&remove));
-    assert!(stdout(&remove).contains("removed wake word: hey-atreyu"));
+    assert!(stdout(&remove).contains("removed wake word: computer"));
     assert_eq!(
         stdout(&run(&root, &["word", "list", "--json"])).trim(),
         "[]"
@@ -178,6 +207,11 @@ fn setup_discovery_and_remediation_commands() {
         assert!(output.status.success(), "{}", stderr(&output));
         assert!(!stdout(&output).is_empty());
     }
+    let runtime = run(&root, &["setup", "runtime", "--json"]);
+    let runtime: serde_json::Value = serde_json::from_slice(&runtime.stdout).unwrap();
+    assert!(runtime["supported_capabilities"].is_array());
+    assert!(runtime["libraries"]["runtime_loadable"].is_object());
+    assert!(runtime["libraries"]["effective_library_dirs"].is_array());
     for args in [
         &["setup"][..],
         &["setup", "check", "--json"],
@@ -209,6 +243,215 @@ fn setup_discovery_and_remediation_commands() {
     assert!(!mixed_json.status.success());
     assert!(mixed_json.stdout.is_empty());
     assert!(stderr(&mixed_json).contains("cannot be used with"));
+}
+
+#[test]
+fn setup_runtime_directory_rejects_unloadable_cpu_and_cuda_stacks_without_persisting() {
+    for (runtime, expected_runtime, provider) in [
+        ("default", omawake::backend::Runtime::Default, None),
+        (
+            "cuda",
+            omawake::backend::Runtime::Cuda,
+            Some("libonnxruntime_providers_cuda.so"),
+        ),
+    ] {
+        let root = sandbox();
+        let bundle = root.join(format!("{runtime}-sdk"));
+        let libraries = bundle.join("lib64");
+        fs::create_dir_all(&libraries).unwrap();
+        fs::write(libraries.join("libonnxruntime.so.1.29.0"), b"fixture").unwrap();
+        fs::write(libraries.join("libsherpa-onnx-c-api.so.1.13.8"), b"fixture").unwrap();
+        if let Some(provider) = provider {
+            fs::write(libraries.join(provider), b"fixture").unwrap();
+        }
+
+        let output = run(
+            &root,
+            &[
+                "setup",
+                "runtime",
+                "--runtime",
+                runtime,
+                "--device",
+                if runtime == "cuda" { "gpu" } else { "cpu" },
+                "--dir",
+                bundle.to_str().unwrap(),
+            ],
+        );
+        assert!(!output.status.success());
+        assert!(stderr(&output).contains("runtime validation failed"));
+        assert!(!root.join("config/omawake/config.toml").exists());
+        let _ = expected_runtime;
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn direct_wav_detection_and_benchmark_use_the_external_runtime() {
+    let root = sandbox();
+    let ort = compile_shared(
+        &root,
+        "onnxruntime",
+        r#"
+#include <stdint.h>
+#include <string.h>
+typedef struct { const void *(*GetApi)(uint32_t); const char *(*GetVersionString)(void); } OrtApiBase;
+static const char *version(void) { return "1.29.0"; }
+static const OrtApiBase base = {0, version};
+const OrtApiBase *OrtGetApiBase(void) { return &base; }
+"#,
+    );
+    let sherpa = compile_shared(
+        &root,
+        "sherpa-onnx-c-api",
+        r#"
+#include <stdint.h>
+#include <string.h>
+typedef struct { const char *keyword; const char *tokens; const char *const *tokens_arr; int32_t count; float *timestamps; float start_time; const char *json; } Result;
+static int runtime, spotter, stream, ready;
+static const char *tokens[] = {"WAKE"};
+static float timestamps[] = {0.1f};
+static Result result = {"computer", "WAKE", tokens, 1, timestamps, 0.1f, "{}"};
+const char *SherpaOnnxGetVersionStr(void) { return "1.13.8"; }
+const char *SherpaOnnxGetOnnxruntimeVersionStr(void) { return "1.29.0"; }
+int32_t SherpaOnnxGetOmaRuntimeAbiVersion(void) { return 1; }
+void *SherpaOnnxCreateOrtRuntime(void) { return &runtime; }
+void SherpaOnnxDestroyOrtRuntime(void *p) { (void)p; }
+int32_t SherpaOnnxOrtRuntimeRegisterExecutionProviderLibrary(void *r, const char *n, const char *p) { return r && n && p && !strstr(p, "rejected"); }
+int32_t SherpaOnnxOrtRuntimeHasExecutionProviderDevice(void *r, const char *ep, const char *device) { return r && ep && device; }
+const char *SherpaOnnxOrtRuntimeGetLastError(const void *r) { (void)r; return "fake error"; }
+const void *SherpaOnnxCreateKeywordSpotter(const void *c) { return c ? &spotter : 0; }
+void SherpaOnnxDestroyKeywordSpotter(const void *p) { (void)p; }
+const void *SherpaOnnxCreateKeywordStream(const void *p) { return p ? &stream : 0; }
+int32_t SherpaOnnxIsKeywordStreamReady(const void *p, const void *s) { return p && s && ready; }
+void SherpaOnnxDecodeKeywordStream(const void *p, const void *s) { (void)p; (void)s; ready = 0; }
+const Result *SherpaOnnxGetKeywordResult(const void *p, const void *s) { return p && s ? &result : 0; }
+void SherpaOnnxDestroyKeywordResult(const Result *r) { (void)r; }
+void SherpaOnnxDestroyOnlineStream(const void *s) { (void)s; }
+void SherpaOnnxOnlineStreamAcceptWaveform(const void *s, int32_t rate, const float *samples, int32_t count) { ready = s && rate > 0 && samples && count > 0; }
+void SherpaOnnxOnlineStreamInputFinished(const void *s) { ready = s != 0; }
+"#,
+    );
+
+    let model = root.join("model");
+    fs::create_dir_all(&model).unwrap();
+    for file in ["encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt"] {
+        fs::write(model.join(file), b"fixture").unwrap();
+    }
+    fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/bpe.model"),
+        model.join("bpe.model"),
+    )
+    .unwrap();
+    let config_path = root.join("config/omawake/config.toml");
+    let mut config = Config::default();
+    config.model.directory = model.display().to_string();
+    config.model.encoder = "encoder.onnx".into();
+    config.model.decoder = "decoder.onnx".into();
+    config.model.joiner = "joiner.onnx".into();
+    config.backend.onnxruntime_library = ort;
+    config.backend.sherpa_library = sherpa.clone();
+    config.wake_words[0].command = vec!["true".into()];
+    config.save(&config_path).unwrap();
+
+    let cpu_discovery = run(&root, &["setup", "runtime"]);
+    assert!(cpu_discovery.status.success(), "{}", stderr(&cpu_discovery));
+    assert!(stdout(&cpu_discovery).contains("default   auto, cpu                 runtime ready"));
+
+    config.backend.sherpa_library = compile_shared(
+        &root,
+        "unpatched-sherpa-onnx-c-api",
+        r#"
+const char *SherpaOnnxGetVersionStr(void) { return "1.13.8"; }
+const char *SherpaOnnxGetOnnxruntimeVersionStr(void) { return "1.29.0"; }
+"#,
+    );
+    config.save(&config_path).unwrap();
+    let unpatched = run(&root, &["setup", "runtime"]);
+    assert!(unpatched.status.success(), "{}", stderr(&unpatched));
+    assert!(stdout(&unpatched).contains("default   auto, cpu                 runtime not found"));
+    assert!(stdout(&unpatched).contains("patched sherpa-onnx 1.13.8"));
+    config.backend.sherpa_library = sherpa;
+
+    for (runtime, device, library) in [
+        (
+            omawake::backend::Runtime::Cuda,
+            "gpu",
+            "onnxruntime_providers_cuda",
+        ),
+        (
+            omawake::backend::Runtime::Openvino,
+            "npu",
+            "onnxruntime_providers_openvino",
+        ),
+    ] {
+        config.backend.runtime = runtime;
+        config.backend.device = device.into();
+        config.backend.provider_library =
+            compile_shared(&root, library, "int provider_entry(void) { return 1; }");
+        config.save(&config_path).unwrap();
+        let discovery = run(&root, &["setup", "runtime"]);
+        assert!(discovery.status.success(), "{}", stderr(&discovery));
+        assert!(stdout(&discovery).contains("runtime ready"));
+    }
+    config.backend.runtime = omawake::backend::Runtime::Openvino;
+    config.backend.device = "npu".into();
+    config.backend.provider_library = compile_shared(
+        &root,
+        "rejected-openvino-provider",
+        "int provider_entry(void) { return 1; }",
+    );
+    config.save(&config_path).unwrap();
+    let rejected = run(&root, &["setup", "runtime"]);
+    assert!(rejected.status.success(), "{}", stderr(&rejected));
+    assert!(stdout(&rejected).contains("external runtime not found"));
+
+    config.backend.runtime = omawake::backend::Runtime::Default;
+    config.backend.device = "auto".into();
+    config.backend.provider_library = PathBuf::new();
+    config.save(&config_path).unwrap();
+
+    let wav = root.join("input.wav");
+    let mut writer = hound::WavWriter::create(
+        &wav,
+        hound::WavSpec {
+            channels: 1,
+            sample_rate: 16_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        },
+    )
+    .unwrap();
+    writer.write_sample(1_i16).unwrap();
+    writer.finalize().unwrap();
+
+    let detected = run(
+        &root,
+        &[
+            "test",
+            "--audio",
+            wav.to_str().unwrap(),
+            "--execute",
+            "--json",
+        ],
+    );
+    assert!(detected.status.success(), "{}", stderr(&detected));
+    assert!(stdout(&detected).contains("computer"));
+    let benchmark = run(
+        &root,
+        &[
+            "benchmark",
+            "--warmup",
+            "0",
+            "--iterations",
+            "1",
+            wav.to_str().unwrap(),
+        ],
+    );
+    assert!(benchmark.status.success(), "{}", stderr(&benchmark));
+    let report: serde_json::Value = serde_json::from_slice(&benchmark.stdout).unwrap();
+    assert!(report.is_object());
+    assert!(stdout(&benchmark).contains("computer"));
 }
 
 #[test]
@@ -246,6 +489,7 @@ fn config_commands_cover_supported_keys_and_errors() {
         ("backend.fallback", "cpu"),
         ("backend.device_id", "0"),
         ("backend.provider_config", "provider.json"),
+        ("backend.library_dirs", "/tmp"),
         ("model.name", "custom"),
         ("model.directory", "/tmp/model"),
         ("model.sample_rate", "16000"),
@@ -296,6 +540,44 @@ fn config_commands_cover_supported_keys_and_errors() {
     let saved = Config::load(&root.join("config/omawake/config.toml")).unwrap();
     assert_eq!(saved.backend.runtime, omawake::backend::Runtime::Default);
     assert!(saved.backend.provider_config.is_empty());
+}
+
+#[test]
+fn runtime_discovery_reports_invalid_paths_without_reexec_and_engine_use_rejects_them() {
+    let root = sandbox();
+    let set = run(
+        &root,
+        &[
+            "config",
+            "set",
+            "backend.library_dirs",
+            "missing-provider-libraries",
+        ],
+    );
+    assert!(set.status.success(), "{}", stderr(&set));
+
+    let discovery = run(&root, &["setup", "runtime", "--json"]);
+    assert!(discovery.status.success(), "{}", stderr(&discovery));
+    let value: serde_json::Value = serde_json::from_slice(&discovery.stdout).unwrap();
+    let expected = root.join("config/omawake/missing-provider-libraries");
+    assert_eq!(
+        value["libraries"]["configured_library_dirs"][0],
+        expected.display().to_string()
+    );
+    assert_eq!(
+        value["libraries"]["missing_library_dirs"][0],
+        expected.display().to_string()
+    );
+    assert!(
+        !value["libraries"]["remediation"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+
+    let engine = run(&root, &["benchmark", "/missing.wav"]);
+    assert!(!engine.status.success());
+    assert!(stderr(&engine).contains("native library directories must be absolute existing"));
 }
 
 #[test]
@@ -376,6 +658,9 @@ fn systemd_lifecycle_uses_user_manager_and_propagates_failures() {
             .status
             .success()
     );
+    let unit = fs::read_to_string(root.join("config/systemd/user/omawake.service")).unwrap();
+    assert!(unit.contains(&root.join("owned-libraries").display().to_string()));
+    assert!(!unit.contains(&root.join("ambient-libraries").display().to_string()));
     assert!(
         run_with_path(&root, &["setup", "systemd"], &success)
             .status

@@ -24,6 +24,9 @@ pub struct ModelSpec {
     pub backend: &'static str,
     pub family: &'static str,
     pub description: &'static str,
+    pub license: &'static str,
+    pub license_status: &'static str,
+    pub downloadable: bool,
     pub archive_url: &'static str,
     pub archive_size: u64,
     pub archive_sha256: &'static str,
@@ -44,7 +47,7 @@ const BACKENDS: &[BackendSpec] = &[BackendSpec {
     kind: "sherpa-onnx",
     name: "sherpa-onnx",
     built: true,
-    description: "In-process ONNX keyword spotting through the official Rust crate",
+    description: "Local ONNX keyword spotting through a runtime-loaded sherpa adapter",
 }];
 
 const KWS_FILES: &[RequiredFile] = &[
@@ -110,6 +113,9 @@ const MODELS: &[ModelSpec] = &[ModelSpec {
     backend: "sherpa-onnx",
     family: "zipformer-kws",
     description: "GigaSpeech Zipformer streaming keyword spotter (3.3M parameters)",
+    license: "unknown",
+    license_status: "unverified",
+    downloadable: false,
     archive_url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2",
     archive_size: 17_626_723,
     archive_sha256: "f170013b4716e41b62b9bfd809687c207cef798ef9bc6534d524e17af9b6561a",
@@ -181,16 +187,10 @@ impl ModelSpec {
         if config.backend.runtime != Runtime::Openvino {
             return false;
         }
-        config.backend.canonical_device().is_ok_and(|device| {
-            device == "auto"
-                || device == "gpu"
-                || device == "npu"
-                || device.split_once(':').is_some_and(|(_, devices)| {
-                    devices
-                        .split(',')
-                        .any(|device| matches!(device, "GPU" | "NPU"))
-                })
-        })
+        config
+            .backend
+            .canonical_device()
+            .is_ok_and(|device| device == "auto" || device == "gpu" || device == "npu")
     }
 }
 

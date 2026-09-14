@@ -57,6 +57,13 @@ fn install_with_download(
         return Ok(target);
     }
 
+    if archive_override.is_none() && !spec.downloadable {
+        bail!(
+            "license not verified for {}; Omawake cannot download this model; supply an archive you have the right to use with --archive",
+            spec.id
+        );
+    }
+
     fs::create_dir_all(paths.data_dir.join("models"))?;
     fs::create_dir_all(paths.data_dir.join("downloads"))?;
     let archive = match archive_override {
@@ -97,9 +104,19 @@ fn install_with_download(
         return Err(error).context("activate extracted model");
     }
     let activate = || -> Result<()> {
+        let manifest = serde_json::json!({
+            "catalog": spec,
+            "provenance": {
+                "source": if archive_override.is_some() { "user-supplied-archive" } else { "catalog-download" },
+                "archive_url": spec.archive_url,
+                "archive_sha256": spec.archive_sha256,
+                "license": spec.license,
+                "license_status": spec.license_status,
+            }
+        });
         fs::write(
             target.join(".omawake-model.json"),
-            serde_json::to_vec_pretty(spec)?,
+            serde_json::to_vec_pretty(&manifest)?,
         )?;
         verify_directory(&target, spec)
     };

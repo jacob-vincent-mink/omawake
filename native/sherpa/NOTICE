@@ -1,0 +1,13 @@
+This directory contains modifications to sherpa-onnx v1.13.8, commit
+11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf.
+
+sherpa-onnx is Copyright the sherpa-onnx contributors and is licensed under
+the Apache License, Version 2.0. The modifications are recorded in
+patches/sherpa-onnx-oma-runtime-v1.13.8.patch. A copy of the Apache License is
+available at ../../licenses/SHERPA-ONNX-LICENSE.
+
+The resulting C API DSO statically incorporates checksum-pinned
+kaldi-native-fbank, KissFFT, kaldi-decoder, kaldifst/OpenFST,
+simple-sentencepiece, Eigen, and nlohmann/json code. Their license and notice
+files are retained under ../../licenses/native and copied into release
+archives. No Piper or eSpeak library is linked into this TTS-disabled build.

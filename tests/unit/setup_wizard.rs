@@ -147,6 +147,7 @@ fn menu_renders_metadata_and_processes_arrow_enter_and_cancel() {
 
 #[test]
 fn guided_setup_metadata_covers_modes_runtimes_devices_and_review() {
+    let cpu_loadable = BTreeMap::from([("default", true)]);
     let modes = setup_mode_items();
     assert_eq!(modes[0].label, "Full setup");
     assert!(modes[0].detail.contains("model and launcher"));
@@ -156,12 +157,17 @@ fn guided_setup_metadata_covers_modes_runtimes_devices_and_review() {
     assert_eq!(setup_mode(2), SetupMode::Model);
     assert_eq!(setup_mode(3), SetupMode::Check);
 
-    let cpu_only = runtime_items(&["cpu"]);
+    let cpu_only = runtime_items(&cpu_loadable);
     assert!(cpu_only[0].enabled);
-    assert!(!cpu_only[1].enabled);
-    assert!(!cpu_only[2].enabled);
-    let all = runtime_items(&["cpu", "openvino", "cuda"]);
+    assert!(cpu_only[1].enabled);
+    assert!(cpu_only[2].enabled);
+    let all_loadable = BTreeMap::from([("default", true), ("openvino", true), ("cuda", true)]);
+    let all = runtime_items(&all_loadable);
     assert!(all.iter().all(|item| item.enabled));
+    assert!(all[1].detail.contains("provider detected"));
+    let compiled_only = runtime_items(&BTreeMap::from([("default", true)]));
+    assert!(compiled_only[1].enabled);
+    assert!(compiled_only[1].detail.contains("not detected"));
 
     for (index, runtime) in [Runtime::Default, Runtime::Openvino, Runtime::Cuda]
         .into_iter()
@@ -195,7 +201,96 @@ fn guided_setup_metadata_covers_modes_runtimes_devices_and_review() {
 }
 
 #[test]
+fn runtime_directory_prompt_keeps_or_validates_an_absolute_directory() {
+    let root =
+        std::env::temp_dir().join(format!("omawake-wizard-runtime-dir-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let mut keep = ScriptedPrompter {
+        choices: VecDeque::from([Some(0)]),
+        preferred: vec![],
+    };
+    assert_eq!(
+        choose_runtime_directory_with(&mut keep, std::slice::from_ref(&root), || {
+            unreachable!()
+        })
+        .unwrap(),
+        None
+    );
+
+    let mut choose = ScriptedPrompter {
+        choices: VecDeque::from([Some(1)]),
+        preferred: vec![],
+    };
+    assert_eq!(
+        choose_runtime_directory_with(&mut choose, &[], || { Ok(format!("{}\n", root.display())) })
+            .unwrap(),
+        Some(root.clone())
+    );
+
+    let mut invalid = ScriptedPrompter {
+        choices: VecDeque::from([Some(1)]),
+        preferred: vec![],
+    };
+    assert!(choose_runtime_directory_with(&mut invalid, &[], || Ok("relative\n".into())).is_err());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn model_archive_prompt_supports_back_and_validates_an_absolute_file() {
+    let root = std::env::temp_dir().join(format!("omawake-wizard-model-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let archive = root.join("model.tar.bz2");
+    std::fs::write(&archive, b"fixture").unwrap();
+
+    for choice in [Some(1), None] {
+        let mut back = ScriptedPrompter {
+            choices: VecDeque::from([choice]),
+            preferred: vec![],
+        };
+        assert_eq!(
+            choose_model_archive_with(&mut back, "wake-model", || unreachable!()).unwrap(),
+            None
+        );
+    }
+
+    let mut choose = ScriptedPrompter {
+        choices: VecDeque::from([Some(0)]),
+        preferred: vec![],
+    };
+    assert_eq!(
+        choose_model_archive_with(&mut choose, "wake-model", || {
+            Ok(format!("{}\n", archive.display()))
+        })
+        .unwrap(),
+        Some(archive.clone())
+    );
+
+    let mut relative = ScriptedPrompter {
+        choices: VecDeque::from([Some(0)]),
+        preferred: vec![],
+    };
+    assert!(
+        choose_model_archive_with(&mut relative, "wake-model", || Ok("relative.tar\n".into()))
+            .is_err()
+    );
+
+    let mut missing = ScriptedPrompter {
+        choices: VecDeque::from([Some(0)]),
+        preferred: vec![],
+    };
+    assert!(
+        choose_model_archive_with(&mut missing, "wake-model", || {
+            Ok(format!("{}\n", root.join("missing.tar").display()))
+        })
+        .is_err()
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn guided_flows_map_scripted_choices_and_preserve_preferences() {
+    let loadable = BTreeMap::from([("openvino", true)]);
     for (index, expected) in [
         SetupMode::Full,
         SetupMode::Runtime,
@@ -222,7 +317,14 @@ fn guided_flows_map_scripted_choices_and_preserve_preferences() {
         preferred: vec![],
     };
     assert_eq!(
-        choose_runtime_with(&mut npu, &["cpu", "openvino"], Runtime::Openvino, "npu").unwrap(),
+        choose_runtime_with(
+            &mut npu,
+            &loadable,
+            "Configured: /opt/oma\r\nEffective: /opt/oma\r\nRemediation: none",
+            Runtime::Openvino,
+            "npu",
+        )
+        .unwrap(),
         Some(RuntimeSelection {
             runtime: Runtime::Openvino,
             device: "npu".into(),
@@ -236,7 +338,14 @@ fn guided_flows_map_scripted_choices_and_preserve_preferences() {
             preferred: vec![],
         };
         assert_eq!(
-            choose_runtime_with(&mut prompt, &["cpu"], Runtime::Default, "unknown").unwrap(),
+            choose_runtime_with(
+                &mut prompt,
+                &BTreeMap::new(),
+                "Configured: none\r\nEffective: none\r\nRemediation: none",
+                Runtime::Default,
+                "unknown",
+            )
+            .unwrap(),
             None
         );
     }
@@ -250,6 +359,21 @@ fn guided_flows_map_scripted_choices_and_preserve_preferences() {
             confirm_apply_with(&mut prompt, Runtime::Default, "cpu", "model", false).unwrap(),
             expected
         );
+
+        let mut prompt = ScriptedPrompter {
+            choices: VecDeque::from([choice]),
+            preferred: vec![],
+        };
+        assert_eq!(
+            confirm_runtime_apply_with(
+                &mut prompt,
+                Runtime::Openvino,
+                "npu",
+                Some(Path::new("/opt/openvino")),
+            )
+            .unwrap(),
+            expected
+        );
     }
 }
 
@@ -259,6 +383,15 @@ fn terminal_entry_points_fail_cleanly_without_a_tty() {
         return;
     }
     assert!(choose_setup_mode().is_err());
-    assert!(choose_runtime(&["cpu"], Runtime::Default, "auto").is_err());
+    assert!(
+        choose_runtime(
+            &BTreeMap::new(),
+            "Configured: none\r\nEffective: none\r\nRemediation: none",
+            Runtime::Default,
+            "auto"
+        )
+        .is_err()
+    );
     assert!(confirm_apply(Runtime::Default, "cpu", "model", false).is_err());
+    assert!(confirm_runtime_apply(Runtime::Default, "cpu", None).is_err());
 }

@@ -40,19 +40,9 @@ fn lookup_and_activation_populate_config() {
     spec.apply_runtime_compatibility(&mut config);
     assert_eq!(config.model.encoder, spec.encoder);
 
-    for device in ["AUTO:CPU", "HETERO:CPU,CPU", "MULTI:CPU,CPU"] {
-        config.backend.device = device.into();
-        spec.apply_runtime_compatibility(&mut config);
-        assert_eq!(config.model.encoder, spec.encoder, "{device}");
-    }
-    for device in ["auto", "AUTO:CPU,NPU", "HETERO:GPU,CPU", "MULTI:NPU,GPU"] {
-        config.backend.device = device.into();
-        spec.apply_runtime_compatibility(&mut config);
-        assert_eq!(
-            config.model.encoder, spec.openvino_accelerator_encoder,
-            "{device}"
-        );
-    }
+    config.backend.device = "auto".into();
+    spec.apply_runtime_compatibility(&mut config);
+    assert_eq!(config.model.encoder, spec.openvino_accelerator_encoder);
 
     config.backend.runtime = Runtime::Cuda;
     config.backend.device = "gpu".into();

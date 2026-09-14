@@ -1,0 +1,112 @@
+{
+  "backend": {
+    "effective_runtime": "default",
+    "fallback_used": false,
+    "kind": "sherpa-onnx",
+    "placement_verified": true,
+    "requested_device": "cpu",
+    "requested_runtime": "default"
+  },
+  "benchmark": "omawake-file-detection",
+  "files": [
+    {
+      "audio_duration_milliseconds": 6625.0,
+      "iterations": [
+        {
+          "detections": [
+            {
+              "id": "light-up",
+              "start_time": 0.0,
+              "timestamps": [
+                3.0,
+                3.0399999618530273,
+                3.0799999237060547,
+                3.1599998474121094
+              ],
+              "tokens": [
+                " ",
+                "L",
+                "IGHT",
+                " UP"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 108.564819,
+          "iteration": 1,
+          "real_time_factor": 0.01638714249056604
+        }
+      ],
+      "path": "/tmp/omawake-demo/xdg/data/omawake/models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/test_wavs/0.wav",
+      "summary": {
+        "p50_milliseconds": 108.564819,
+        "p50_real_time_factor": 0.01638714249056604,
+        "p95_milliseconds": 108.564819,
+        "p95_real_time_factor": 0.01638714249056604,
+        "samples": 1
+      }
+    },
+    {
+      "audio_duration_milliseconds": 16715.0,
+      "iterations": [
+        {
+          "detections": [
+            {
+              "id": "lovely-child",
+              "start_time": 0.0,
+              "timestamps": [
+                5.359999656677246,
+                5.559999942779541,
+                5.839999675750732,
+                6.0,
+                6.039999961853027
+              ],
+              "tokens": [
+                " LOVE",
+                "LY",
+                " CHI",
+                "L",
+                "D"
+              ]
+            },
+            {
+              "id": "forever",
+              "start_time": 0.0,
+              "timestamps": [
+                10.880000114440918,
+                11.039999961853027,
+                11.119999885559082
+              ],
+              "tokens": [
+                " FOR",
+                " E",
+                "VER"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 215.853497,
+          "iteration": 1,
+          "real_time_factor": 0.012913759916242896
+        }
+      ],
+      "path": "/tmp/omawake-demo/xdg/data/omawake/models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/test_wavs/1.wav",
+      "summary": {
+        "p50_milliseconds": 215.853497,
+        "p50_real_time_factor": 0.012913759916242896,
+        "p95_milliseconds": 215.853497,
+        "p95_real_time_factor": 0.012913759916242896,
+        "samples": 1
+      }
+    }
+  ],
+  "measured_iterations": 1,
+  "model_load_milliseconds": 568.043324,
+  "schema_version": 1,
+  "summary": {
+    "p50_milliseconds": 108.564819,
+    "p50_real_time_factor": 0.012913759916242896,
+    "p95_milliseconds": 215.853497,
+    "p95_real_time_factor": 0.01638714249056604,
+    "samples": 2
+  },
+  "warmup_iterations": 0
+}

@@ -1,8 +1,10 @@
 # OpenVINO benchmark: Dell XPS 16
 
 Measured on 2026-09-14 with the official GigaSpeech 3.3M KWS model and its two
-test WAVs. The raw evidence is retained locally in the ignored artifact run
-`benchmark-artifacts/run-20260914T050440Z-981876`.
+test WAVs. Compact benchmark JSON, validation results, provider evidence, and
+NPU busy-counter deltas are retained in the tracked
+[evidence directory](openvino-dell-xps-results-2026-09-14/). The full local
+profile run is `benchmark-artifacts/run-20260914T050440Z-981876`.
 
 ## System
 
