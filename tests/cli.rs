@@ -212,6 +212,22 @@ fn setup_discovery_and_remediation_commands() {
 }
 
 #[test]
+fn setup_all_help_keeps_service_installation_explicit() {
+    let root = sandbox();
+    let all = run(&root, &["setup", "all", "--help"]);
+    assert!(all.status.success(), "{}", stderr(&all));
+    let help = stdout(&all);
+    assert!(help.contains("Does not install a service"));
+    assert!(help.contains("omawake setup systemd"));
+    assert!(!help.contains("--no-start"));
+
+    let setup = run(&root, &["setup", "--help"]);
+    assert!(setup.status.success(), "{}", stderr(&setup));
+    assert!(stdout(&setup).contains("optional systemd user service"));
+    assert!(!run(&root, &["setup", "all", "--no-start"]).status.success());
+}
+
+#[test]
 fn config_commands_cover_supported_keys_and_errors() {
     let root = sandbox();
     assert_eq!(
@@ -364,7 +380,8 @@ fn systemd_lifecycle_uses_user_manager_and_propagates_failures() {
     for expected in [
         "--user daemon-reload",
         "--user enable omawake.service",
-        "--user enable --now omawake.service",
+        "--user restart omawake.service",
+        "--user is-active --quiet omawake.service",
         "--user status omawake.service --no-pager",
         "--user disable --now omawake.service",
     ] {

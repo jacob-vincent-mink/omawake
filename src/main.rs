@@ -129,6 +129,8 @@ enum SetupCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Install and configure a model plus the desktop launcher. Does not install a service;
+    /// run `omawake setup systemd` to install one explicitly.
     All {
         #[arg(
             long,
@@ -137,8 +139,6 @@ enum SetupCommand {
         model: String,
         #[arg(long)]
         archive: Option<PathBuf>,
-        #[arg(long)]
-        no_start: bool,
         #[arg(long, value_enum, default_value_t)]
         progress_format: ProgressFormat,
     },
@@ -164,6 +164,7 @@ enum SetupCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Explicitly install or manage the optional systemd user service.
     Systemd {
         #[arg(long, conflicts_with = "status")]
         uninstall: bool,
@@ -454,7 +455,7 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
     }
     if command.is_none() {
         println!(
-            "Interactive setup needs a terminal. Run `omawake setup all` for the default install, or `omawake setup runtime` / `omawake setup model --list` to inspect choices."
+            "Interactive setup needs a terminal. Run `omawake setup all` to configure the default model and launcher, or `omawake setup runtime` / `omawake setup model --list` to inspect choices. Service installation is separate: `omawake setup systemd`."
         );
     }
     match command.unwrap_or(SetupCommand::Check { json: false }) {
@@ -551,20 +552,20 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
         SetupCommand::All {
             model,
             archive,
-            no_start,
             progress_format,
         } => {
             let spec = model_spec(&model)?;
+            let service_was_active = app_setup::systemd::is_active();
             install_everything(
                 spec,
                 config_path,
                 paths,
                 archive.as_deref(),
-                no_start,
                 progress_format,
+                service_was_active,
                 app_setup::model::install,
                 app_setup::menu::install,
-                app_setup::systemd::install,
+                app_setup::systemd::reload_if_was_active,
                 |config, paths| app_setup::print_checks(config, paths, false),
                 app_setup::print_checks_event,
             )
@@ -584,7 +585,12 @@ trait GuidedPrompts {
         paths: &AppPaths,
         current: &Config,
     ) -> Result<Option<&'static omawake::catalog::ModelSpec>>;
-    fn confirm(&mut self, selection: &RuntimeSelection, model: &str) -> Result<bool>;
+    fn confirm(
+        &mut self,
+        selection: &RuntimeSelection,
+        model: &str,
+        service_was_active: bool,
+    ) -> Result<bool>;
 }
 
 struct TerminalGuidedPrompts;
@@ -610,8 +616,18 @@ impl GuidedPrompts for TerminalGuidedPrompts {
         choose_model(paths, &current.model.name)
     }
 
-    fn confirm(&mut self, selection: &RuntimeSelection, model: &str) -> Result<bool> {
-        wizard::confirm_apply(selection.runtime, &selection.device, model)
+    fn confirm(
+        &mut self,
+        selection: &RuntimeSelection,
+        model: &str,
+        service_was_active: bool,
+    ) -> Result<bool> {
+        wizard::confirm_apply(
+            selection.runtime,
+            &selection.device,
+            model,
+            service_was_active,
+        )
     }
 }
 
@@ -721,20 +737,22 @@ fn guided_all_with(
         prompts,
         app_setup::model::install,
         app_setup::menu::install,
-        app_setup::systemd::install,
+        |_| app_setup::systemd::is_active(),
+        app_setup::systemd::reload_if_was_active,
         |config, paths| app_setup::print_checks(config, paths, false),
         app_setup::print_checks_event,
     )
 }
 
 #[allow(clippy::too_many_arguments)]
-fn guided_all_with_services<FI, FM, FS, CH, CJ>(
+fn guided_all_with_services<FI, FM, FA, FR, CH, CJ>(
     config_path: &Path,
     paths: &AppPaths,
     prompts: &mut impl GuidedPrompts,
     install_model: FI,
     install_menu: FM,
-    install_systemd: FS,
+    service_is_active: FA,
+    restart_service: FR,
     check_human: CH,
     check_json: CJ,
 ) -> Result<()>
@@ -746,7 +764,8 @@ where
         ProgressFormat,
     ) -> Result<PathBuf>,
     FM: FnOnce(&AppPaths) -> Result<PathBuf>,
-    FS: FnOnce(&AppPaths, &Path, bool) -> Result<PathBuf>,
+    FA: FnOnce(&AppPaths) -> bool,
+    FR: FnOnce(bool) -> Result<bool>,
     CH: FnOnce(&Path, &AppPaths) -> Result<()>,
     CJ: FnOnce(&Path, &AppPaths) -> Result<()>,
 {
@@ -759,7 +778,8 @@ where
         println!("Setup cancelled.");
         return Ok(());
     };
-    if !prompts.confirm(&selection, spec.id)? {
+    let service_was_active = service_is_active(paths);
+    if !prompts.confirm(&selection, spec.id, service_was_active)? {
         println!("Setup cancelled.");
         return Ok(());
     }
@@ -769,11 +789,11 @@ where
         config_path,
         paths,
         None,
-        false,
         ProgressFormat::Human,
+        service_was_active,
         install_model,
         install_menu,
-        install_systemd,
+        restart_service,
         check_human,
         check_json,
     )
@@ -852,16 +872,16 @@ fn runtime_name(runtime: Runtime) -> &'static str {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn install_everything<FI, FM, FS, CH, CJ>(
+fn install_everything<FI, FM, FR, CH, CJ>(
     spec: &omawake::catalog::ModelSpec,
     config_path: &Path,
     paths: &AppPaths,
     archive: Option<&Path>,
-    no_start: bool,
     progress_format: ProgressFormat,
+    service_was_active: bool,
     install_model: FI,
     install_menu: FM,
-    install_systemd: FS,
+    restart_service: FR,
     check_human: CH,
     check_json: CJ,
 ) -> Result<()>
@@ -873,7 +893,7 @@ where
         ProgressFormat,
     ) -> Result<PathBuf>,
     FM: FnOnce(&AppPaths) -> Result<PathBuf>,
-    FS: FnOnce(&AppPaths, &Path, bool) -> Result<PathBuf>,
+    FR: FnOnce(bool) -> Result<bool>,
     CH: FnOnce(&Path, &AppPaths) -> Result<()>,
     CJ: FnOnce(&Path, &AppPaths) -> Result<()>,
 {
@@ -882,12 +902,13 @@ where
     spec.activate(&mut config);
     config.save(config_path)?;
     let launcher = install_menu(paths)?;
-    let service = install_systemd(paths, config_path, !no_start)?;
+    let service_restarted = restart_service(service_was_active)?;
     print_setup_complete(
         &directory,
         config_path,
         &launcher,
-        &service,
+        service_was_active,
+        service_restarted,
         progress_format,
     )?;
     match progress_format {
@@ -950,16 +971,21 @@ fn print_setup_complete(
     directory: &Path,
     config_path: &Path,
     launcher: &Path,
-    service: &Path,
+    service_was_active: bool,
+    service_restarted: bool,
     progress_format: ProgressFormat,
 ) -> Result<()> {
     match progress_format {
         ProgressFormat::Human => println!(
-            "model: {}\nconfig: {}\nlauncher: {}\nservice: {}",
+            "model: {}\nconfig: {}\nlauncher: {}\ndaemon: run `omawake daemon`\nservice: {}",
             directory.display(),
             config_path.display(),
             launcher.display(),
-            service.display()
+            if service_restarted {
+                "restarted the already-active service"
+            } else {
+                "unchanged (optional; run `omawake setup systemd` to install)"
+            }
         ),
         ProgressFormat::Json => println!(
             "{}",
@@ -968,7 +994,15 @@ fn print_setup_complete(
                 "model": directory,
                 "config": config_path,
                 "launcher": launcher,
-                "service": service,
+                "daemon_command": "omawake daemon",
+                "service": {
+                    "modified": service_restarted,
+                    "active_before": service_was_active,
+                    "restarted": service_restarted,
+                    "unit_modified": false,
+                    "action": if service_restarted { "restarted" } else { "unchanged" },
+                    "install_command": "omawake setup systemd",
+                },
             }))?
         ),
     }

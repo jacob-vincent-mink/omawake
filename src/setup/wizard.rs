@@ -213,13 +213,13 @@ fn render(
         SetAttribute(Attribute::Bold),
         Print(title),
         SetAttribute(Attribute::Reset),
-        Print("\n\n"),
+        Print("\r\n\r\n"),
         Print(help),
-        Print("\n"),
+        Print("\r\n"),
         SetForegroundColor(Color::DarkGrey),
         Print("↑↓ navigate · Enter select · Esc cancel"),
         ResetColor,
-        Print("\n\n")
+        Print("\r\n\r\n")
     )?;
 
     for (index, item) in items.iter().enumerate() {
@@ -238,11 +238,11 @@ fn render(
             Print(&item.label),
             SetAttribute(Attribute::Reset),
             ResetColor,
-            Print("\n      "),
+            Print("\r\n      "),
             SetForegroundColor(Color::DarkGrey),
             Print(&item.detail),
             ResetColor,
-            Print("\n\n")
+            Print("\r\n\r\n")
         )?;
     }
     output.flush()?;
@@ -264,7 +264,7 @@ fn setup_mode_items() -> [MenuItem; 4] {
     [
         MenuItem::available(
             "Full setup",
-            "Choose runtime and model, then install the launcher and enable and start the service.",
+            "Choose runtime and model, then install the model and launcher.",
         ),
         MenuItem::available(
             "Runtime",
@@ -273,7 +273,7 @@ fn setup_mode_items() -> [MenuItem; 4] {
         MenuItem::available("Model", "Browse, download, and activate a wake-word model."),
         MenuItem::available(
             "Check",
-            "Verify configuration, model, launcher, and service.",
+            "Verify configuration, model, launcher, and optional service status.",
         ),
     ]
 }
@@ -370,8 +370,19 @@ fn runtime_at(index: usize) -> Runtime {
     [Runtime::Default, Runtime::Openvino, Runtime::Cuda][index]
 }
 
-pub fn confirm_apply(runtime: Runtime, device: &str, model: &str) -> Result<bool> {
-    confirm_apply_with(&mut TerminalPrompter, runtime, device, model)
+pub fn confirm_apply(
+    runtime: Runtime,
+    device: &str,
+    model: &str,
+    service_was_active: bool,
+) -> Result<bool> {
+    confirm_apply_with(
+        &mut TerminalPrompter,
+        runtime,
+        device,
+        model,
+        service_was_active,
+    )
 }
 
 fn confirm_apply_with(
@@ -379,8 +390,9 @@ fn confirm_apply_with(
     runtime: Runtime,
     device: &str,
     model: &str,
+    service_was_active: bool,
 ) -> Result<bool> {
-    let items = apply_items(runtime, device, model);
+    let items = apply_items(runtime, device, model, service_was_active);
     Ok(matches!(
         prompter.choose(
             "Review full setup",
@@ -392,19 +404,26 @@ fn confirm_apply_with(
     ))
 }
 
-fn apply_items(runtime: Runtime, device: &str, model: &str) -> [MenuItem; 2] {
+fn apply_items(
+    runtime: Runtime,
+    device: &str,
+    model: &str,
+    service_was_active: bool,
+) -> [MenuItem; 2] {
     [
         MenuItem::available(
             "Apply setup",
             format!(
-                "Runtime: {} / {device} · Model: {model} · install launcher, enable and start service",
-                runtime_name(runtime)
+                "Runtime: {} / {device} · Model: {model} · install model and launcher · {}",
+                runtime_name(runtime),
+                if service_was_active {
+                    "restart the already-active service"
+                } else {
+                    "leave the optional service unchanged"
+                }
             ),
         ),
-        MenuItem::available(
-            "Cancel",
-            "Return without changing files or starting the service.",
-        ),
+        MenuItem::available("Cancel", "Return without changing files."),
     ]
 }
 

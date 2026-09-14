@@ -132,16 +132,34 @@ pub fn checks(path: &Path, paths: &AppPaths) -> Vec<Check> {
         )
     });
     let service = systemd::service_path(paths);
-    result.push(if command_exists("systemctl") && service.is_file() {
-        ok("systemd", service.display().to_string())
-    } else {
-        fail(
+    let systemctl_available = command_exists("systemctl");
+    let service_active = systemctl_available && systemd::is_active();
+    result.push(if !systemctl_available {
+        ok(
+            "systemd",
+            "not available (optional); run the daemon directly with `omawake daemon`",
+        )
+    } else if service.is_file() {
+        ok(
             "systemd",
             format!(
-                "systemctl or user service is missing: {}",
+                "optional service installed and {}: {}",
+                if service_active { "active" } else { "inactive" },
                 service.display()
             ),
-            "run `omawake setup systemd`",
+        )
+    } else if service_active {
+        ok(
+            "systemd",
+            format!(
+                "optional service is active from an external unit; no app-installed unit at {}",
+                service.display()
+            ),
+        )
+    } else {
+        ok(
+            "systemd",
+            "not installed (optional); run `omawake setup systemd` to install it",
         )
     });
     result

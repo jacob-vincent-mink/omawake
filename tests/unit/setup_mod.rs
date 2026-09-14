@@ -55,6 +55,13 @@ fn checks_report_malformed_missing_custom_and_empty_states() {
             .iter()
             .any(|check| check.name == "wake-words" && !check.ok)
     );
+    let optional_service = missing
+        .iter()
+        .find(|check| check.name == "systemd")
+        .unwrap();
+    assert!(optional_service.ok);
+    assert!(optional_service.detail.contains("optional"));
+    assert!(optional_service.remediation.is_none());
     fs::create_dir_all(&config.model.directory).unwrap();
     let launcher = menu::launcher_path(&paths);
     fs::create_dir_all(launcher.parent().unwrap()).unwrap();

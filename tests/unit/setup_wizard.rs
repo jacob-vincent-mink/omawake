@@ -24,6 +24,16 @@ fn key(code: KeyCode) -> Event {
     Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
 }
 
+fn assert_no_bare_line_feeds(output: &[u8]) {
+    assert!(
+        output
+            .iter()
+            .enumerate()
+            .all(|(index, byte)| *byte != b'\n' || index > 0 && output[index - 1] == b'\r'),
+        "raw-mode rendering must return to column zero before every line feed"
+    );
+}
+
 #[test]
 fn item_constructors_preserve_metadata() {
     assert_eq!(
@@ -122,6 +132,8 @@ fn menu_renders_metadata_and_processes_arrow_enter_and_cancel() {
     assert!(rendered.contains("Runtime"));
     assert!(rendered.contains("CUDA"));
     assert!(rendered.contains("Unavailable in this build"));
+    assert!(rendered.contains("\r\n      "));
+    assert_no_bare_line_feeds(rendered.as_bytes());
 
     let mut events = VecDeque::from([key(KeyCode::Char('q'))]);
     assert_eq!(
@@ -137,6 +149,8 @@ fn menu_renders_metadata_and_processes_arrow_enter_and_cancel() {
 fn guided_setup_metadata_covers_modes_runtimes_devices_and_review() {
     let modes = setup_mode_items();
     assert_eq!(modes[0].label, "Full setup");
+    assert!(modes[0].detail.contains("model and launcher"));
+    assert!(!modes[0].detail.contains("service"));
     assert_eq!(setup_mode(0), SetupMode::Full);
     assert_eq!(setup_mode(1), SetupMode::Runtime);
     assert_eq!(setup_mode(2), SetupMode::Model);
@@ -159,9 +173,21 @@ fn guided_setup_metadata_covers_modes_runtimes_devices_and_review() {
     }
     assert_eq!(device_values(Runtime::Openvino)[1].0, "npu");
 
-    let review = apply_items(Runtime::Openvino, "npu", "wake-model");
+    let review = apply_items(Runtime::Openvino, "npu", "wake-model", false);
     assert!(review[0].detail.contains("openvino / npu"));
     assert!(review[0].detail.contains("wake-model"));
+    assert!(review[0].detail.contains("model and launcher"));
+    assert!(
+        review[0]
+            .detail
+            .contains("leave the optional service unchanged")
+    );
+    let active_review = apply_items(Runtime::Openvino, "npu", "wake-model", true);
+    assert!(
+        active_review[0]
+            .detail
+            .contains("restart the already-active service")
+    );
     assert_eq!(review[1].label, "Cancel");
 }
 
@@ -218,7 +244,7 @@ fn guided_flows_map_scripted_choices_and_preserve_preferences() {
             preferred: vec![],
         };
         assert_eq!(
-            confirm_apply_with(&mut prompt, Runtime::Default, "cpu", "model").unwrap(),
+            confirm_apply_with(&mut prompt, Runtime::Default, "cpu", "model", false).unwrap(),
             expected
         );
     }
@@ -231,5 +257,5 @@ fn terminal_entry_points_fail_cleanly_without_a_tty() {
     }
     assert!(choose_setup_mode().is_err());
     assert!(choose_runtime(&["cpu"], Runtime::Default, "auto").is_err());
-    assert!(confirm_apply(Runtime::Default, "cpu", "model").is_err());
+    assert!(confirm_apply(Runtime::Default, "cpu", "model", false).is_err());
 }

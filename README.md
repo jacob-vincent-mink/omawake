@@ -46,8 +46,10 @@ Run `omawake setup` in a terminal to open the guided setup. Use the arrow keys a
 Enter to choose **Full setup**, **Runtime**, **Model**, or **Check**. Full setup walks
 through a compatible inference runtime and device, shows every downloadable model
 with its install status, backend, family, description, and download size, then
-installs the model and launcher and enables and starts the user service. The focused setup commands are
-interactive too:
+installs the model and launcher. It does not install or start a service. If a
+service supplied by the user or a package is already active, setup restarts it
+after successfully applying the new configuration. The focused setup commands
+are interactive too:
 
 ```bash
 omawake setup runtime   # choose a compiled runtime and compatible device
@@ -65,12 +67,11 @@ The equivalent one-command, noninteractive network install is:
 omawake setup all
 ```
 
-It downloads and installs the default GigaSpeech Zipformer KWS model, writes `backend.kind` / `model.name` into the config, installs the launcher and the systemd service (started unless `--no-start`), then prints `setup check` results. It is idempotent — re-running it reports `already-installed` and does not re-download. Options:
+It downloads and installs the default GigaSpeech Zipformer KWS model, writes `backend.kind` / `model.name` into the config, installs the launcher, then prints `setup check` results. It does not install, enable, or start a service. An already-active service is restarted after a successful apply; an inactive service is left inactive. It is idempotent — re-running it reports `already-installed` and does not re-download. Options:
 
 ```bash
 omawake setup all --model <id>          # another catalog model
 omawake setup all --archive <path>      # use an already-downloaded, pinned archive instead of fetching
-omawake setup all --no-start
 omawake setup all --progress-format json
 ```
 
@@ -88,11 +89,16 @@ omawake setup model --set sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01  
 Diagnostics and service management:
 
 ```bash
-omawake setup check              # config, backend, model, engine, wake words, launcher, service
+omawake setup check              # config, backend, model, engine, wake words, launcher, optional service status
 omawake setup runtime            # registered backends, compiled capabilities, runtime/device matrix
 omawake setup systemd --status   # or: --uninstall, --no-start (no flag installs + starts)
 omawake setup menu --status      # or: --uninstall (no flag installs the launcher)
 ```
+
+Run `omawake daemon` in the foreground. If you explicitly want a systemd user
+service, `omawake setup systemd` installs, enables, and starts it; pass
+`--no-start` to install and enable it without starting it. Packages and other
+downstream integrations can instead provide their own service definition.
 
 ```bash
 omawake audio-devices

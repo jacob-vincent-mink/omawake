@@ -51,7 +51,7 @@ impl GuidedPrompts for ScriptedGuidedPrompts {
         Ok(self.model)
     }
 
-    fn confirm(&mut self, _: &RuntimeSelection, _: &str) -> Result<bool> {
+    fn confirm(&mut self, _: &RuntimeSelection, _: &str, _: bool) -> Result<bool> {
         Ok(self.confirm)
     }
 }
@@ -174,7 +174,8 @@ fn guided_full_setup_waits_for_review_and_then_runs_selected_plan() {
             &mut prompts,
             |_, _, _, _| unreachable!(),
             |_| unreachable!(),
-            |_, _, _| unreachable!(),
+            |_| false,
+            |_| unreachable!(),
             |_, _| unreachable!(),
             |_, _| unreachable!(),
         )
@@ -189,6 +190,7 @@ fn guided_full_setup_waits_for_review_and_then_runs_selected_plan() {
         confirm: true,
         ..Default::default()
     };
+    let reloads = std::cell::Cell::new(0);
     guided_all_with_services(
         &paths.config_file,
         &paths,
@@ -198,10 +200,14 @@ fn guided_full_setup_waits_for_review_and_then_runs_selected_plan() {
             Ok(app_setup::model::model_directory(paths, model))
         },
         |paths| Ok(paths.data_dir.join("applications/omawake.desktop")),
-        |paths, config, start| {
-            assert_eq!(config, &paths.config_file);
-            assert!(start);
-            Ok(paths.data_dir.join("systemd/omawake.service"))
+        |found| {
+            assert_eq!(found.config_file, paths.config_file);
+            true
+        },
+        |was_active| {
+            assert!(was_active);
+            reloads.set(reloads.get() + 1);
+            Ok(true)
         },
         |_, _| Ok(()),
         |_, _| unreachable!(),
@@ -210,6 +216,8 @@ fn guided_full_setup_waits_for_review_and_then_runs_selected_plan() {
     let saved = Config::load(&paths.config_file).unwrap();
     assert_eq!(saved.backend.device, "cpu");
     assert_eq!(saved.model.name, spec.id);
+    assert_eq!(reloads.get(), 1);
+    assert!(!app_setup::systemd::service_path(&paths).exists());
 }
 
 #[test]
@@ -255,7 +263,8 @@ fn terminal_prompt_adapter_reports_non_tty_errors() {
                     runtime: Runtime::Default,
                     device: "cpu".into(),
                 },
-                "model"
+                "model",
+                false,
             )
             .is_err()
     );
@@ -472,7 +481,6 @@ fn command_line_surface_parses_representative_forms() {
             "all",
             "--model",
             "model",
-            "--no-start",
             "--progress-format",
             "human",
         ],
@@ -486,6 +494,7 @@ fn command_line_surface_parses_representative_forms() {
     assert!(
         Cli::try_parse_from(["omawake", "setup", "systemd", "--status", "--uninstall"]).is_err()
     );
+    assert!(Cli::try_parse_from(["omawake", "setup", "all", "--no-start"]).is_err());
     let denied = || std::io::Error::from(std::io::ErrorKind::PermissionDenied);
     assert!(io_or_skip::<()>(Err(denied())).is_none());
     assert!(anyhow_or_skip::<()>(Err(denied().into())).is_none());
@@ -674,7 +683,8 @@ fn metadata_helpers_return_stable_shapes() {
             &paths.data_dir,
             &paths.config_file,
             Path::new("launcher.desktop"),
-            Path::new("omawake.service"),
+            false,
+            false,
             progress,
         )
         .unwrap();
@@ -683,18 +693,19 @@ fn metadata_helpers_return_stable_shapes() {
             &paths.config_file,
             &paths,
             None,
-            true,
             progress,
+            false,
             |_, _, _, _| Ok(paths.data_dir.join("model")),
             |_| Ok(paths.data_dir.join("launcher.desktop")),
-            |_, _, start| {
-                assert!(!start);
-                Ok(paths.data_dir.join("omawake.service"))
+            |was_active| {
+                assert!(!was_active);
+                Ok(false)
             },
             |_, _| Ok(()),
             |_, _| Ok(()),
         )
         .unwrap();
+        assert!(!app_setup::systemd::service_path(&paths).exists());
     }
     assert!(
         install_everything(
@@ -702,11 +713,11 @@ fn metadata_helpers_return_stable_shapes() {
             &paths.config_file,
             &paths,
             None,
-            false,
             ProgressFormat::Human,
+            false,
             |_, _, _, _| bail!("model failed"),
             |_| unreachable!(),
-            |_, _, _| unreachable!(),
+            |_| unreachable!(),
             |_, _| unreachable!(),
             |_, _| unreachable!(),
         )
@@ -1661,7 +1672,6 @@ fn setup_dispatch_covers_checks_catalog_and_safe_failure_paths() {
             Some(SetupCommand::All {
                 model,
                 archive: Some(paths.data_dir.join("missing.tar.bz2")),
-                no_start: true,
                 progress_format: ProgressFormat::Json,
             }),
             config,
