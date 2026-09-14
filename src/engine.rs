@@ -1,6 +1,9 @@
 use std::collections::HashMap;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::Path;
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
@@ -57,6 +60,18 @@ pub struct ActionResult {
     pub status: i32,
 }
 
+pub fn wav_duration(path: &Path) -> Result<Duration> {
+    let wave = sherpa_onnx::Wave::read(path.to_string_lossy().as_ref())
+        .with_context(|| format!("read WAV metadata {}", path.display()))?;
+    let sample_rate = wave.sample_rate();
+    if sample_rate <= 0 {
+        bail!("WAV sample rate must be positive: {}", path.display());
+    }
+    Ok(Duration::from_secs_f64(
+        wave.num_samples().max(0) as f64 / sample_rate as f64,
+    ))
+}
+
 impl Detector {
     pub fn load(config: &Config, paths: &AppPaths) -> Result<Self> {
         if config.backend.kind != "sherpa-onnx" {
@@ -67,7 +82,7 @@ impl Detector {
         }
         Self::load_with(config, paths, |config, directory, runtime, keywords| {
             Ok(Box::new(SherpaOnnxBackend::load(
-                config, directory, runtime, keywords,
+                config, paths, directory, runtime, keywords,
             )?))
         })
     }
@@ -215,6 +230,7 @@ fn detection_from_parts(
 
 fn build_sherpa_config(
     config: &Config,
+    paths: &AppPaths,
     directory: &Path,
     runtime: Runtime,
     keywords_buffer: &str,
@@ -235,9 +251,7 @@ fn build_sherpa_config(
     sherpa_config.model_config.provider = Some(match runtime {
         Runtime::Default => "cpu".into(),
         Runtime::Cuda => "cuda".into(),
-        Runtime::Openvino => {
-            bail!("OpenVINO provider file generation is unavailable in this build")
-        }
+        Runtime::Openvino => openvino_provider(config, paths)?,
     });
     sherpa_config.feat_config.sample_rate = config.model.sample_rate;
     sherpa_config.max_active_paths = config.model.max_active_paths;
@@ -246,6 +260,172 @@ fn build_sherpa_config(
     sherpa_config.keywords_threshold = config.model.keywords_threshold;
     sherpa_config.keywords_buf = Some(keywords_buffer.into());
     Ok(sherpa_config)
+}
+
+fn openvino_provider(config: &Config, paths: &AppPaths) -> Result<String> {
+    let supplied = config.backend.provider_config.trim();
+    if !supplied.is_empty() {
+        let supplied = Path::new(supplied);
+        let path = if supplied.is_absolute() {
+            supplied.to_owned()
+        } else {
+            paths
+                .config_file
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join(supplied)
+        };
+        let path = fs::canonicalize(&path)
+            .with_context(|| format!("resolve OpenVINO provider config {}", path.display()))?;
+        if !path.is_file() {
+            bail!(
+                "OpenVINO provider config is not a regular file: {}",
+                path.display()
+            );
+        }
+        return Ok(format!("openvino:{}", utf8_path(&path)?));
+    }
+
+    let canonical = config.backend.canonical_device()?.to_ascii_uppercase();
+    for (key, value) in &config.backend.options {
+        validate_provider_option(key, value)?;
+        match key.as_str() {
+            "cache_dir" => {
+                bail!("backend.options.cache_dir is managed by Omawake for each OpenVINO device")
+            }
+            "device_type" if value != &canonical => {
+                bail!("backend.options.device_type must match canonical device {canonical}")
+            }
+            _ => {}
+        }
+    }
+    let device_directory = paths
+        .state_dir
+        .join("cache/openvino")
+        .join(device_path_component(&canonical));
+    fs::create_dir_all(&device_directory).with_context(|| {
+        format!(
+            "create OpenVINO provider directory {}",
+            device_directory.display()
+        )
+    })?;
+    make_directory_private(&device_directory)?;
+    let device_directory = fs::canonicalize(&device_directory).with_context(|| {
+        format!(
+            "resolve OpenVINO provider directory {}",
+            device_directory.display()
+        )
+    })?;
+    let cache_directory = device_directory.join("compiled");
+    fs::create_dir_all(&cache_directory).with_context(|| {
+        format!(
+            "create OpenVINO cache directory {}",
+            cache_directory.display()
+        )
+    })?;
+    make_directory_private(&cache_directory)?;
+
+    let cache_value = utf8_path(&cache_directory)?.to_owned();
+    let mut properties = std::collections::BTreeMap::from([
+        ("cache_dir".to_owned(), cache_value.clone()),
+        ("device_type".to_owned(), canonical.clone()),
+    ]);
+    if canonical == "NPU" {
+        properties.insert("disable_dynamic_shapes".into(), "True".into());
+        properties.insert("enable_qdq_optimizer".into(), "True".into());
+    }
+    for (key, value) in &config.backend.options {
+        properties.insert(key.clone(), value.clone());
+    }
+
+    let mut contents = String::new();
+    for (key, value) in properties {
+        contents.push_str(&key);
+        contents.push('=');
+        contents.push_str(&value);
+        contents.push('\n');
+    }
+    let config_path = device_directory.join("provider.config");
+    atomic_write_private(&config_path, contents.as_bytes())?;
+    Ok(format!("openvino:{}", utf8_path(&config_path)?))
+}
+
+fn validate_provider_option(key: &str, value: &str) -> Result<()> {
+    let mut characters = key.chars();
+    let valid_first = characters
+        .next()
+        .is_some_and(|character| character.is_ascii_alphanumeric());
+    let valid_rest = characters
+        .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '.' | '-'));
+    if !valid_first || !valid_rest {
+        bail!("backend option key {key:?} is invalid; use ASCII letters, digits, '.', '_' or '-'");
+    }
+    if value.contains(['\0', '\r', '\n']) {
+        bail!("backend option {key} must not contain NUL or line breaks");
+    }
+    Ok(())
+}
+
+fn device_path_component(device: &str) -> String {
+    device
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
+fn utf8_path(path: &Path) -> Result<&str> {
+    path.to_str()
+        .with_context(|| format!("path is not valid UTF-8: {}", path.display()))
+}
+
+fn atomic_write_private(path: &Path, contents: &[u8]) -> Result<()> {
+    static TEMPORARY_ID: AtomicU64 = AtomicU64::new(0);
+    let parent = path
+        .parent()
+        .with_context(|| format!("provider config has no parent: {}", path.display()))?;
+    let temporary = parent.join(format!(
+        ".provider.config.{}.{}.tmp",
+        std::process::id(),
+        TEMPORARY_ID.fetch_add(1, Ordering::Relaxed)
+    ));
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(&temporary)
+        .with_context(|| format!("create temporary provider config {}", temporary.display()))?;
+    let install = (|| -> Result<()> {
+        file.write_all(contents)?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&temporary, path)
+            .with_context(|| format!("install OpenVINO provider config {}", path.display()))?;
+        Ok(())
+    })();
+    if install.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    install
+}
+
+fn make_directory_private(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+            .with_context(|| format!("make directory private {}", path.display()))?;
+    }
+    Ok(())
 }
 
 fn detect_samples(

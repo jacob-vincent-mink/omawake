@@ -185,6 +185,16 @@ fn command_line_surface_parses_representative_forms() {
     let cases = [
         vec!["omawake", "test", "--seconds", "1", "--execute", "--json"],
         vec!["omawake", "test", "--audio", "fixture.wav"],
+        vec![
+            "omawake",
+            "benchmark",
+            "--warmup",
+            "2",
+            "--iterations",
+            "4",
+            "one.wav",
+            "two.wav",
+        ],
         vec!["omawake", "status", "--json"],
         vec!["omawake", "config", "get", "backend.kind", "--json"],
         vec!["omawake", "config", "schema"],
@@ -236,6 +246,8 @@ fn command_line_surface_parses_representative_forms() {
         Cli::try_parse_from(args).unwrap();
     }
     assert!(Cli::try_parse_from(["omawake", "test", "--audio", "a", "--seconds", "1"]).is_err());
+    assert!(Cli::try_parse_from(["omawake", "benchmark"]).is_err());
+    assert!(Cli::try_parse_from(["omawake", "benchmark", "--iterations", "0", "a.wav"]).is_err());
     assert!(
         Cli::try_parse_from(["omawake", "setup", "systemd", "--status", "--uninstall"]).is_err()
     );
@@ -535,6 +547,139 @@ fn detection_output_supports_human_and_diagnostic_json_forms() {
     assert_eq!(actions[0].id, "hello");
     assert!(collect_detection_actions(&detections, true, |_| bail!("action failed")).is_err());
     present_detections(&FakeControl, vec![detection()], true, true).unwrap();
+}
+
+#[test]
+fn file_benchmark_reports_warmups_iterations_percentiles_and_rtf() {
+    let paths = [PathBuf::from("short.wav"), PathBuf::from("long.wav")];
+    let base = Instant::now();
+    let mut clock = VecDeque::from([
+        base,
+        base + Duration::from_millis(10),
+        base + Duration::from_millis(10),
+        base + Duration::from_millis(30),
+        base + Duration::from_millis(30),
+        base + Duration::from_millis(35),
+        base + Duration::from_millis(35),
+        base + Duration::from_millis(55),
+    ]);
+    let mut calls = Vec::new();
+    let files = benchmark_files(
+        &paths,
+        1,
+        2,
+        |path| {
+            Ok(if path == Path::new("short.wav") {
+                Duration::from_millis(100)
+            } else {
+                Duration::from_millis(200)
+            })
+        },
+        |path| {
+            calls.push(path.to_owned());
+            Ok(vec![Detection {
+                id: path.file_stem().unwrap().to_string_lossy().into_owned(),
+                tokens: Vec::new(),
+                timestamps: Vec::new(),
+                start_time: 0.0,
+            }])
+        },
+        || clock.pop_front().unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(calls.len(), 6);
+    assert_eq!(files.len(), 2);
+    assert_eq!(files[0].audio_duration_milliseconds, 100.0);
+    assert_eq!(files[0].iterations[0].iteration, 1);
+    assert_eq!(files[0].iterations[0].elapsed_milliseconds, 10.0);
+    assert!((files[0].iterations[0].real_time_factor.unwrap() - 0.1).abs() < f64::EPSILON);
+    assert_eq!(files[0].iterations[0].detections[0].id, "short");
+    assert_eq!(files[0].summary.samples, 2);
+    assert_eq!(files[0].summary.p50_milliseconds, Some(10.0));
+    assert_eq!(files[0].summary.p95_milliseconds, Some(20.0));
+    assert_eq!(files[1].summary.p50_milliseconds, Some(5.0));
+    assert_eq!(files[1].summary.p95_milliseconds, Some(20.0));
+    assert!((files[1].summary.p50_real_time_factor.unwrap() - 0.025).abs() < f64::EPSILON);
+    assert!((files[1].summary.p95_real_time_factor.unwrap() - 0.1).abs() < f64::EPSILON);
+
+    let encoded = serde_json::to_value(&files).unwrap();
+    assert_eq!(encoded[0]["path"], "short.wav");
+    assert_eq!(encoded[1]["iterations"][1]["detections"][0]["id"], "long");
+
+    let report = benchmark_report(&Config::default(), &FakeControl, files, 1, 2).unwrap();
+    assert_eq!(report["schema_version"], 1);
+    assert_eq!(report["benchmark"], "omawake-file-detection");
+    assert_eq!(report["model_load_milliseconds"], 2.0);
+    assert_eq!(report["warmup_iterations"], 1);
+    assert_eq!(report["measured_iterations"], 2);
+    assert_eq!(report["backend"]["kind"], "fake");
+    assert_eq!(report["backend"]["requested_device"], "auto");
+    assert_eq!(report["backend"]["placement_verified"], false);
+    assert_eq!(report["summary"]["samples"], 4);
+    assert_eq!(report["summary"]["p50_milliseconds"], 10.0);
+    assert_eq!(report["summary"]["p95_milliseconds"], 20.0);
+}
+
+#[test]
+fn file_benchmark_validates_inputs_and_handles_zero_duration() {
+    fn duration(_: &Path) -> Result<Duration> {
+        Ok(Duration::from_millis(1))
+    }
+    fn detect(_: &Path) -> Result<Vec<Detection>> {
+        Ok(Vec::new())
+    }
+    assert!(benchmark_files(&[], 0, 1, duration, detect, Instant::now).is_err());
+    assert!(
+        benchmark_files(
+            &[PathBuf::from("a.wav")],
+            0,
+            0,
+            duration,
+            detect,
+            Instant::now
+        )
+        .is_err()
+    );
+    assert!(
+        benchmark_files(
+            &[PathBuf::from("a.wav")],
+            0,
+            1,
+            |_: &Path| bail!("bad WAV"),
+            detect,
+            Instant::now
+        )
+        .is_err()
+    );
+    assert!(
+        benchmark_files(
+            &[PathBuf::from("a.wav")],
+            1,
+            1,
+            duration,
+            |_: &Path| bail!("warmup failed"),
+            Instant::now
+        )
+        .is_err()
+    );
+
+    let base = Instant::now();
+    let mut clock = [base, base + Duration::from_millis(1)].into_iter();
+    let zero = benchmark_files(
+        &[PathBuf::from("empty.wav")],
+        0,
+        1,
+        |_: &Path| Ok(Duration::ZERO),
+        detect,
+        || clock.next().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(zero[0].iterations[0].real_time_factor, None);
+    assert_eq!(zero[0].summary.p50_real_time_factor, None);
+    assert_eq!(percentile(&[], 0.5), None);
+    assert_eq!(percentile(&[30.0, 10.0, 20.0], 0.5), Some(20.0));
+    assert_eq!(milliseconds(Duration::from_micros(1_500)), 1.5);
 }
 
 #[test]
@@ -1132,12 +1277,21 @@ fn top_level_dispatch_runs_file_only_commands_with_injected_paths() {
         })
         .is_err()
     );
+    assert!(
+        invoke(TopCommand::Benchmark {
+            audio: vec![paths.data_dir.join("missing.wav")],
+            warmup: 0,
+            iterations: 1,
+        })
+        .is_err()
+    );
 }
 
 #[test]
 fn top_level_control_dispatch_handles_successful_injected_daemon_responses() {
     let paths = test_paths("control-dispatch");
-    Config::default().save(&paths.config_file).unwrap();
+    let selected_config = paths.config_file.with_file_name("selected.toml");
+    Config::default().save(&selected_config).unwrap();
     for (command, expected_command, state) in [
         (TopCommand::Status { json: false }, Command::Status, "armed"),
         (TopCommand::Status { json: true }, Command::Status, "armed"),
@@ -1147,11 +1301,12 @@ fn top_level_control_dispatch_handles_successful_injected_daemon_responses() {
     ] {
         run_with_paths_and_request(
             Cli {
-                config: Some(paths.config_file.clone()),
+                config: Some(selected_config.clone()),
                 command,
             },
             paths.clone(),
             |received_paths, received_command| {
+                assert_eq!(received_paths.config_file, selected_config);
                 assert_eq!(received_paths.socket(), paths.socket());
                 assert_eq!(
                     std::mem::discriminant(&received_command),

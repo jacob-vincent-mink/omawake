@@ -8,6 +8,9 @@ device_id = 0
 provider_config = ""
 
 [backend.options]
+# ProfilingFilePrefix = "/tmp/omawake-openvino"
+# enable_qdq_optimizer = "False"
+# load_config = '{"NPU":{"NPU_PLATFORM":"5010"}}' # Panther Lake override when required
 
 [model]
 name = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"

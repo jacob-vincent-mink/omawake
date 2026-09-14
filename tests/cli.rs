@@ -198,6 +198,7 @@ fn runtime_commands_fail_cleanly_without_hardware_model_or_daemon() {
             .status
             .success()
     );
+    assert!(!run(&root, &["benchmark", "/missing.wav"]).status.success());
     for command in ["pause", "resume", "stop"] {
         assert!(!run(&root, &[command]).status.success());
     }

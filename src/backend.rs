@@ -104,7 +104,13 @@ impl BackendConfig {
 }
 
 pub const fn compiled_capabilities() -> &'static [&'static str] {
+    #[cfg(feature = "openvino")]
+    const CAPABILITIES: &[&str] = &["cpu", "openvino"];
+    #[cfg(not(feature = "openvino"))]
     const CPU_ONLY: &[&str] = &["cpu"];
+    #[cfg(feature = "openvino")]
+    return CAPABILITIES;
+    #[cfg(not(feature = "openvino"))]
     CPU_ONLY
 }
 

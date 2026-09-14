@@ -13,12 +13,13 @@ use clap::{Parser, Subcommand};
 use omawake::audio::{AudioEvent, Capture, input_devices};
 use omawake::backend::{Fallback, Runtime, compiled_capabilities};
 use omawake::config::{Config, WakeWord};
-use omawake::engine::{ActionResult, Detection, Detector};
+use omawake::engine::{ActionResult, Detection, Detector, wav_duration};
 use omawake::keyword::{KeywordCompiler, validate_wake_words};
 use omawake::paths::AppPaths;
 use omawake::protocol::{Command, Request, Response, ResultPayload};
 use omawake::setup as app_setup;
 use omawake::setup::model::ProgressFormat;
+use serde::Serialize;
 use serde_json::{Value, json};
 
 #[derive(Parser)]
@@ -45,6 +46,15 @@ enum TopCommand {
         execute: bool,
         #[arg(long)]
         json: bool,
+    },
+    /// Benchmark one loaded detector against WAV files and print JSON.
+    Benchmark {
+        #[arg(required = true, value_name = "WAV")]
+        audio: Vec<PathBuf>,
+        #[arg(long, default_value_t = 1)]
+        warmup: u32,
+        #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u32).range(1..))]
+        iterations: u32,
     },
     Status {
         #[arg(long)]
@@ -196,7 +206,7 @@ where
 
 fn run_with_paths_and_services<F, D>(
     cli: Cli,
-    paths: AppPaths,
+    mut paths: AppPaths,
     mut send_request: F,
     list_devices: D,
 ) -> Result<()>
@@ -205,12 +215,18 @@ where
     D: FnOnce() -> Result<Vec<String>>,
 {
     let config_path = cli.config.unwrap_or_else(|| paths.config_file.clone());
+    paths.config_file = config_path.clone();
     let command = match cli.command {
         TopCommand::Setup { command } => return setup(command, &config_path, &paths),
         command => command,
     };
     let config = Config::load(&config_path)?;
     match command {
+        TopCommand::Benchmark {
+            audio,
+            warmup,
+            iterations,
+        } => run_file_benchmark(&config, &paths, &audio, warmup, iterations),
         TopCommand::Test {
             audio: Some(audio),
             execute,
@@ -743,6 +759,180 @@ fn parse_fallback(value: &str) -> Result<Fallback> {
         "cpu" => Ok(Fallback::Cpu),
         _ => bail!("backend fallback must be error or cpu"),
     }
+}
+
+#[derive(Debug, Serialize)]
+struct BenchmarkIteration {
+    iteration: u32,
+    elapsed_milliseconds: f64,
+    real_time_factor: Option<f64>,
+    detections: Vec<Detection>,
+}
+
+#[derive(Debug, Serialize)]
+struct BenchmarkFile {
+    path: PathBuf,
+    audio_duration_milliseconds: f64,
+    iterations: Vec<BenchmarkIteration>,
+    summary: BenchmarkSummary,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct BenchmarkSummary {
+    samples: usize,
+    p50_milliseconds: Option<f64>,
+    p95_milliseconds: Option<f64>,
+    p50_real_time_factor: Option<f64>,
+    p95_real_time_factor: Option<f64>,
+}
+
+fn run_file_benchmark(
+    config: &Config,
+    paths: &AppPaths,
+    audio: &[PathBuf],
+    warmup: u32,
+    iterations: u32,
+) -> Result<()> {
+    let detector = Detector::load(config, paths)?;
+    let files = benchmark_files(
+        audio,
+        warmup,
+        iterations,
+        wav_duration,
+        |path| detector.detect_file(path),
+        Instant::now,
+    )?;
+    let report = benchmark_report(config, &detector, files, warmup, iterations)?;
+    println!("{}", serde_json::to_string_pretty(&report)?);
+    Ok(())
+}
+
+fn benchmark_report(
+    config: &Config,
+    detector: &impl DetectorControl,
+    files: Vec<BenchmarkFile>,
+    warmup: u32,
+    iterations: u32,
+) -> Result<Value> {
+    let summary = benchmark_summary(
+        files
+            .iter()
+            .flat_map(|file| file.iterations.iter())
+            .map(|iteration| (iteration.elapsed_milliseconds, iteration.real_time_factor)),
+    );
+    Ok(json!({
+        "schema_version": 1,
+        "benchmark": "omawake-file-detection",
+        "model_load_milliseconds": milliseconds(detector.load_time()),
+        "warmup_iterations": warmup,
+        "measured_iterations": iterations,
+        "backend": {
+            "kind": detector.backend_kind(),
+            "requested_runtime": config.backend.runtime,
+            "requested_device": config.backend.canonical_device()?,
+            "effective_runtime": detector.effective_runtime(),
+            "fallback_used": detector.fallback_used(),
+            "placement_verified": false,
+        },
+        "files": files,
+        "summary": summary,
+    }))
+}
+
+fn benchmark_files<D, F, N>(
+    paths: &[PathBuf],
+    warmup: u32,
+    iterations: u32,
+    mut duration: D,
+    mut detect: F,
+    mut now: N,
+) -> Result<Vec<BenchmarkFile>>
+where
+    D: FnMut(&Path) -> Result<Duration>,
+    F: FnMut(&Path) -> Result<Vec<Detection>>,
+    N: FnMut() -> Instant,
+{
+    if paths.is_empty() {
+        bail!("benchmark requires at least one WAV path");
+    }
+    if iterations == 0 {
+        bail!("benchmark iterations must be at least one");
+    }
+    let inputs = paths
+        .iter()
+        .map(|path| {
+            duration(path)
+                .with_context(|| format!("inspect benchmark audio {}", path.display()))
+                .map(|duration| (path, duration))
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    for _ in 0..warmup {
+        for (path, _) in &inputs {
+            detect(path).with_context(|| format!("warm up benchmark audio {}", path.display()))?;
+        }
+    }
+
+    inputs
+        .into_iter()
+        .map(|(path, audio_duration)| {
+            let mut measurements = Vec::with_capacity(iterations as usize);
+            for iteration in 1..=iterations {
+                let started = now();
+                let detections =
+                    detect(path).with_context(|| format!("benchmark audio {}", path.display()))?;
+                let elapsed = now().saturating_duration_since(started);
+                let real_time_factor = (audio_duration > Duration::ZERO)
+                    .then(|| elapsed.as_secs_f64() / audio_duration.as_secs_f64());
+                measurements.push(BenchmarkIteration {
+                    iteration,
+                    elapsed_milliseconds: milliseconds(elapsed),
+                    real_time_factor,
+                    detections,
+                });
+            }
+            let summary = benchmark_summary(measurements.iter().map(|measurement| {
+                (
+                    measurement.elapsed_milliseconds,
+                    measurement.real_time_factor,
+                )
+            }));
+            Ok(BenchmarkFile {
+                path: path.clone(),
+                audio_duration_milliseconds: milliseconds(audio_duration),
+                iterations: measurements,
+                summary,
+            })
+        })
+        .collect()
+}
+
+fn benchmark_summary(values: impl IntoIterator<Item = (f64, Option<f64>)>) -> BenchmarkSummary {
+    let (elapsed, real_time_factors): (Vec<_>, Vec<_>) = values.into_iter().unzip();
+    let real_time_factors = real_time_factors.into_iter().flatten().collect::<Vec<_>>();
+    BenchmarkSummary {
+        samples: elapsed.len(),
+        p50_milliseconds: percentile(&elapsed, 0.50),
+        p95_milliseconds: percentile(&elapsed, 0.95),
+        p50_real_time_factor: percentile(&real_time_factors, 0.50),
+        p95_real_time_factor: percentile(&real_time_factors, 0.95),
+    }
+}
+
+fn percentile(values: &[f64], percentile: f64) -> Option<f64> {
+    if values.is_empty() {
+        return None;
+    }
+    let mut sorted = values.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    let rank = ((sorted.len() as f64 * percentile).ceil() as usize)
+        .saturating_sub(1)
+        .min(sorted.len() - 1);
+    Some(sorted[rank])
+}
+
+fn milliseconds(duration: Duration) -> f64 {
+    duration.as_secs_f64() * 1_000.0
 }
 
 fn detect_live(detector: &Detector, config: &Config, duration: Duration) -> Result<Vec<Detection>> {

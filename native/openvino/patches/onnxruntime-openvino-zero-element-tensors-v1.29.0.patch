@@ -1,0 +1,58 @@
+diff --git i/onnxruntime/core/providers/openvino/backends/basic_backend.cc w/onnxruntime/core/providers/openvino/backends/basic_backend.cc
+index fab8c9b..3e46f08 100644
+--- i/onnxruntime/core/providers/openvino/backends/basic_backend.cc
++++ w/onnxruntime/core/providers/openvino/backends/basic_backend.cc
+@@ -361,6 +361,11 @@ void BasicBackend::Infer(OrtKernelContext* ctx) {
+       auto ort_shape = tensor.GetTensorTypeAndShapeInfo().GetShape();
+       auto input_shape = ParameterShape(ort_shape);
+ 
++      if (std::any_of(ort_shape.begin(), ort_shape.end(),
++                      [](int64_t dim) { return dim == 0; })) {
++        continue;
++      }
++
+       infer_request->SetTensor(input_info.name,
+                                input_info.type,
+                                input_shape,
+@@ -379,6 +384,10 @@ void BasicBackend::Infer(OrtKernelContext* ctx) {
+       ORT_ENFORCE(ov_tensor->get_byte_size() == ort_tensor.GetTensorSizeInBytes(),
+                   log_tag + "Output tensor size mismatch for " + output_info.name);
+ 
++      if (ov_tensor->get_byte_size() == 0) {
++        continue;
++      }
++
+       std::memcpy(ort_tensor.GetTensorMutableRawData(),
+                   ov_tensor->data(),
+                   ov_tensor->get_byte_size());
+@@ -388,6 +397,14 @@ void BasicBackend::Infer(OrtKernelContext* ctx) {
+ 
+     // Bind inputs
+     for (const auto& input_info : bindings_->network_inputs_) {
++      // A statically empty tensor has no backing allocation in ORT. The
++      // compiled OpenVINO request already owns an empty tensor of this shape,
++      // so leave that binding intact instead of wrapping ORT's null pointer.
++      const auto input_shape = static_cast<ov::Shape>(input_info.shape);
++      if (std::any_of(input_shape.begin(), input_shape.end(),
++                      [](size_t dim) { return dim == 0; })) {
++        continue;
++      }
+       infer_request->SetTensor(input_info.name,
+                                input_info.type,
+                                input_info.shape,
+@@ -396,6 +413,15 @@ void BasicBackend::Infer(OrtKernelContext* ctx) {
+ 
+     // Bind outputs
+     for (const auto& output_info : bindings_->network_outputs_) {
++      // ORT represents zero-element tensors with a null data pointer. Passing
++      // that pointer to OpenVINO's host-tensor wrapper is invalid even though
++      // the static shape itself is valid. Keep the infer request's own empty
++      // tensor for this output; there are no bytes to copy back to ORT.
++      const auto output_shape = static_cast<ov::Shape>(output_info.shape);
++      if (std::any_of(output_shape.begin(), output_shape.end(),
++                      [](size_t dim) { return dim == 0; })) {
++        continue;
++      }
+       infer_request->SetTensor(output_info.name,
+                                output_info.type,
+                                output_info.shape,

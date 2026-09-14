@@ -16,11 +16,13 @@ struct SherpaOnnxStream<'a> {
 impl SherpaOnnxBackend {
     pub(super) fn load(
         config: &Config,
+        paths: &AppPaths,
         directory: &Path,
         runtime: Runtime,
         keywords_buffer: &str,
     ) -> Result<Self> {
-        let sherpa_config = build_sherpa_config(config, directory, runtime, keywords_buffer)?;
+        let sherpa_config =
+            build_sherpa_config(config, paths, directory, runtime, keywords_buffer)?;
         let spotter = KeywordSpotter::create(&sherpa_config)
             .context("sherpa-onnx could not create the keyword spotter")?;
         Ok(Self { spotter })

@@ -107,6 +107,34 @@ fn temp(name: &str) -> std::path::PathBuf {
     path
 }
 
+fn pcm16_wav(sample_rate: u32, sample_count: u32) -> Vec<u8> {
+    let data_size = sample_count * 2;
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"RIFF");
+    bytes.extend_from_slice(&(36 + data_size).to_le_bytes());
+    bytes.extend_from_slice(b"WAVEfmt ");
+    bytes.extend_from_slice(&16u32.to_le_bytes());
+    bytes.extend_from_slice(&1u16.to_le_bytes());
+    bytes.extend_from_slice(&1u16.to_le_bytes());
+    bytes.extend_from_slice(&sample_rate.to_le_bytes());
+    bytes.extend_from_slice(&(sample_rate * 2).to_le_bytes());
+    bytes.extend_from_slice(&2u16.to_le_bytes());
+    bytes.extend_from_slice(&16u16.to_le_bytes());
+    bytes.extend_from_slice(b"data");
+    bytes.extend_from_slice(&data_size.to_le_bytes());
+    bytes.resize(bytes.len() + data_size as usize, 0);
+    bytes
+}
+
+fn paths(root: &Path) -> AppPaths {
+    AppPaths {
+        config_file: root.join("config/config.toml"),
+        data_dir: root.join("data"),
+        state_dir: root.join("state"),
+        runtime_dir: root.join("run"),
+    }
+}
+
 #[test]
 fn fake_backend_validates_file_and_stream_detections() {
     let known = detector("known", vec!["true".into()], "known");
@@ -122,6 +150,15 @@ fn fake_backend_validates_file_and_stream_detections() {
     assert!(unknown.detect_file(Path::new("unused")).is_err());
     assert!(unknown.session().accept(16_000, &[]).is_err());
     assert!(unknown.session().finish().is_err());
+}
+
+#[test]
+fn reads_wav_audio_duration() {
+    let root = temp("wav-duration");
+    let path = root.join("one-tenth-second.wav");
+    fs::write(&path, pcm16_wav(16_000, 1_600)).unwrap();
+    assert_eq!(wav_duration(&path).unwrap(), Duration::from_millis(100));
+    assert!(wav_duration(&root.join("missing.wav")).is_err());
 }
 
 #[test]
@@ -293,6 +330,7 @@ fn sample_chunking_pads_finishes_and_propagates_stream_errors() {
 #[test]
 fn builds_safe_sherpa_configuration_for_cpu_and_cuda() {
     let root = temp("sherpa-config");
+    let paths = paths(&root);
     let mut config = Config::default();
     config.backend.threads = 3;
     for name in [
@@ -304,7 +342,8 @@ fn builds_safe_sherpa_configuration_for_cpu_and_cuda() {
         fs::write(root.join(name), b"fixture").unwrap();
     }
 
-    let cpu = build_sherpa_config(&config, &root, Runtime::Default, "HELLO @hello").unwrap();
+    let cpu =
+        build_sherpa_config(&config, &paths, &root, Runtime::Default, "HELLO @hello").unwrap();
     assert_eq!(cpu.model_config.provider.as_deref(), Some("cpu"));
     assert_eq!(cpu.model_config.num_threads, 3);
     assert_eq!(cpu.feat_config.sample_rate, config.model.sample_rate);
@@ -318,9 +357,138 @@ fn builds_safe_sherpa_configuration_for_cpu_and_cuda() {
         Some(root.join(&config.model.encoder).to_string_lossy().as_ref())
     );
 
-    let cuda = build_sherpa_config(&config, &root, Runtime::Cuda, "X @x").unwrap();
+    let cuda = build_sherpa_config(&config, &paths, &root, Runtime::Cuda, "X @x").unwrap();
     assert_eq!(cuda.model_config.provider.as_deref(), Some("cuda"));
-    assert!(build_sherpa_config(&config, &root, Runtime::Openvino, "X @x").is_err());
+
+    config.backend.runtime = Runtime::Openvino;
+    config.backend.device = "gpu".into();
+    let openvino = build_sherpa_config(&config, &paths, &root, Runtime::Openvino, "X @x").unwrap();
+    assert!(
+        openvino
+            .model_config
+            .provider
+            .as_deref()
+            .unwrap()
+            .starts_with("openvino:/")
+    );
+}
+
+#[test]
+fn generates_private_openvino_config_with_npu_defaults_and_overrides() {
+    let root = temp("openvino-generated");
+    let paths = paths(&root);
+    let mut config = Config::default();
+    config.backend.runtime = Runtime::Openvino;
+    config.backend.device = "npu".into();
+    config
+        .backend
+        .options
+        .insert("ProfilingFilePrefix".into(), "/tmp/omawake-profile".into());
+    config
+        .backend
+        .options
+        .insert("enable_qdq_optimizer".into(), "False".into());
+
+    let provider = openvino_provider(&config, &paths).unwrap();
+    let provider_path = Path::new(provider.strip_prefix("openvino:").unwrap());
+    assert!(provider_path.is_absolute());
+    assert_eq!(
+        provider_path,
+        paths.state_dir.join("cache/openvino/npu/provider.config")
+    );
+    let contents = fs::read_to_string(provider_path).unwrap();
+    assert!(contents.contains("device_type=NPU\n"));
+    assert!(contents.contains("disable_dynamic_shapes=True\n"));
+    assert!(contents.contains("enable_qdq_optimizer=False\n"));
+    assert!(contents.contains("ProfilingFilePrefix=/tmp/omawake-profile\n"));
+    assert!(contents.contains(&format!(
+        "cache_dir={}\n",
+        paths.state_dir.join("cache/openvino/npu/compiled").display()
+    )));
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(provider_path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+
+    config
+        .backend
+        .options
+        .insert("disable_dynamic_shapes".into(), "False".into());
+    openvino_provider(&config, &paths).unwrap();
+    let replaced = fs::read_to_string(provider_path).unwrap();
+    assert!(replaced.contains("disable_dynamic_shapes=False\n"));
+}
+
+#[test]
+fn separates_openvino_caches_by_canonical_device() {
+    let root = temp("openvino-devices");
+    let paths = paths(&root);
+    let mut config = Config::default();
+    config.backend.runtime = Runtime::Openvino;
+    config.backend.device = "hetero:gpu, cpu".into();
+    let provider = openvino_provider(&config, &paths).unwrap();
+    let provider_path = Path::new(provider.strip_prefix("openvino:").unwrap());
+    assert!(provider_path.ends_with("openvino/hetero-gpu-cpu/provider.config"));
+    let contents = fs::read_to_string(provider_path).unwrap();
+    assert!(contents.contains("device_type=HETERO:GPU,CPU\n"));
+    assert!(!contents.contains("enable_qdq_optimizer"));
+}
+
+#[test]
+fn honors_existing_relative_openvino_provider_config() {
+    let root = temp("openvino-supplied");
+    let paths = paths(&root);
+    fs::create_dir_all(paths.config_file.parent().unwrap()).unwrap();
+    let supplied = paths.config_file.parent().unwrap().join("provider.config");
+    fs::write(&supplied, "device_type=GPU\n").unwrap();
+    let mut config = Config::default();
+    config.backend.runtime = Runtime::Openvino;
+    config.backend.device = "gpu".into();
+    config.backend.provider_config = "provider.config".into();
+
+    assert_eq!(
+        openvino_provider(&config, &paths).unwrap(),
+        format!("openvino:{}", supplied.canonicalize().unwrap().display())
+    );
+    config.backend.provider_config = "missing.config".into();
+    assert!(openvino_provider(&config, &paths).is_err());
+    config.backend.provider_config = "..".into();
+    assert!(openvino_provider(&config, &paths).is_err());
+}
+
+#[test]
+fn rejects_unsafe_or_conflicting_openvino_options() {
+    let root = temp("openvino-options");
+    let paths = paths(&root);
+    let mut config = Config::default();
+    config.backend.runtime = Runtime::Openvino;
+    config.backend.device = "gpu".into();
+
+    for (key, value) in [
+        ("bad key", "value"),
+        ("bad=key", "value"),
+        ("good_key", "nul\0value"),
+        ("good_key", "first\nsecond"),
+        ("cache_dir", "/tmp/shared"),
+        ("device_type", "CPU"),
+    ] {
+        config.backend.options.clear();
+        config.backend.options.insert(key.into(), value.into());
+        assert!(openvino_provider(&config, &paths).is_err(), "{key}");
+        assert!(!paths.state_dir.exists(), "{key}");
+    }
+
+    config.backend.options.clear();
+    config
+        .backend
+        .options
+        .insert("device_type".into(), "GPU".into());
+    assert!(openvino_provider(&config, &paths).is_ok());
 }
 
 #[test]
@@ -389,7 +557,9 @@ fn load_and_sherpa_backend_report_configuration_errors() {
     config.backend.device = "auto".into();
     config.backend.kind = "sherpa-onnx".into();
     let directory = config.model_directory(&paths);
-    assert!(SherpaOnnxBackend::load(&config, &directory, Runtime::Default, "X @x").is_err());
+    assert!(
+        SherpaOnnxBackend::load(&config, &paths, &directory, Runtime::Default, "X @x").is_err()
+    );
     fs::create_dir_all(&directory).unwrap();
     for name in [
         &config.model.encoder,
@@ -399,8 +569,6 @@ fn load_and_sherpa_backend_report_configuration_errors() {
     ] {
         fs::write(directory.join(name), b"bad").unwrap();
     }
-    assert!(SherpaOnnxBackend::load(&config, &directory, Runtime::Openvino, "X @x").is_err());
-
     config.model.directory = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures")
         .to_string_lossy()

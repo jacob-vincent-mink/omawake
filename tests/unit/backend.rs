@@ -80,3 +80,11 @@ fn acceleration_requires_a_compiled_capability() {
     ));
     assert!(config.validate_capabilities(&["cpu", "openvino"]).is_ok());
 }
+
+#[test]
+fn reports_capabilities_from_cargo_features() {
+    #[cfg(feature = "openvino")]
+    assert_eq!(compiled_capabilities(), &["cpu", "openvino"]);
+    #[cfg(not(feature = "openvino"))]
+    assert_eq!(compiled_capabilities(), &["cpu"]);
+}

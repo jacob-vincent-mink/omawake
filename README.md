@@ -11,6 +11,29 @@ cargo build --release
 cargo test
 ```
 
+The default binary uses sherpa-onnx's implicit static link mode and reports the
+`cpu` capability. To build the OpenVINO flavor, point sherpa-onnx at a shared
+library directory that was built with the ONNX Runtime OpenVINO execution
+provider, then enable Omawake's feature:
+
+```bash
+SHERPA_ONNX_LIB_DIR=/absolute/path/to/sherpa-onnx/lib \
+  cargo build --release --features openvino
+```
+
+The feature selects sherpa-onnx's shared link mode and makes Omawake report the
+`openvino` compiled capability. The build deliberately fails unless
+`SHERPA_ONNX_LIB_DIR` contains `libonnxruntime_providers_openvino.so`; the
+ordinary sherpa-onnx shared release is CPU-only. The supplied native libraries,
+their OpenVINO plugins, and loader paths must remain available at runtime. A
+successful build or accepted configuration does not establish device placement;
+inspect runtime provider evidence before treating NPU or GPU placement as
+verified.
+
+[`native/openvino`](native/openvino/README.md) contains the reproducible build
+for the pinned ONNX Runtime 1.29, OpenVINO 2026.2.1, and sherpa-onnx 1.13.8
+stack used by the hardware benchmark, including both required source patches.
+
 Copy `config.example.toml` to `${XDG_CONFIG_HOME:-$HOME/.config}/omawake/config.toml`, then verify everything with:
 
 ```bash
@@ -57,12 +80,21 @@ omawake setup menu --status      # or: --uninstall (no flag installs the launche
 ```bash
 omawake audio-devices
 omawake test --audio test.wav --json
+omawake benchmark --warmup 2 --iterations 10 test.wav another.wav > benchmark.json
 omawake daemon
 omawake status --json
 omawake pause
 omawake resume
 omawake stop
 ```
+
+`benchmark` loads the configured detector once, never opens a microphone or runs
+actions, and emits JSON with the model load time, detections and timing for every
+measured file iteration, audio duration, real-time factor, and p50/p95 summaries.
+The [OpenVINO benchmark harness](scripts/benchmark-openvino.sh) prepares isolated
+cold/hot CPU, GPU, and NPU lanes. See the
+[Dell XPS 16 report](benchmarks/openvino-dell-xps-2026-09-14.md) for the tested
+OpenVINO 2026.2.1 and ONNX Runtime 1.29.0 results and model compatibility note.
 
 Add and remove mappings without editing TOML:
 
@@ -87,6 +119,19 @@ Actions are executed directly. Omawake does not insert a shell. Configure `sh -l
 | `cuda` | `auto`, `gpu` |
 | `openvino` | `auto`, `npu`, `gpu`, `cpu`, `AUTO:...`, `HETERO:...`, `MULTI:...` |
 
-The current build registers sherpa-onnx as the first (in-process ONNX) backend. The distributed CPU build reports only the `cpu` compiled capability. It rejects unavailable acceleration before model creation when `fallback = "error"`. With `fallback = "cpu"`, it emits a warning and exposes the fallback in status and test output. OpenVINO and CUDA require separately linked release flavors; merely selecting them in TOML never counts as verified placement.
+The current build registers sherpa-onnx as the first (in-process ONNX) backend. The distributed CPU build reports only the `cpu` compiled capability. It rejects unavailable acceleration before model creation when `fallback = "error"`. With `fallback = "cpu"`, it emits a warning and exposes the fallback in status and test output. OpenVINO requires the `openvino` Cargo feature and an OpenVINO-enabled shared sherpa/ONNX Runtime stack. CUDA requires a separately linked release flavor. Merely selecting an accelerated runtime in TOML never counts as verified placement.
+
+For OpenVINO, an empty `backend.provider_config` makes Omawake atomically write a user-private config below `$XDG_STATE_HOME/omawake/cache/openvino/<device>/provider.config`. It includes the uppercase canonical `device_type` and a separate compiled-model `cache_dir` for that device. Exact `NPU` selection also defaults `enable_qdq_optimizer=True` and `disable_dynamic_shapes=True`; `[backend.options]` can override those values and pass through other single-line OpenVINO options such as `ProfilingFilePrefix`. Option keys accept ASCII letters, digits, `.`, `_`, and `-`. Omawake manages `cache_dir`, and a `device_type` option must exactly match the selected canonical device.
+
+Provider-specific device properties belong in OpenVINO's inline JSON
+`load_config` value. For example, the Panther Lake NPU used in the benchmark
+needed this platform override with the installed compiler:
+
+```toml
+[backend.options]
+load_config = '{"NPU":{"NPU_PLATFORM":"5010"}}'
+```
+
+Set `backend.provider_config` to use an existing file instead. Absolute paths are used directly; relative paths resolve beside Omawake's application config. Omawake verifies that the path names a regular file and passes its absolute canonical path to sherpa without rewriting it.
 
 See [DEMO.md](DEMO.md) for the reproducible live-capture demonstration and measured result.

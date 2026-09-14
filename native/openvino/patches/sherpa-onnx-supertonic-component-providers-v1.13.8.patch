@@ -1,0 +1,197 @@
+diff --git i/sherpa-onnx/csrc/offline-tts-supertonic-model.cc w/sherpa-onnx/csrc/offline-tts-supertonic-model.cc
+index 9f8b3ab0..36bf35b7 100644
+--- i/sherpa-onnx/csrc/offline-tts-supertonic-model.cc
++++ w/sherpa-onnx/csrc/offline-tts-supertonic-model.cc
+@@ -8,6 +8,7 @@
+ 
+ #include "sherpa-onnx/csrc/offline-tts-supertonic-model.h"
+ 
++#include <algorithm>
+ #include <memory>
+ #include <sstream>
+ #include <string>
+@@ -34,12 +35,45 @@ namespace sherpa_onnx {
+ 
+ using json = nlohmann::json;
+ 
++static bool UseRequestedProvider(const OfflineTtsModelConfig &config,
++                                 const std::string &component) {
++  std::string selected = GetProviderConfigValue(
++      config.provider, "SherpaOnnx.SupertonicComponents");
++  if (selected.empty()) {
++    return true;
++  }
++
++  std::istringstream is(selected);
++  std::string name;
++  while (std::getline(is, name, ',')) {
++    name = Trim(name);
++    if (name == "all" || name == component) {
++      return true;
++    }
++  }
++  return false;
++}
++
++static Ort::SessionOptions GetSupertonicSessionOptions(
++    const OfflineTtsModelConfig &config, const std::string &component) {
++  if (UseRequestedProvider(config, component)) {
++    return GetSessionOptions(config);
++  }
++  return GetSessionOptions(config.num_threads, "cpu");
++}
++
+ class OfflineTtsSupertonicModel::Impl {
+  public:
+   explicit Impl(const OfflineTtsModelConfig &config)
+       : config_(config),
+         env_(ORT_LOGGING_LEVEL_ERROR),
+-        sess_opts_(GetSessionOptions(config)) {
++        dp_sess_opts_(GetSupertonicSessionOptions(config,
++                                                   "duration_predictor")),
++        text_enc_sess_opts_(GetSupertonicSessionOptions(config,
++                                                        "text_encoder")),
++        vector_est_sess_opts_(GetSupertonicSessionOptions(
++            config, "vector_estimator")),
++        vocoder_sess_opts_(GetSupertonicSessionOptions(config, "vocoder")) {
+     Init();
+   }
+ 
+@@ -47,7 +81,13 @@ class OfflineTtsSupertonicModel::Impl {
+   Impl(Manager *mgr, const OfflineTtsModelConfig &config)
+       : config_(config),
+         env_(ORT_LOGGING_LEVEL_ERROR),
+-        sess_opts_(GetSessionOptions(config)) {
++        dp_sess_opts_(GetSupertonicSessionOptions(config,
++                                                   "duration_predictor")),
++        text_enc_sess_opts_(GetSupertonicSessionOptions(config,
++                                                        "text_encoder")),
++        vector_est_sess_opts_(GetSupertonicSessionOptions(
++            config, "vector_estimator")),
++        vocoder_sess_opts_(GetSupertonicSessionOptions(config, "vocoder")) {
+     Init(mgr);
+   }
+ 
+@@ -164,7 +204,8 @@ class OfflineTtsSupertonicModel::Impl {
+   void InitDurationPredictor(void *model_data, size_t model_data_length) {
+     if (model_data) {
+       dp_sess_ = std::make_unique<Ort::Session>(env_, model_data,
+-                                                model_data_length, sess_opts_);
++                                                model_data_length,
++                                                dp_sess_opts_);
+     } else if (!dp_sess_) {
+       SHERPA_ONNX_LOGE(
+           "Please pass buffer data or initialize duration predictor session "
+@@ -178,7 +219,7 @@ class OfflineTtsSupertonicModel::Impl {
+   void InitTextEncoder(void *model_data, size_t model_data_length) {
+     if (model_data) {
+       text_enc_sess_ = std::make_unique<Ort::Session>(
+-          env_, model_data, model_data_length, sess_opts_);
++          env_, model_data, model_data_length, text_enc_sess_opts_);
+     } else if (!text_enc_sess_) {
+       SHERPA_ONNX_LOGE(
+           "Please pass buffer data or initialize text encoder session outside "
+@@ -194,7 +235,7 @@ class OfflineTtsSupertonicModel::Impl {
+   void InitVectorEstimator(void *model_data, size_t model_data_length) {
+     if (model_data) {
+       vector_est_sess_ = std::make_unique<Ort::Session>(
+-          env_, model_data, model_data_length, sess_opts_);
++          env_, model_data, model_data_length, vector_est_sess_opts_);
+     } else if (!vector_est_sess_) {
+       SHERPA_ONNX_LOGE(
+           "Please pass buffer data or initialize vector estimator session "
+@@ -210,7 +251,7 @@ class OfflineTtsSupertonicModel::Impl {
+   void InitVocoder(void *model_data, size_t model_data_length) {
+     if (model_data) {
+       vocoder_sess_ = std::make_unique<Ort::Session>(
+-          env_, model_data, model_data_length, sess_opts_);
++          env_, model_data, model_data_length, vocoder_sess_opts_);
+     } else if (!vocoder_sess_) {
+       SHERPA_ONNX_LOGE(
+           "Please pass buffer data or initialize vocoder session outside of "
+@@ -226,21 +267,22 @@ class OfflineTtsSupertonicModel::Impl {
+   void LoadModels() {
+     dp_sess_ = std::make_unique<Ort::Session>(
+         env_, SHERPA_ONNX_TO_ORT_PATH(config_.supertonic.duration_predictor),
+-        sess_opts_);
++        dp_sess_opts_);
+     InitDurationPredictor(nullptr, 0);
+ 
+     text_enc_sess_ = std::make_unique<Ort::Session>(
+         env_, SHERPA_ONNX_TO_ORT_PATH(config_.supertonic.text_encoder),
+-        sess_opts_);
++        text_enc_sess_opts_);
+     InitTextEncoder(nullptr, 0);
+ 
+     vector_est_sess_ = std::make_unique<Ort::Session>(
+         env_, SHERPA_ONNX_TO_ORT_PATH(config_.supertonic.vector_estimator),
+-        sess_opts_);
++        vector_est_sess_opts_);
+     InitVectorEstimator(nullptr, 0);
+ 
+     vocoder_sess_ = std::make_unique<Ort::Session>(
+-        env_, SHERPA_ONNX_TO_ORT_PATH(config_.supertonic.vocoder), sess_opts_);
++        env_, SHERPA_ONNX_TO_ORT_PATH(config_.supertonic.vocoder),
++        vocoder_sess_opts_);
+     InitVocoder(nullptr, 0);
+   }
+ 
+@@ -368,7 +410,10 @@ class OfflineTtsSupertonicModel::Impl {
+ 
+   OfflineTtsModelConfig config_;
+   Ort::Env env_;
+-  Ort::SessionOptions sess_opts_;
++  Ort::SessionOptions dp_sess_opts_;
++  Ort::SessionOptions text_enc_sess_opts_;
++  Ort::SessionOptions vector_est_sess_opts_;
++  Ort::SessionOptions vocoder_sess_opts_;
+   SupertonicConfig cfg_;
+ 
+   std::unique_ptr<Ort::Session> dp_sess_;
+diff --git i/sherpa-onnx/csrc/session.cc w/sherpa-onnx/csrc/session.cc
+index e5c220c7..93010a68 100755
+--- i/sherpa-onnx/csrc/session.cc
++++ w/sherpa-onnx/csrc/session.cc
+@@ -136,6 +136,15 @@ static void SplitProviderAndConfig(
+   }
+ }
+ 
++std::string GetProviderConfigValue(const std::string &provider_str,
++                                   const std::string &key) {
++  std::unordered_map<std::string, std::string> config;
++  std::string parsed_provider;
++  SplitProviderAndConfig(provider_str, parsed_provider, config);
++  auto it = config.find(key);
++  return it == config.end() ? std::string{} : it->second;
++}
++
+ Ort::SessionOptions GetSessionOptionsImpl(
+     int32_t num_threads, const std::string &provider_str,
+     const ProviderConfig *provider_config /*= nullptr*/) {
+@@ -144,6 +153,10 @@ Ort::SessionOptions GetSessionOptionsImpl(
+ 
+   SplitProviderAndConfig(provider_str, new_provider_str, config);
+ 
++  // sherpa-onnx consumes this option to select which Supertonic component
++  // sessions use the requested provider. It is not an OpenVINO EP option.
++  config.erase("SherpaOnnx.SupertonicComponents");
++
+   Provider p = StringToProvider(new_provider_str);
+ 
+   Ort::SessionOptions sess_opts;
+diff --git i/sherpa-onnx/csrc/session.h w/sherpa-onnx/csrc/session.h
+index 131023e8..141837f9 100644
+--- i/sherpa-onnx/csrc/session.h
++++ w/sherpa-onnx/csrc/session.h
+@@ -29,6 +29,11 @@ Ort::SessionOptions GetSessionOptions(const OnlineModelConfig &config,
+ Ort::SessionOptions GetSessionOptions(int32_t num_threads,
+                                       const std::string &provider_str);
+ 
++// Returns a value from an optional provider config file. An empty string is
++// returned when the provider has no config file or the key is absent.
++std::string GetProviderConfigValue(const std::string &provider_str,
++                                   const std::string &key);
++
+ template <typename T>
+ Ort::SessionOptions GetSessionOptions(const T &config) {
+   return GetSessionOptionsImpl(config.num_threads, config.provider);
