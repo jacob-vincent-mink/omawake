@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
@@ -17,6 +17,8 @@ use omawake::engine::{Detection, Detector};
 use omawake::keyword::{KeywordCompiler, validate_wake_words};
 use omawake::paths::AppPaths;
 use omawake::protocol::{Command, Request, Response, ResultPayload};
+use omawake::setup as app_setup;
+use omawake::setup::model::ProgressFormat;
 use serde_json::{Value, json};
 
 #[derive(Parser)]
@@ -66,7 +68,7 @@ enum TopCommand {
     Stop,
     Setup {
         #[command(subcommand)]
-        command: SetupCommand,
+        command: Option<SetupCommand>,
     },
 }
 
@@ -111,11 +113,59 @@ enum WakeWordCommand {
 
 #[derive(Subcommand)]
 enum SetupCommand {
-    All,
-    Model,
-    Runtime,
-    Systemd,
-    Menu,
+    Check {
+        #[arg(long)]
+        json: bool,
+    },
+    All {
+        #[arg(
+            long,
+            default_value = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
+        )]
+        model: String,
+        #[arg(long)]
+        archive: Option<PathBuf>,
+        #[arg(long)]
+        no_start: bool,
+        #[arg(long, value_enum, default_value_t)]
+        progress_format: ProgressFormat,
+    },
+    Model {
+        #[arg(long)]
+        list: bool,
+        #[arg(long)]
+        json: bool,
+        #[arg(long, value_name = "MODEL", conflicts_with_all = ["set", "verify"])]
+        download: Option<String>,
+        #[arg(long, value_name = "MODEL", conflicts_with_all = ["download", "verify"])]
+        set: Option<String>,
+        #[arg(long, value_name = "MODEL", conflicts_with_all = ["download", "set"])]
+        verify: Option<String>,
+        #[arg(long, requires = "download")]
+        archive: Option<PathBuf>,
+        #[arg(long, requires = "download")]
+        no_activate: bool,
+        #[arg(long, value_enum, default_value_t)]
+        progress_format: ProgressFormat,
+    },
+    Runtime {
+        #[arg(long)]
+        json: bool,
+    },
+    Systemd {
+        #[arg(long, conflicts_with = "status")]
+        uninstall: bool,
+        #[arg(long)]
+        status: bool,
+        #[arg(long, conflicts_with_all = ["uninstall", "status"])]
+        no_start: bool,
+    },
+    Menu {
+        #[arg(long, conflicts_with = "status")]
+        uninstall: bool,
+        #[arg(long)]
+        status: bool,
+    },
 }
 
 fn main() -> ExitCode {
@@ -131,8 +181,12 @@ fn main() -> ExitCode {
 fn run(cli: Cli) -> Result<()> {
     let paths = AppPaths::discover();
     let config_path = cli.config.unwrap_or_else(|| paths.config_file.clone());
+    let command = match cli.command {
+        TopCommand::Setup { command } => return setup(command, &config_path, &paths),
+        command => command,
+    };
     let config = Config::load(&config_path)?;
-    match cli.command {
+    match command {
         TopCommand::Test {
             audio: Some(audio),
             execute,
@@ -211,22 +265,7 @@ fn run(cli: Cli) -> Result<()> {
             }
             Ok(())
         }
-        TopCommand::Setup {
-            command: SetupCommand::Runtime,
-        } => {
-            println!("sherpa-onnx runtime is embedded in this CPU build");
-            Ok(())
-        }
-        TopCommand::Setup {
-            command: SetupCommand::Model,
-        } => {
-            println!(
-                "model setup target: {}",
-                paths.data_dir.join("models").display()
-            );
-            Ok(())
-        }
-        TopCommand::Setup { .. } => bail!("this setup target is not implemented yet"),
+        TopCommand::Setup { .. } => unreachable!(),
         TopCommand::Config { command } => config_mutation(command, config, &config_path),
     }
 }
@@ -356,6 +395,187 @@ fn save_config(path: &Path, config: &Config) -> Result<()> {
     Ok(())
 }
 
+fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) -> Result<()> {
+    match command.unwrap_or(SetupCommand::Check { json: false }) {
+        SetupCommand::Check { json } => app_setup::print_checks(config_path, paths, json),
+        SetupCommand::Runtime { json } => app_setup::print_runtime(json),
+        SetupCommand::Model {
+            list,
+            json,
+            download,
+            set,
+            verify,
+            archive,
+            no_activate,
+            progress_format,
+        } => {
+            if list || json {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(omawake::catalog::models())?
+                    );
+                } else {
+                    print_models(paths);
+                }
+                if download.is_none() && set.is_none() && verify.is_none() {
+                    return Ok(());
+                }
+            }
+            if let Some(id) = verify {
+                let spec = model_spec(&id)?;
+                app_setup::model::verify(paths, spec)?;
+                println!(
+                    "verified: {}",
+                    app_setup::model::model_directory(paths, spec).display()
+                );
+                return Ok(());
+            }
+            if let Some(id) = set {
+                let spec = model_spec(&id)?;
+                app_setup::model::verify(paths, spec)?;
+                let mut config = app_setup::ensure_config(config_path)?;
+                spec.activate(&mut config);
+                config.save(config_path)?;
+                println!("active model: {}", spec.id);
+                return Ok(());
+            }
+            let default_id = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01";
+            let selected = match download {
+                Some(id) => Some(id),
+                None if !list && !json && std::io::stdin().is_terminal() => {
+                    print_models(paths);
+                    eprint!("Install the default GigaSpeech KWS model? [Y/n] ");
+                    std::io::stderr().flush()?;
+                    let mut answer = String::new();
+                    std::io::stdin().read_line(&mut answer)?;
+                    if answer.trim().is_empty() || answer.trim().eq_ignore_ascii_case("y") {
+                        Some(default_id.into())
+                    } else {
+                        None
+                    }
+                }
+                None => {
+                    print_models(paths);
+                    println!(
+                        "Run `omawake setup model --download {default_id}` to install the default model."
+                    );
+                    None
+                }
+            };
+            if let Some(id) = selected {
+                let spec = model_spec(&id)?;
+                let directory =
+                    app_setup::model::install(paths, spec, archive.as_deref(), progress_format)?;
+                if !no_activate {
+                    let mut config = app_setup::ensure_config(config_path)?;
+                    spec.activate(&mut config);
+                    config.save(config_path)?;
+                }
+                match progress_format {
+                    ProgressFormat::Human => println!("model ready: {}", directory.display()),
+                    ProgressFormat::Json => println!(
+                        "{}",
+                        serde_json::to_string(&json!({
+                            "event": "model-ready",
+                            "model": spec.id,
+                            "path": directory,
+                            "active": !no_activate,
+                        }))?
+                    ),
+                }
+            }
+            Ok(())
+        }
+        SetupCommand::Systemd {
+            uninstall,
+            status,
+            no_start,
+        } => {
+            if status {
+                app_setup::systemd::status(paths)
+            } else if uninstall {
+                app_setup::systemd::uninstall(paths)
+            } else {
+                app_setup::ensure_config(config_path)?;
+                let path = app_setup::systemd::install(paths, config_path, !no_start)?;
+                println!("installed: {}", path.display());
+                Ok(())
+            }
+        }
+        SetupCommand::Menu { uninstall, status } => {
+            if status {
+                app_setup::menu::status(paths)
+            } else if uninstall {
+                app_setup::menu::uninstall(paths)
+            } else {
+                let path = app_setup::menu::install(paths)?;
+                println!("installed: {}", path.display());
+                Ok(())
+            }
+        }
+        SetupCommand::All {
+            model,
+            archive,
+            no_start,
+            progress_format,
+        } => {
+            let spec = model_spec(&model)?;
+            let mut config = app_setup::ensure_config(config_path)?;
+            let directory =
+                app_setup::model::install(paths, spec, archive.as_deref(), progress_format)?;
+            spec.activate(&mut config);
+            config.save(config_path)?;
+            let launcher = app_setup::menu::install(paths)?;
+            let service = app_setup::systemd::install(paths, config_path, !no_start)?;
+            match progress_format {
+                ProgressFormat::Human => {
+                    println!(
+                        "model: {}\nconfig: {}\nlauncher: {}\nservice: {}",
+                        directory.display(),
+                        config_path.display(),
+                        launcher.display(),
+                        service.display()
+                    );
+                    app_setup::print_checks(config_path, paths, false)
+                }
+                ProgressFormat::Json => {
+                    println!(
+                        "{}",
+                        serde_json::to_string(&json!({
+                            "event": "setup-complete",
+                            "model": directory,
+                            "config": config_path,
+                            "launcher": launcher,
+                            "service": service,
+                        }))?
+                    );
+                    app_setup::print_checks_event(config_path, paths)
+                }
+            }
+        }
+    }
+}
+
+fn model_spec(id: &str) -> Result<&'static omawake::catalog::ModelSpec> {
+    omawake::catalog::model(id)
+        .ok_or_else(|| anyhow::anyhow!("unknown model {id}; run `omawake setup model --list`"))
+}
+
+fn print_models(paths: &AppPaths) {
+    for model in omawake::catalog::models() {
+        let status = if app_setup::model::verify(paths, model).is_ok() {
+            "installed"
+        } else {
+            "available"
+        };
+        println!(
+            "{}\t{}\t{}\t{}",
+            model.id, model.backend, status, model.description
+        );
+    }
+}
+
 fn dotted_get<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
     key.split('.')
         .try_fold(value, |value, part| value.get(part))
@@ -424,7 +644,7 @@ fn present_detections(
                 "keywords_buffer": detector.keywords_buffer,
                 "detections": detections,
                 "actions": actions,
-                "backend": {"effective_runtime": detector.effective_runtime, "fallback_used": detector.fallback_used}
+                "backend": {"kind": detector.backend_kind, "effective_runtime": detector.effective_runtime, "fallback_used": detector.fallback_used}
             }))?
         );
     } else {
@@ -584,7 +804,7 @@ fn poll_control(
             result: ResultPayload::State {
                 state: next_state.into(),
                 details: json!({
-                    "backend":{"effective_runtime":detector.effective_runtime,"fallback_used":detector.fallback_used},
+                    "backend":{"kind":detector.backend_kind,"effective_runtime":detector.effective_runtime,"fallback_used":detector.fallback_used},
                     "model_load_milliseconds":detector.load_time.as_millis() as u64,
                     "audio":audio
                 }),

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::backend::BackendConfig;
 use crate::paths::AppPaths;
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub backend: BackendConfig,
@@ -32,6 +32,39 @@ impl Config {
             paths.data_dir.join("models").join(&self.model.name)
         } else {
             PathBuf::from(&self.model.directory)
+        }
+    }
+
+    pub fn save(&self, path: &Path) -> Result<()> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let temporary = path.with_extension("toml.tmp");
+        fs::write(&temporary, toml::to_string_pretty(self)?)?;
+        fs::rename(&temporary, path)
+            .with_context(|| format!("install config {}", path.display()))?;
+        Ok(())
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            backend: BackendConfig::default(),
+            model: ModelConfig::default(),
+            audio: AudioConfig::default(),
+            daemon: DaemonConfig::default(),
+            wake_words: vec![WakeWord {
+                id: "hey-atreyu".into(),
+                phrase: "Hey Atreyu".into(),
+                enabled: true,
+                command: vec![
+                    "omarchy-shell".into(),
+                    "-q".into(),
+                    "omarchy.atreyu".into(),
+                    "voiceToggle".into(),
+                ],
+            }],
         }
     }
 }

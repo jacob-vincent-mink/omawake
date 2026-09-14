@@ -12,9 +12,30 @@ use crate::config::{Config, WakeWord};
 use crate::keyword::KeywordCompiler;
 use crate::paths::AppPaths;
 
-pub struct Detector {
+pub trait WakeWordBackend {
+    fn kind(&self) -> &'static str;
+    fn stream(&self) -> Box<dyn WakeWordStream + '_>;
+    fn detect_file(&self, path: &Path) -> Result<Vec<Detection>>;
+}
+
+pub trait WakeWordStream {
+    fn accept(&self, sample_rate: i32, samples: &[f32]) -> Result<Vec<Detection>>;
+    fn finish(&self) -> Result<Vec<Detection>>;
+}
+
+struct SherpaOnnxBackend {
     spotter: KeywordSpotter,
+}
+
+struct SherpaOnnxStream<'a> {
+    backend: &'a SherpaOnnxBackend,
+    stream: sherpa_onnx::OnlineStream,
+}
+
+pub struct Detector {
+    backend: Box<dyn WakeWordBackend>,
     actions: HashMap<String, WakeWord>,
+    pub backend_kind: &'static str,
     pub keywords_buffer: String,
     pub load_time: Duration,
     pub effective_runtime: Runtime,
@@ -23,7 +44,7 @@ pub struct Detector {
 
 pub struct DetectionSession<'a> {
     detector: &'a Detector,
-    stream: sherpa_onnx::OnlineStream,
+    stream: Box<dyn WakeWordStream + 'a>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -57,40 +78,23 @@ impl Detector {
             Err(error) => return Err(error.into()),
         };
         let directory = config.model_directory(paths);
-        let required = |name: &str| -> Result<String> {
-            let path = directory.join(name);
-            if !path.exists() {
-                bail!("required model asset is missing: {}", path.display());
-            }
-            Ok(path.to_string_lossy().into_owned())
-        };
-
         let compiler = KeywordCompiler::open(&directory.join(&config.model.bpe_model))?;
         let keywords_buffer = compiler.compile(&config.wake_words)?;
-        let mut sherpa_config = KeywordSpotterConfig::default();
-        sherpa_config.model_config.transducer.encoder = Some(required(&config.model.encoder)?);
-        sherpa_config.model_config.transducer.decoder = Some(required(&config.model.decoder)?);
-        sherpa_config.model_config.transducer.joiner = Some(required(&config.model.joiner)?);
-        sherpa_config.model_config.tokens = Some(required(&config.model.tokens)?);
-        sherpa_config.model_config.num_threads = config.backend.threads.into();
-        sherpa_config.model_config.provider = Some(match effective_runtime {
-            Runtime::Default => "cpu".into(),
-            Runtime::Cuda => "cuda".into(),
-            Runtime::Openvino => {
-                bail!("OpenVINO provider file generation is unavailable in the CPU build")
-            }
-        });
-        sherpa_config.feat_config.sample_rate = config.model.sample_rate;
-        sherpa_config.max_active_paths = config.model.max_active_paths;
-        sherpa_config.num_trailing_blanks = config.model.num_trailing_blanks;
-        sherpa_config.keywords_score = config.model.keywords_score;
-        sherpa_config.keywords_threshold = config.model.keywords_threshold;
-        sherpa_config.keywords_buf = Some(keywords_buffer.clone());
 
         let started = Instant::now();
-        let spotter = KeywordSpotter::create(&sherpa_config)
-            .context("sherpa-onnx could not create the keyword spotter")?;
+        let backend: Box<dyn WakeWordBackend> = match config.backend.kind.as_str() {
+            "sherpa-onnx" => Box::new(SherpaOnnxBackend::load(
+                config,
+                &directory,
+                effective_runtime,
+                &keywords_buffer,
+            )?),
+            kind => bail!(
+                "wake-word backend {kind} is not available in this build; run `omawake setup runtime`"
+            ),
+        };
         let load_time = started.elapsed();
+        let backend_kind = backend.kind();
         let actions = config
             .wake_words
             .iter()
@@ -99,8 +103,9 @@ impl Detector {
             .map(|entry| (entry.id.clone(), entry))
             .collect();
         Ok(Self {
-            spotter,
+            backend,
             actions,
+            backend_kind,
             keywords_buffer,
             load_time,
             effective_runtime,
@@ -109,55 +114,22 @@ impl Detector {
     }
 
     pub fn detect_file(&self, path: &Path) -> Result<Vec<Detection>> {
-        let wave = Wave::read(path.to_string_lossy().as_ref())
-            .with_context(|| format!("read audio fixture {}", path.display()))?;
-        let stream = self.spotter.create_stream();
-        let chunk_sizes = [317usize, 1600, 89, 2711, 503, 997];
-        let mut offset = 0usize;
-        let mut chunk_index = 0usize;
-        let samples = wave.samples();
-        let mut detections = Vec::new();
-        while offset < samples.len() {
-            let end = (offset + chunk_sizes[chunk_index % chunk_sizes.len()]).min(samples.len());
-            stream.accept_waveform(wave.sample_rate(), &samples[offset..end]);
-            self.decode_ready(&stream, &mut detections)?;
-            offset = end;
-            chunk_index += 1;
-        }
-        let padding = vec![0.0; wave.sample_rate().max(1) as usize / 2];
-        stream.accept_waveform(wave.sample_rate(), &padding);
-        stream.input_finished();
-        self.decode_ready(&stream, &mut detections)?;
+        let detections = self.backend.detect_file(path)?;
+        self.validate_detections(&detections)?;
         Ok(detections)
     }
 
     pub fn session(&self) -> DetectionSession<'_> {
         DetectionSession {
             detector: self,
-            stream: self.spotter.create_stream(),
+            stream: self.backend.stream(),
         }
     }
 
-    fn decode_ready(
-        &self,
-        stream: &sherpa_onnx::OnlineStream,
-        detections: &mut Vec<Detection>,
-    ) -> Result<()> {
-        while self.spotter.is_ready(stream) {
-            self.spotter.decode(stream);
-            if let Some(result) = self.spotter.get_result(stream) {
-                if result.keyword.is_empty() {
-                    continue;
-                }
-                if !self.actions.contains_key(&result.keyword) {
-                    bail!("detector returned unknown wake-word id {}", result.keyword);
-                }
-                detections.push(Detection {
-                    id: result.keyword,
-                    tokens: result.tokens_arr,
-                    timestamps: result.timestamps,
-                    start_time: result.start_time,
-                });
+    fn validate_detections(&self, detections: &[Detection]) -> Result<()> {
+        for detection in detections {
+            if !self.actions.contains_key(&detection.id) {
+                bail!("detector returned unknown wake-word id {}", detection.id);
             }
         }
         Ok(())
@@ -187,16 +159,117 @@ impl Detector {
 
 impl DetectionSession<'_> {
     pub fn accept(&self, sample_rate: i32, samples: &[f32]) -> Result<Vec<Detection>> {
-        self.stream.accept_waveform(sample_rate, samples);
-        let mut detections = Vec::new();
-        self.detector.decode_ready(&self.stream, &mut detections)?;
+        let detections = self.stream.accept(sample_rate, samples)?;
+        self.detector.validate_detections(&detections)?;
         Ok(detections)
     }
 
     pub fn finish(&self) -> Result<Vec<Detection>> {
-        self.stream.input_finished();
-        let mut detections = Vec::new();
-        self.detector.decode_ready(&self.stream, &mut detections)?;
+        let detections = self.stream.finish()?;
+        self.detector.validate_detections(&detections)?;
         Ok(detections)
+    }
+}
+
+impl SherpaOnnxBackend {
+    fn load(
+        config: &Config,
+        directory: &Path,
+        runtime: Runtime,
+        keywords_buffer: &str,
+    ) -> Result<Self> {
+        let required = |name: &str| -> Result<String> {
+            let path = directory.join(name);
+            if !path.exists() {
+                bail!("required model asset is missing: {}", path.display());
+            }
+            Ok(path.to_string_lossy().into_owned())
+        };
+        let mut sherpa_config = KeywordSpotterConfig::default();
+        sherpa_config.model_config.transducer.encoder = Some(required(&config.model.encoder)?);
+        sherpa_config.model_config.transducer.decoder = Some(required(&config.model.decoder)?);
+        sherpa_config.model_config.transducer.joiner = Some(required(&config.model.joiner)?);
+        sherpa_config.model_config.tokens = Some(required(&config.model.tokens)?);
+        sherpa_config.model_config.num_threads = config.backend.threads.into();
+        sherpa_config.model_config.provider = Some(match runtime {
+            Runtime::Default => "cpu".into(),
+            Runtime::Cuda => "cuda".into(),
+            Runtime::Openvino => {
+                bail!("OpenVINO provider file generation is unavailable in this build")
+            }
+        });
+        sherpa_config.feat_config.sample_rate = config.model.sample_rate;
+        sherpa_config.max_active_paths = config.model.max_active_paths;
+        sherpa_config.num_trailing_blanks = config.model.num_trailing_blanks;
+        sherpa_config.keywords_score = config.model.keywords_score;
+        sherpa_config.keywords_threshold = config.model.keywords_threshold;
+        sherpa_config.keywords_buf = Some(keywords_buffer.into());
+        let spotter = KeywordSpotter::create(&sherpa_config)
+            .context("sherpa-onnx could not create the keyword spotter")?;
+        Ok(Self { spotter })
+    }
+
+    fn decode_ready(&self, stream: &sherpa_onnx::OnlineStream) -> Vec<Detection> {
+        let mut detections = Vec::new();
+        while self.spotter.is_ready(stream) {
+            self.spotter.decode(stream);
+            if let Some(result) = self.spotter.get_result(stream)
+                && !result.keyword.is_empty()
+            {
+                detections.push(Detection {
+                    id: result.keyword,
+                    tokens: result.tokens_arr,
+                    timestamps: result.timestamps,
+                    start_time: result.start_time,
+                });
+            }
+        }
+        detections
+    }
+}
+
+impl WakeWordBackend for SherpaOnnxBackend {
+    fn kind(&self) -> &'static str {
+        "sherpa-onnx"
+    }
+
+    fn stream(&self) -> Box<dyn WakeWordStream + '_> {
+        Box::new(SherpaOnnxStream {
+            backend: self,
+            stream: self.spotter.create_stream(),
+        })
+    }
+
+    fn detect_file(&self, path: &Path) -> Result<Vec<Detection>> {
+        let wave = Wave::read(path.to_string_lossy().as_ref())
+            .with_context(|| format!("read audio fixture {}", path.display()))?;
+        let stream = self.stream();
+        let chunk_sizes = [317usize, 1600, 89, 2711, 503, 997];
+        let mut offset = 0usize;
+        let mut chunk_index = 0usize;
+        let samples = wave.samples();
+        let mut detections = Vec::new();
+        while offset < samples.len() {
+            let end = (offset + chunk_sizes[chunk_index % chunk_sizes.len()]).min(samples.len());
+            detections.extend(stream.accept(wave.sample_rate(), &samples[offset..end])?);
+            offset = end;
+            chunk_index += 1;
+        }
+        let padding = vec![0.0; wave.sample_rate().max(1) as usize / 2];
+        detections.extend(stream.accept(wave.sample_rate(), &padding)?);
+        detections.extend(stream.finish()?);
+        Ok(detections)
+    }
+}
+
+impl WakeWordStream for SherpaOnnxStream<'_> {
+    fn accept(&self, sample_rate: i32, samples: &[f32]) -> Result<Vec<Detection>> {
+        self.stream.accept_waveform(sample_rate, samples);
+        Ok(self.backend.decode_ready(&self.stream))
+    }
+
+    fn finish(&self) -> Result<Vec<Detection>> {
+        self.stream.input_finished();
+        Ok(self.backend.decode_ready(&self.stream))
     }
 }

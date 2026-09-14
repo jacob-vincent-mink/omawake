@@ -43,3 +43,19 @@ The CPU binary with `runtime = "openvino"`, `device = "npu"`, and `fallback = "e
 ```json
 {"effective_runtime":"default","fallback_used":true}
 ```
+
+## 2026-09-13 — setup proof
+
+Ran the one-command network install in an isolated environment:
+
+```bash
+omawake setup all --archive /tmp/recon/kws-model.tar.bz2 --no-start
+```
+
+The same setup path was also tested without `--archive`, downloading the pinned model from GitHub and verifying the archive and every required asset before installation.
+
+It succeeded and was idempotent (a second run reported `already-installed` with no re-download). Testing the bundled fixture then produced a `lovely-child` detection with a 338 ms model load:
+
+```bash
+omawake test --audio MODEL/test_wavs/1.wav --json
+```

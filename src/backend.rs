@@ -60,8 +60,6 @@ impl Default for BackendConfig {
 
 #[derive(Debug, Error, Eq, PartialEq)]
 pub enum BackendError {
-    #[error("backend kind must be sherpa-onnx")]
-    InvalidKind,
     #[error("backend threads must be between 1 and 64")]
     InvalidThreads,
     #[error("backend device {device} is invalid for runtime {runtime:?}")]
@@ -81,9 +79,6 @@ impl BackendConfig {
     }
 
     pub fn validate_shape(&self) -> Result<(), BackendError> {
-        if self.kind != "sherpa-onnx" {
-            return Err(BackendError::InvalidKind);
-        }
         if !(1..=64).contains(&self.threads) {
             return Err(BackendError::InvalidThreads);
         }
