@@ -26,6 +26,241 @@ impl WakeWordBackend for InMemoryBackend {
     }
 }
 
+#[derive(Default)]
+struct ScriptedGuidedPrompts {
+    mode: Option<SetupMode>,
+    runtime: Option<RuntimeSelection>,
+    model: Option<&'static omawake::catalog::ModelSpec>,
+    confirm: bool,
+}
+
+impl GuidedPrompts for ScriptedGuidedPrompts {
+    fn setup_mode(&mut self) -> Result<Option<SetupMode>> {
+        Ok(self.mode)
+    }
+
+    fn runtime(&mut self, _: &Config) -> Result<Option<RuntimeSelection>> {
+        Ok(self.runtime.clone())
+    }
+
+    fn model(
+        &mut self,
+        _: &AppPaths,
+        _: &Config,
+    ) -> Result<Option<&'static omawake::catalog::ModelSpec>> {
+        Ok(self.model)
+    }
+
+    fn confirm(&mut self, _: &RuntimeSelection, _: &str) -> Result<bool> {
+        Ok(self.confirm)
+    }
+}
+
+#[test]
+fn guided_setup_dispatch_and_runtime_actions_are_testable_without_a_terminal() {
+    let paths = test_paths("guided-dispatch");
+    let mut cancelled = ScriptedGuidedPrompts::default();
+    guided_setup_with(&paths.config_file, &paths, &mut cancelled).unwrap();
+
+    let mut runtime = ScriptedGuidedPrompts {
+        mode: Some(SetupMode::Runtime),
+        runtime: Some(RuntimeSelection {
+            runtime: Runtime::Default,
+            device: "cpu".into(),
+        }),
+        ..Default::default()
+    };
+    guided_setup_with(&paths.config_file, &paths, &mut runtime).unwrap();
+    let saved = Config::load(&paths.config_file).unwrap();
+    assert_eq!(saved.backend.runtime, Runtime::Default);
+    assert_eq!(saved.backend.device, "cpu");
+
+    let mut model_back = ScriptedGuidedPrompts {
+        mode: Some(SetupMode::Model),
+        ..Default::default()
+    };
+    guided_setup_with(&paths.config_file, &paths, &mut model_back).unwrap();
+
+    let mut full_back = ScriptedGuidedPrompts {
+        mode: Some(SetupMode::Full),
+        ..Default::default()
+    };
+    guided_setup_with(&paths.config_file, &paths, &mut full_back).unwrap();
+
+    let mut check = ScriptedGuidedPrompts {
+        mode: Some(SetupMode::Check),
+        ..Default::default()
+    };
+    assert!(guided_setup_with(&paths.config_file, &paths, &mut check).is_err());
+
+    assert_eq!(runtime_name(Runtime::Default), "default");
+    assert_eq!(runtime_name(Runtime::Openvino), "openvino");
+    assert_eq!(runtime_name(Runtime::Cuda), "cuda");
+}
+
+#[test]
+fn guided_model_activates_installed_and_downloaded_choices() {
+    let paths = test_paths("guided-model");
+    let spec = &omawake::catalog::models()[0];
+    for already_installed in [true, false] {
+        let mut prompts = ScriptedGuidedPrompts {
+            model: Some(spec),
+            ..Default::default()
+        };
+        guided_model_with_services(
+            &paths.config_file,
+            &paths,
+            &mut prompts,
+            |_, _| {
+                if already_installed {
+                    Ok(())
+                } else {
+                    bail!("missing")
+                }
+            },
+            |paths, model, archive, format| {
+                assert!(archive.is_none());
+                assert_eq!(format, ProgressFormat::Human);
+                Ok(app_setup::model::model_directory(paths, model))
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            Config::load(&paths.config_file).unwrap().model.name,
+            spec.id
+        );
+    }
+
+    let mut no_model = ScriptedGuidedPrompts::default();
+    guided_model_with_services(
+        &paths.config_file,
+        &paths,
+        &mut no_model,
+        |_, _| unreachable!(),
+        |_, _, _, _| unreachable!(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn guided_full_setup_waits_for_review_and_then_runs_selected_plan() {
+    let spec = &omawake::catalog::models()[0];
+    let selection = RuntimeSelection {
+        runtime: Runtime::Default,
+        device: "cpu".into(),
+    };
+
+    for (index, prompts) in [
+        ScriptedGuidedPrompts::default(),
+        ScriptedGuidedPrompts {
+            runtime: Some(selection.clone()),
+            ..Default::default()
+        },
+        ScriptedGuidedPrompts {
+            runtime: Some(selection.clone()),
+            model: Some(spec),
+            confirm: false,
+            ..Default::default()
+        },
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let paths = test_paths(&format!("guided-full-cancel-{index}"));
+        let mut prompts = prompts;
+        guided_all_with_services(
+            &paths.config_file,
+            &paths,
+            &mut prompts,
+            |_, _, _, _| unreachable!(),
+            |_| unreachable!(),
+            |_, _, _| unreachable!(),
+            |_, _| unreachable!(),
+            |_, _| unreachable!(),
+        )
+        .unwrap();
+        assert!(!paths.config_file.exists());
+    }
+
+    let paths = test_paths("guided-full-apply");
+    let mut prompts = ScriptedGuidedPrompts {
+        runtime: Some(selection),
+        model: Some(spec),
+        confirm: true,
+        ..Default::default()
+    };
+    guided_all_with_services(
+        &paths.config_file,
+        &paths,
+        &mut prompts,
+        |paths, model, _, format| {
+            assert_eq!(format, ProgressFormat::Human);
+            Ok(app_setup::model::model_directory(paths, model))
+        },
+        |paths| Ok(paths.data_dir.join("applications/omawake.desktop")),
+        |paths, config, start| {
+            assert_eq!(config, &paths.config_file);
+            assert!(start);
+            Ok(paths.data_dir.join("systemd/omawake.service"))
+        },
+        |_, _| Ok(()),
+        |_, _| unreachable!(),
+    )
+    .unwrap();
+    let saved = Config::load(&paths.config_file).unwrap();
+    assert_eq!(saved.backend.device, "cpu");
+    assert_eq!(saved.model.name, spec.id);
+}
+
+#[test]
+fn guided_model_catalog_exposes_status_metadata_and_selection() {
+    let paths = test_paths("guided-model-catalog");
+    let active = omawake::catalog::models()[0].id;
+    let selected = choose_model_with(&paths, active, |items, preferred| {
+        assert_eq!(preferred, 0);
+        assert!(items[0].label.contains("active · download required"));
+        assert!(items[0].detail.contains("backend: sherpa-onnx"));
+        assert!(items[0].detail.contains("MiB"));
+        Ok(Some(0))
+    })
+    .unwrap()
+    .unwrap();
+    assert_eq!(selected.id, active);
+    assert!(
+        choose_model_with(&paths, "different", |items, preferred| {
+            assert_eq!(preferred, 0);
+            assert!(items[0].label.contains("· download"));
+            Ok(None)
+        })
+        .unwrap()
+        .is_none()
+    );
+}
+
+#[test]
+fn terminal_prompt_adapter_reports_non_tty_errors() {
+    if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+        return;
+    }
+    let paths = test_paths("terminal-prompts");
+    let config = Config::default();
+    let mut prompts = TerminalGuidedPrompts;
+    assert!(prompts.setup_mode().is_err());
+    assert!(prompts.runtime(&config).is_err());
+    assert!(prompts.model(&paths, &config).is_err());
+    assert!(
+        prompts
+            .confirm(
+                &RuntimeSelection {
+                    runtime: Runtime::Default,
+                    device: "cpu".into(),
+                },
+                "model"
+            )
+            .is_err()
+    );
+}
+
 impl WakeWordStream for InMemoryWakeWordStream {
     fn accept(&self, _: i32, _: &[f32]) -> Result<Vec<Detection>> {
         Ok(Vec::new())

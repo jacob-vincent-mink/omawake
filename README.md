@@ -42,7 +42,24 @@ omawake setup check
 
 ## Setup
 
-`omawake setup` is a group of subcommands that install the model, write the config, register the desktop menu entry, and install the user systemd service. The one-command network install:
+Run `omawake setup` in a terminal to open the guided setup. Use the arrow keys and
+Enter to choose **Full setup**, **Runtime**, **Model**, or **Check**. Full setup walks
+through a compatible inference runtime and device, shows every downloadable model
+with its install status, backend, family, description, and download size, then
+installs the model and launcher and enables and starts the user service. The focused setup commands are
+interactive too:
+
+```bash
+omawake setup runtime   # choose a compiled runtime and compatible device
+omawake setup model     # browse, download if needed, and activate a model
+```
+
+When input is redirected or piped, these commands stay noninteractive and print
+the runtime/model catalog with commands that scripts can run. Use `--json` by
+itself for a machine-readable model catalog; model actions such as `--download`,
+`--set`, and `--verify` are separate invocations.
+
+The equivalent one-command, noninteractive network install is:
 
 ```bash
 omawake setup all

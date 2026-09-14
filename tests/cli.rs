@@ -2,6 +2,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
+#[cfg(unix)]
+use std::thread;
+#[cfg(unix)]
+use std::time::{Duration, Instant};
 
 #[cfg(unix)]
 use std::io::{BufRead, BufReader, Write};
@@ -10,6 +14,9 @@ use std::os::unix::net::UnixListener;
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+
+#[cfg(unix)]
+use omawake::config::Config;
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 
@@ -74,6 +81,58 @@ fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
+#[cfg(unix)]
+#[test]
+fn guided_setup_accepts_arrow_keys_and_enter_in_a_real_pty() {
+    if Command::new("script").arg("--version").output().is_err() {
+        return;
+    }
+    let root = sandbox();
+    let binary = env!("CARGO_BIN_EXE_omawake");
+    assert!(!binary.contains(['\'', '"', ' ']));
+    let mut child = Command::new("script")
+        .args(["-qec", &format!("{binary} setup"), "/dev/null"])
+        .env("XDG_CONFIG_HOME", root.join("config"))
+        .env("XDG_DATA_HOME", root.join("data"))
+        .env("XDG_STATE_HOME", root.join("state"))
+        .env("XDG_RUNTIME_DIR", root.join("run"))
+        .env("TERM", "xterm-256color")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    // Wait for raw mode, choose Runtime, accept Default, then choose CPU.
+    thread::sleep(Duration::from_millis(750));
+    input.write_all(b"\x1b[B\r").unwrap();
+    input.flush().unwrap();
+    thread::sleep(Duration::from_millis(150));
+    input.write_all(b"\r").unwrap();
+    input.flush().unwrap();
+    thread::sleep(Duration::from_millis(150));
+    input.write_all(b"\x1b[B\r").unwrap();
+    drop(input);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while child.try_wait().unwrap().is_none() {
+        if Instant::now() >= deadline {
+            child.kill().unwrap();
+            panic!("guided setup did not finish after PTY input");
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success(), "{}", stderr(&output));
+    let terminal = stdout(&output);
+    assert!(terminal.contains("Omawake setup"));
+    assert!(terminal.contains("Inference runtime"));
+    assert!(terminal.contains("Inference device"));
+    assert!(terminal.contains("runtime configured: default / cpu"));
+    let config = Config::load(&root.join("config/omawake/config.toml")).unwrap();
+    assert_eq!(config.backend.runtime, omawake::backend::Runtime::Default);
+    assert_eq!(config.backend.device, "cpu");
+}
+
 #[test]
 fn word_alias_add_remove_and_empty_configuration_round_trip() {
     let root = sandbox();
@@ -136,6 +195,20 @@ fn setup_discovery_and_remediation_commands() {
             .success()
     );
     assert!(!run(&root, &["setup", "menu", "--status"]).status.success());
+
+    let mixed_json = run(
+        &root,
+        &[
+            "setup",
+            "model",
+            "--json",
+            "--download",
+            "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01",
+        ],
+    );
+    assert!(!mixed_json.status.success());
+    assert!(mixed_json.stdout.is_empty());
+    assert!(stderr(&mixed_json).contains("cannot be used with"));
 }
 
 #[test]

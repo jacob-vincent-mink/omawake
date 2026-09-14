@@ -1,6 +1,7 @@
 pub mod menu;
 pub mod model;
 pub mod systemd;
+pub mod wizard;
 
 use std::path::Path;
 
@@ -211,9 +212,28 @@ pub fn print_runtime(json: bool) -> Result<()> {
             "Compiled runtime capabilities: {}",
             crate::backend::compiled_capabilities().join(", ")
         );
+        println!("Runtime/device choices:");
+        println!("  default   auto, cpu                 available");
+        println!(
+            "  openvino  auto, cpu, gpu, npu       {}",
+            if crate::backend::compiled_capabilities().contains(&"openvino") {
+                "available"
+            } else {
+                "unavailable (requires an OpenVINO build)"
+            }
+        );
+        println!(
+            "  cuda      auto, gpu                 {}",
+            if crate::backend::compiled_capabilities().contains(&"cuda") {
+                "available"
+            } else {
+                "unavailable in this build"
+            }
+        );
         println!(
             "Configure backend.runtime and backend.device independently; unsupported combinations fail unless fallback = \"cpu\"."
         );
+        println!("Browse downloadable models with `omawake setup model --list`.");
     }
     Ok(())
 }

@@ -19,6 +19,7 @@ use omawake::paths::AppPaths;
 use omawake::protocol::{Command, Request, Response, ResultPayload};
 use omawake::setup as app_setup;
 use omawake::setup::model::ProgressFormat;
+use omawake::setup::wizard::{self, RuntimeSelection, SetupMode};
 use serde::Serialize;
 use serde_json::{Value, json};
 
@@ -144,7 +145,7 @@ enum SetupCommand {
     Model {
         #[arg(long)]
         list: bool,
-        #[arg(long)]
+        #[arg(long, conflicts_with_all = ["download", "set", "verify"])]
         json: bool,
         #[arg(long, value_name = "MODEL", conflicts_with_all = ["set", "verify"])]
         download: Option<String>,
@@ -448,8 +449,19 @@ fn save_config(path: &Path, config: &Config) -> Result<()> {
 }
 
 fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) -> Result<()> {
+    if command.is_none() && setup_is_interactive() {
+        return guided_setup(config_path, paths);
+    }
+    if command.is_none() {
+        println!(
+            "Interactive setup needs a terminal. Run `omawake setup all` for the default install, or `omawake setup runtime` / `omawake setup model --list` to inspect choices."
+        );
+    }
     match command.unwrap_or(SetupCommand::Check { json: false }) {
         SetupCommand::Check { json } => app_setup::print_checks(config_path, paths, json),
+        SetupCommand::Runtime { json } if !json && setup_is_interactive() => {
+            guided_runtime(config_path)
+        }
         SetupCommand::Runtime { json } => app_setup::print_runtime(json),
         SetupCommand::Model {
             list,
@@ -485,17 +497,8 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
             let default_id = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01";
             let selected = match download {
                 Some(id) => Some(id),
-                None if !list && !json && std::io::stdin().is_terminal() => {
-                    print_models(paths);
-                    eprint!("Install the default GigaSpeech KWS model? [Y/n] ");
-                    std::io::stderr().flush()?;
-                    let mut answer = String::new();
-                    std::io::stdin().read_line(&mut answer)?;
-                    if answer.trim().is_empty() || answer.trim().eq_ignore_ascii_case("y") {
-                        Some(default_id.into())
-                    } else {
-                        None
-                    }
+                None if !list && !json && setup_is_interactive() => {
+                    return guided_model(config_path, paths);
                 }
                 None => {
                     print_models(paths);
@@ -566,6 +569,285 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
                 app_setup::print_checks_event,
             )
         }
+    }
+}
+
+fn setup_is_interactive() -> bool {
+    std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
+}
+
+trait GuidedPrompts {
+    fn setup_mode(&mut self) -> Result<Option<SetupMode>>;
+    fn runtime(&mut self, current: &Config) -> Result<Option<RuntimeSelection>>;
+    fn model(
+        &mut self,
+        paths: &AppPaths,
+        current: &Config,
+    ) -> Result<Option<&'static omawake::catalog::ModelSpec>>;
+    fn confirm(&mut self, selection: &RuntimeSelection, model: &str) -> Result<bool>;
+}
+
+struct TerminalGuidedPrompts;
+
+impl GuidedPrompts for TerminalGuidedPrompts {
+    fn setup_mode(&mut self) -> Result<Option<SetupMode>> {
+        wizard::choose_setup_mode()
+    }
+
+    fn runtime(&mut self, current: &Config) -> Result<Option<RuntimeSelection>> {
+        wizard::choose_runtime(
+            compiled_capabilities(),
+            current.backend.runtime,
+            &current.backend.device,
+        )
+    }
+
+    fn model(
+        &mut self,
+        paths: &AppPaths,
+        current: &Config,
+    ) -> Result<Option<&'static omawake::catalog::ModelSpec>> {
+        choose_model(paths, &current.model.name)
+    }
+
+    fn confirm(&mut self, selection: &RuntimeSelection, model: &str) -> Result<bool> {
+        wizard::confirm_apply(selection.runtime, &selection.device, model)
+    }
+}
+
+fn guided_setup(config_path: &Path, paths: &AppPaths) -> Result<()> {
+    guided_setup_with(config_path, paths, &mut TerminalGuidedPrompts)
+}
+
+fn guided_setup_with(
+    config_path: &Path,
+    paths: &AppPaths,
+    prompts: &mut impl GuidedPrompts,
+) -> Result<()> {
+    match prompts.setup_mode()? {
+        Some(SetupMode::Full) => guided_all_with(config_path, paths, prompts),
+        Some(SetupMode::Runtime) => guided_runtime_with(config_path, prompts),
+        Some(SetupMode::Model) => guided_model_with(config_path, paths, prompts),
+        Some(SetupMode::Check) => app_setup::print_checks(config_path, paths, false),
+        None => {
+            println!("Setup cancelled.");
+            Ok(())
+        }
+    }
+}
+
+fn guided_runtime(config_path: &Path) -> Result<()> {
+    guided_runtime_with(config_path, &mut TerminalGuidedPrompts)
+}
+
+fn guided_runtime_with(config_path: &Path, prompts: &mut impl GuidedPrompts) -> Result<()> {
+    let current = Config::load(config_path)?;
+    let Some(selection) = prompts.runtime(&current)? else {
+        println!("Setup cancelled.");
+        return Ok(());
+    };
+    save_runtime_selection(config_path, &selection)?;
+    println!(
+        "runtime configured: {} / {}",
+        runtime_name(selection.runtime),
+        selection.device
+    );
+    Ok(())
+}
+
+fn guided_model(config_path: &Path, paths: &AppPaths) -> Result<()> {
+    guided_model_with(config_path, paths, &mut TerminalGuidedPrompts)
+}
+
+fn guided_model_with(
+    config_path: &Path,
+    paths: &AppPaths,
+    prompts: &mut impl GuidedPrompts,
+) -> Result<()> {
+    guided_model_with_services(
+        config_path,
+        paths,
+        prompts,
+        app_setup::model::verify,
+        app_setup::model::install,
+    )
+}
+
+fn guided_model_with_services<FV, FI>(
+    config_path: &Path,
+    paths: &AppPaths,
+    prompts: &mut impl GuidedPrompts,
+    verify: FV,
+    install: FI,
+) -> Result<()>
+where
+    FV: FnOnce(&AppPaths, &omawake::catalog::ModelSpec) -> Result<()>,
+    FI: FnOnce(
+        &AppPaths,
+        &omawake::catalog::ModelSpec,
+        Option<&Path>,
+        ProgressFormat,
+    ) -> Result<PathBuf>,
+{
+    let current = Config::load(config_path)?;
+    let Some(spec) = prompts.model(paths, &current)? else {
+        println!("Setup cancelled.");
+        return Ok(());
+    };
+    if verify(paths, spec).is_ok() {
+        activate_model(config_path, spec)?;
+        println!("active model: {}", spec.id);
+        return Ok(());
+    }
+    install_selected_model(
+        spec.id,
+        config_path,
+        paths,
+        None,
+        false,
+        ProgressFormat::Human,
+        install,
+    )
+}
+
+fn guided_all_with(
+    config_path: &Path,
+    paths: &AppPaths,
+    prompts: &mut impl GuidedPrompts,
+) -> Result<()> {
+    guided_all_with_services(
+        config_path,
+        paths,
+        prompts,
+        app_setup::model::install,
+        app_setup::menu::install,
+        app_setup::systemd::install,
+        |config, paths| app_setup::print_checks(config, paths, false),
+        app_setup::print_checks_event,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn guided_all_with_services<FI, FM, FS, CH, CJ>(
+    config_path: &Path,
+    paths: &AppPaths,
+    prompts: &mut impl GuidedPrompts,
+    install_model: FI,
+    install_menu: FM,
+    install_systemd: FS,
+    check_human: CH,
+    check_json: CJ,
+) -> Result<()>
+where
+    FI: FnOnce(
+        &AppPaths,
+        &omawake::catalog::ModelSpec,
+        Option<&Path>,
+        ProgressFormat,
+    ) -> Result<PathBuf>,
+    FM: FnOnce(&AppPaths) -> Result<PathBuf>,
+    FS: FnOnce(&AppPaths, &Path, bool) -> Result<PathBuf>,
+    CH: FnOnce(&Path, &AppPaths) -> Result<()>,
+    CJ: FnOnce(&Path, &AppPaths) -> Result<()>,
+{
+    let current = Config::load(config_path)?;
+    let Some(selection) = prompts.runtime(&current)? else {
+        println!("Setup cancelled.");
+        return Ok(());
+    };
+    let Some(spec) = prompts.model(paths, &current)? else {
+        println!("Setup cancelled.");
+        return Ok(());
+    };
+    if !prompts.confirm(&selection, spec.id)? {
+        println!("Setup cancelled.");
+        return Ok(());
+    }
+    save_runtime_selection(config_path, &selection)?;
+    install_everything(
+        spec,
+        config_path,
+        paths,
+        None,
+        false,
+        ProgressFormat::Human,
+        install_model,
+        install_menu,
+        install_systemd,
+        check_human,
+        check_json,
+    )
+}
+
+fn choose_model(
+    paths: &AppPaths,
+    active_model: &str,
+) -> Result<Option<&'static omawake::catalog::ModelSpec>> {
+    choose_model_with(paths, active_model, |items, preferred| {
+        wizard::select(
+            "Wake-word model",
+            "● active · ○ installed · · available to download",
+            items,
+            preferred,
+        )
+    })
+}
+
+fn choose_model_with<S>(
+    paths: &AppPaths,
+    active_model: &str,
+    select: S,
+) -> Result<Option<&'static omawake::catalog::ModelSpec>>
+where
+    S: FnOnce(&[wizard::MenuItem], usize) -> Result<Option<usize>>,
+{
+    let items: Vec<_> = omawake::catalog::models()
+        .iter()
+        .map(|model| {
+            let installed = app_setup::model::verify(paths, model).is_ok();
+            let status = if model.id == active_model && installed {
+                "● active"
+            } else if model.id == active_model {
+                "● active · download required"
+            } else if installed {
+                "○ installed"
+            } else {
+                "· download"
+            };
+            wizard::MenuItem::available(
+                format!("{status}  {}", model.id),
+                format!(
+                    "{} · backend: {} · family: {} · {:.1} MiB",
+                    model.description,
+                    model.backend,
+                    model.family,
+                    model.archive_size as f64 / 1_048_576.0
+                ),
+            )
+        })
+        .collect();
+    let preferred = omawake::catalog::models()
+        .iter()
+        .position(|model| model.id == active_model)
+        .unwrap_or(0);
+    Ok(select(&items, preferred)?.map(|index| &omawake::catalog::models()[index]))
+}
+
+fn save_runtime_selection(config_path: &Path, selection: &RuntimeSelection) -> Result<()> {
+    let mut config = app_setup::ensure_config(config_path)?;
+    config.backend.runtime = selection.runtime;
+    config.backend.device = selection.device.clone();
+    config
+        .backend
+        .validate_capabilities(compiled_capabilities())?;
+    config.save(config_path)
+}
+
+fn runtime_name(runtime: Runtime) -> &'static str {
+    match runtime {
+        Runtime::Default => "default",
+        Runtime::Openvino => "openvino",
+        Runtime::Cuda => "cuda",
     }
 }
 
