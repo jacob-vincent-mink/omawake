@@ -10,6 +10,10 @@ on:
 permissions:
   contents: write
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   linux-x86_64:
     name: linux-x86_64-all-runtimes

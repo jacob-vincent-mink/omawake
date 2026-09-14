@@ -2094,12 +2094,17 @@ fn refused_client_connection_removes_only_the_same_stale_socket() {
     let Some(original) = io_or_skip(UnixListener::bind(&replacement_path)) else {
         return;
     };
-    drop(original);
-    let original_metadata = fs::metadata(&replacement_path).unwrap();
-    fs::remove_file(&replacement_path).unwrap();
-    let replacement = UnixListener::bind(&replacement_path).unwrap();
-    remove_stale_socket_if_unchanged(&replacement_path, Some(&original_metadata));
+    let replacement_source = replacement_paths.runtime_dir.join("replacement.sock");
+    let replacement = UnixListener::bind(&replacement_source).unwrap();
+    let error = connect_control_socket_with::<UnixStream>(&replacement_path, |_| {
+        fs::remove_file(&replacement_path).unwrap();
+        fs::rename(&replacement_source, &replacement_path).unwrap();
+        Err(std::io::Error::from(std::io::ErrorKind::ConnectionRefused))
+    })
+    .unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::ConnectionRefused);
     assert!(replacement_path.exists());
+    drop(original);
     drop(replacement);
 
     let regular_file = paths.runtime_dir.join("regular-file");
