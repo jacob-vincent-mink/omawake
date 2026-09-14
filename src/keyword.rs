@@ -49,22 +49,17 @@ impl KeywordCompiler {
 pub fn validate_wake_words(wake_words: &[WakeWord]) -> Result<()> {
     let mut ids = HashSet::new();
     let mut phrases = HashSet::new();
-    let mut enabled = 0usize;
     for wake_word in wake_words {
         validate_entry(wake_word)?;
         if !ids.insert(wake_word.id.as_str()) {
             bail!("duplicate wake-word id {}", wake_word.id);
         }
         if wake_word.enabled {
-            enabled += 1;
             let normalized = wake_word.phrase.trim().to_uppercase();
             if !phrases.insert(normalized) {
                 bail!("duplicate wake-word phrase {}", wake_word.phrase);
             }
         }
-    }
-    if enabled == 0 {
-        bail!("at least one enabled wake word is required");
     }
     Ok(())
 }
@@ -88,3 +83,7 @@ fn validate_entry(wake_word: &WakeWord) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/keyword.rs"]
+mod tests;

@@ -41,6 +41,16 @@ pub fn install(
     archive_override: Option<&Path>,
     progress: ProgressFormat,
 ) -> Result<PathBuf> {
+    install_with_download(paths, spec, archive_override, progress, download_archive)
+}
+
+fn install_with_download(
+    paths: &AppPaths,
+    spec: &ModelSpec,
+    archive_override: Option<&Path>,
+    progress: ProgressFormat,
+    download: impl FnOnce(&AppPaths, &ModelSpec, ProgressFormat) -> Result<PathBuf>,
+) -> Result<PathBuf> {
     let target = model_directory(paths, spec);
     if verify_directory(&target, spec).is_ok() {
         emit(progress, "already-installed", spec, None, None)?;
@@ -51,7 +61,7 @@ pub fn install(
     fs::create_dir_all(paths.data_dir.join("downloads"))?;
     let archive = match archive_override {
         Some(path) => path.to_owned(),
-        None => download_archive(paths, spec, progress)?,
+        None => download(paths, spec, progress)?,
     };
     verify_archive(&archive, spec)?;
 
@@ -112,6 +122,20 @@ fn download_archive(
     spec: &ModelSpec,
     progress: ProgressFormat,
 ) -> Result<PathBuf> {
+    download_archive_with(paths, spec, progress, |url| {
+        Ok(ureq::get(url)
+            .call()
+            .with_context(|| format!("download {url}"))?
+            .into_reader())
+    })
+}
+
+fn download_archive_with(
+    paths: &AppPaths,
+    spec: &ModelSpec,
+    progress: ProgressFormat,
+    fetch: impl FnOnce(&str) -> Result<Box<dyn Read>>,
+) -> Result<PathBuf> {
     let target = paths
         .data_dir
         .join("downloads")
@@ -135,11 +159,18 @@ fn download_archive(
         Some(0),
         Some(spec.archive_size),
     )?;
-    let response = ureq::get(spec.archive_url)
-        .call()
-        .with_context(|| format!("download {}", spec.archive_url))?;
-    let mut input = response.into_reader();
-    let file = File::create(&part)?;
+    write_download(fetch(spec.archive_url)?, &part, &target, spec, progress)?;
+    Ok(target)
+}
+
+fn write_download(
+    mut input: impl Read,
+    part: &Path,
+    target: &Path,
+    spec: &ModelSpec,
+    progress: ProgressFormat,
+) -> Result<()> {
+    let file = File::create(part)?;
     let mut output = BufWriter::new(file);
     let mut hasher = Sha256::new();
     let mut total = 0_u64;
@@ -181,9 +212,9 @@ fn download_archive(
     if digest != spec.archive_sha256 {
         bail!("download checksum mismatch for {}", spec.id);
     }
-    fs::rename(&part, &target)?;
+    fs::rename(part, target)?;
     emit(progress, "downloaded", spec, Some(total), Some(total))?;
-    Ok(target)
+    Ok(())
 }
 
 fn should_report_progress(current: u64, last: u64, total: u64) -> bool {
@@ -300,32 +331,5 @@ fn emit(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn model_path_is_backend_neutral() {
-        let paths = AppPaths {
-            config_file: "/tmp/config".into(),
-            data_dir: "/tmp/data".into(),
-            state_dir: "/tmp/state".into(),
-            runtime_dir: "/tmp/run".into(),
-        };
-        let spec = crate::catalog::models().first().unwrap();
-        assert_eq!(
-            model_directory(&paths, spec),
-            PathBuf::from("/tmp/data/models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01")
-        );
-    }
-
-    #[test]
-    fn progress_is_rate_limited_and_always_reports_completion() {
-        assert!(!should_report_progress(128 * 1024, 0, 2 * 1024 * 1024));
-        assert!(should_report_progress(1024 * 1024, 0, 2 * 1024 * 1024));
-        assert!(should_report_progress(
-            2 * 1024 * 1024,
-            1024 * 1024,
-            2 * 1024 * 1024
-        ));
-    }
-}
+#[path = "../../tests/unit/setup_model.rs"]
+mod tests;

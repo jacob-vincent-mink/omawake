@@ -154,27 +154,5 @@ fn enabled_by_default() -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_multiple_wake_words() {
-        let config: Config = toml::from_str(
-            r#"
-            [[wake_words]]
-            id = "one"
-            phrase = "Lovely Child"
-            command = ["touch", "/tmp/one"]
-            [[wake_words]]
-            id = "two"
-            phrase = "Forever"
-            enabled = false
-            command = ["touch", "/tmp/two"]
-        "#,
-        )
-        .unwrap();
-        assert_eq!(config.wake_words.len(), 2);
-        assert!(config.wake_words[0].enabled);
-        assert!(!config.wake_words[1].enabled);
-    }
-}
+#[path = "../tests/unit/config.rs"]
+mod tests;

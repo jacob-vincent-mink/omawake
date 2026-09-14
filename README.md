@@ -69,7 +69,11 @@ Add and remove mappings without editing TOML:
 ```bash
 omawake wake-word add --id computer --phrase Computer -- notify-send "Wake word heard"
 omawake wake-word remove computer
+# `word` is a shorter alias:
+omawake word remove computer
 ```
+
+Removing the final mapping is allowed so configurations can be rebuilt incrementally. Starting the detector still requires at least one enabled mapping.
 
 Actions are executed directly. Omawake does not insert a shell. Configure `sh -lc` explicitly when shell evaluation is intentional.
 

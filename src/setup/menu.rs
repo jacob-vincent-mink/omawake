@@ -42,3 +42,7 @@ pub fn status(paths: &AppPaths) -> Result<()> {
         bail!("Omawake setup launcher is not installed")
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/setup_menu.rs"]
+mod tests;

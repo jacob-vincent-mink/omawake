@@ -13,7 +13,7 @@ use clap::{Parser, Subcommand};
 use omawake::audio::{AudioEvent, Capture, input_devices};
 use omawake::backend::{Fallback, Runtime, compiled_capabilities};
 use omawake::config::{Config, WakeWord};
-use omawake::engine::{Detection, Detector};
+use omawake::engine::{ActionResult, Detection, Detector};
 use omawake::keyword::{KeywordCompiler, validate_wake_words};
 use omawake::paths::AppPaths;
 use omawake::protocol::{Command, Request, Response, ResultPayload};
@@ -54,6 +54,7 @@ enum TopCommand {
         #[command(subcommand)]
         command: ConfigCommand,
     },
+    #[command(visible_alias = "word")]
     WakeWord {
         #[command(subcommand)]
         command: WakeWordCommand,
@@ -179,7 +180,30 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> Result<()> {
-    let paths = AppPaths::discover();
+    run_with_paths(cli, AppPaths::discover())
+}
+
+fn run_with_paths(cli: Cli, paths: AppPaths) -> Result<()> {
+    run_with_paths_and_request(cli, paths, request)
+}
+
+fn run_with_paths_and_request<F>(cli: Cli, paths: AppPaths, mut send_request: F) -> Result<()>
+where
+    F: FnMut(&AppPaths, Command) -> Result<Response>,
+{
+    run_with_paths_and_services(cli, paths, &mut send_request, input_devices)
+}
+
+fn run_with_paths_and_services<F, D>(
+    cli: Cli,
+    paths: AppPaths,
+    mut send_request: F,
+    list_devices: D,
+) -> Result<()>
+where
+    F: FnMut(&AppPaths, Command) -> Result<Response>,
+    D: FnOnce() -> Result<Vec<String>>,
+{
     let config_path = cli.config.unwrap_or_else(|| paths.config_file.clone());
     let command = match cli.command {
         TopCommand::Setup { command } => return setup(command, &config_path, &paths),
@@ -208,7 +232,7 @@ fn run(cli: Cli) -> Result<()> {
         }
         TopCommand::Test { .. } => bail!("test requires --audio FILE or --seconds N"),
         TopCommand::Daemon => run_daemon(&config, &paths),
-        TopCommand::Status { json: as_json } => match request(&paths, Command::Status) {
+        TopCommand::Status { json: as_json } => match send_request(&paths, Command::Status) {
             Ok(response) => print_response(response, as_json),
             Err(_) => {
                 let stopped = stopped_status(&config, &paths);
@@ -220,11 +244,11 @@ fn run(cli: Cli) -> Result<()> {
                 Ok(())
             }
         },
-        TopCommand::Pause => print_response(request(&paths, Command::Pause)?, false),
-        TopCommand::Resume => print_response(request(&paths, Command::Resume)?, false),
-        TopCommand::Stop => print_response(request(&paths, Command::Shutdown)?, false),
+        TopCommand::Pause => print_response(send_request(&paths, Command::Pause)?, false),
+        TopCommand::Resume => print_response(send_request(&paths, Command::Resume)?, false),
+        TopCommand::Stop => print_response(send_request(&paths, Command::Shutdown)?, false),
         TopCommand::AudioDevices { json: as_json } => {
-            let devices = input_devices()?;
+            let devices = list_devices()?;
             if as_json {
                 println!("{}", serde_json::to_string_pretty(&devices)?);
             } else {
@@ -343,7 +367,7 @@ fn wake_word_command(
     path: &Path,
     paths: &AppPaths,
 ) -> Result<()> {
-    match command {
+    let message = match command {
         WakeWordCommand::List { json: as_json } => {
             if as_json {
                 println!("{}", serde_json::to_string_pretty(&config.wake_words)?);
@@ -363,26 +387,38 @@ fn wake_word_command(
             id,
             phrase,
             command,
-        } => config.wake_words.push(WakeWord {
-            id,
-            phrase,
-            enabled: true,
-            command,
-        }),
-        WakeWordCommand::Remove { id } => {
-            let before = config.wake_words.len();
-            config.wake_words.retain(|item| item.id != id);
-            if config.wake_words.len() == before {
-                bail!("unknown wake-word id {id}");
-            }
+        } => {
+            let message = format!("added wake word: {id}");
+            config.wake_words.push(WakeWord {
+                id,
+                phrase,
+                enabled: true,
+                command,
+            });
+            message
         }
-    }
+        WakeWordCommand::Remove { id } => {
+            remove_wake_word(&mut config, &id)?;
+            format!("removed wake word: {id}")
+        }
+    };
     validate_wake_words(&config.wake_words)?;
     let bpe = config.model_directory(paths).join(&config.model.bpe_model);
-    if bpe.exists() {
+    if bpe.exists() && config.wake_words.iter().any(|word| word.enabled) {
         KeywordCompiler::open(&bpe)?.compile(&config.wake_words)?;
     }
-    save_config(path, &config)
+    save_config(path, &config)?;
+    println!("{message}");
+    Ok(())
+}
+
+fn remove_wake_word(config: &mut Config, id: &str) -> Result<()> {
+    let before = config.wake_words.len();
+    config.wake_words.retain(|item| item.id != id);
+    if config.wake_words.len() == before {
+        bail!("unknown wake-word id {id}");
+    }
+    Ok(())
 }
 
 fn save_config(path: &Path, config: &Config) -> Result<()> {
@@ -423,21 +459,11 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
                 }
             }
             if let Some(id) = verify {
-                let spec = model_spec(&id)?;
-                app_setup::model::verify(paths, spec)?;
-                println!(
-                    "verified: {}",
-                    app_setup::model::model_directory(paths, spec).display()
-                );
+                verify_selected_model(&id, paths, app_setup::model::verify)?;
                 return Ok(());
             }
             if let Some(id) = set {
-                let spec = model_spec(&id)?;
-                app_setup::model::verify(paths, spec)?;
-                let mut config = app_setup::ensure_config(config_path)?;
-                spec.activate(&mut config);
-                config.save(config_path)?;
-                println!("active model: {}", spec.id);
+                set_selected_model(&id, config_path, paths, app_setup::model::verify)?;
                 return Ok(());
             }
             let default_id = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01";
@@ -464,26 +490,15 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
                 }
             };
             if let Some(id) = selected {
-                let spec = model_spec(&id)?;
-                let directory =
-                    app_setup::model::install(paths, spec, archive.as_deref(), progress_format)?;
-                if !no_activate {
-                    let mut config = app_setup::ensure_config(config_path)?;
-                    spec.activate(&mut config);
-                    config.save(config_path)?;
-                }
-                match progress_format {
-                    ProgressFormat::Human => println!("model ready: {}", directory.display()),
-                    ProgressFormat::Json => println!(
-                        "{}",
-                        serde_json::to_string(&json!({
-                            "event": "model-ready",
-                            "model": spec.id,
-                            "path": directory,
-                            "active": !no_activate,
-                        }))?
-                    ),
-                }
+                install_selected_model(
+                    &id,
+                    config_path,
+                    paths,
+                    archive.as_deref(),
+                    no_activate,
+                    progress_format,
+                    app_setup::model::install,
+                )?;
             }
             Ok(())
         }
@@ -521,40 +536,172 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
             progress_format,
         } => {
             let spec = model_spec(&model)?;
-            let mut config = app_setup::ensure_config(config_path)?;
-            let directory =
-                app_setup::model::install(paths, spec, archive.as_deref(), progress_format)?;
-            spec.activate(&mut config);
-            config.save(config_path)?;
-            let launcher = app_setup::menu::install(paths)?;
-            let service = app_setup::systemd::install(paths, config_path, !no_start)?;
-            match progress_format {
-                ProgressFormat::Human => {
-                    println!(
-                        "model: {}\nconfig: {}\nlauncher: {}\nservice: {}",
-                        directory.display(),
-                        config_path.display(),
-                        launcher.display(),
-                        service.display()
-                    );
-                    app_setup::print_checks(config_path, paths, false)
-                }
-                ProgressFormat::Json => {
-                    println!(
-                        "{}",
-                        serde_json::to_string(&json!({
-                            "event": "setup-complete",
-                            "model": directory,
-                            "config": config_path,
-                            "launcher": launcher,
-                            "service": service,
-                        }))?
-                    );
-                    app_setup::print_checks_event(config_path, paths)
-                }
-            }
+            install_everything(
+                spec,
+                config_path,
+                paths,
+                archive.as_deref(),
+                no_start,
+                progress_format,
+                app_setup::model::install,
+                app_setup::menu::install,
+                app_setup::systemd::install,
+                |config, paths| app_setup::print_checks(config, paths, false),
+                app_setup::print_checks_event,
+            )
         }
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn install_everything<FI, FM, FS, CH, CJ>(
+    spec: &omawake::catalog::ModelSpec,
+    config_path: &Path,
+    paths: &AppPaths,
+    archive: Option<&Path>,
+    no_start: bool,
+    progress_format: ProgressFormat,
+    install_model: FI,
+    install_menu: FM,
+    install_systemd: FS,
+    check_human: CH,
+    check_json: CJ,
+) -> Result<()>
+where
+    FI: FnOnce(
+        &AppPaths,
+        &omawake::catalog::ModelSpec,
+        Option<&Path>,
+        ProgressFormat,
+    ) -> Result<PathBuf>,
+    FM: FnOnce(&AppPaths) -> Result<PathBuf>,
+    FS: FnOnce(&AppPaths, &Path, bool) -> Result<PathBuf>,
+    CH: FnOnce(&Path, &AppPaths) -> Result<()>,
+    CJ: FnOnce(&Path, &AppPaths) -> Result<()>,
+{
+    let mut config = app_setup::ensure_config(config_path)?;
+    let directory = install_model(paths, spec, archive, progress_format)?;
+    spec.activate(&mut config);
+    config.save(config_path)?;
+    let launcher = install_menu(paths)?;
+    let service = install_systemd(paths, config_path, !no_start)?;
+    print_setup_complete(
+        &directory,
+        config_path,
+        &launcher,
+        &service,
+        progress_format,
+    )?;
+    match progress_format {
+        ProgressFormat::Human => check_human(config_path, paths),
+        ProgressFormat::Json => check_json(config_path, paths),
+    }
+}
+
+fn verify_selected_model<F>(id: &str, paths: &AppPaths, verify: F) -> Result<()>
+where
+    F: FnOnce(&AppPaths, &omawake::catalog::ModelSpec) -> Result<()>,
+{
+    let spec = model_spec(id)?;
+    verify(paths, spec)?;
+    println!(
+        "verified: {}",
+        app_setup::model::model_directory(paths, spec).display()
+    );
+    Ok(())
+}
+
+fn set_selected_model<F>(id: &str, config_path: &Path, paths: &AppPaths, verify: F) -> Result<()>
+where
+    F: FnOnce(&AppPaths, &omawake::catalog::ModelSpec) -> Result<()>,
+{
+    let spec = model_spec(id)?;
+    verify(paths, spec)?;
+    activate_model(config_path, spec)?;
+    println!("active model: {}", spec.id);
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn install_selected_model<F>(
+    id: &str,
+    config_path: &Path,
+    paths: &AppPaths,
+    archive: Option<&Path>,
+    no_activate: bool,
+    progress_format: ProgressFormat,
+    install: F,
+) -> Result<()>
+where
+    F: FnOnce(
+        &AppPaths,
+        &omawake::catalog::ModelSpec,
+        Option<&Path>,
+        ProgressFormat,
+    ) -> Result<PathBuf>,
+{
+    let spec = model_spec(id)?;
+    let directory = install(paths, spec, archive, progress_format)?;
+    if !no_activate {
+        activate_model(config_path, spec)?;
+    }
+    print_model_ready(&directory, spec, !no_activate, progress_format)
+}
+
+fn print_setup_complete(
+    directory: &Path,
+    config_path: &Path,
+    launcher: &Path,
+    service: &Path,
+    progress_format: ProgressFormat,
+) -> Result<()> {
+    match progress_format {
+        ProgressFormat::Human => println!(
+            "model: {}\nconfig: {}\nlauncher: {}\nservice: {}",
+            directory.display(),
+            config_path.display(),
+            launcher.display(),
+            service.display()
+        ),
+        ProgressFormat::Json => println!(
+            "{}",
+            serde_json::to_string(&json!({
+                "event": "setup-complete",
+                "model": directory,
+                "config": config_path,
+                "launcher": launcher,
+                "service": service,
+            }))?
+        ),
+    }
+    Ok(())
+}
+
+fn activate_model(config_path: &Path, spec: &omawake::catalog::ModelSpec) -> Result<()> {
+    let mut config = app_setup::ensure_config(config_path)?;
+    spec.activate(&mut config);
+    config.save(config_path)
+}
+
+fn print_model_ready(
+    directory: &Path,
+    spec: &omawake::catalog::ModelSpec,
+    active: bool,
+    progress_format: ProgressFormat,
+) -> Result<()> {
+    match progress_format {
+        ProgressFormat::Human => println!("model ready: {}", directory.display()),
+        ProgressFormat::Json => println!(
+            "{}",
+            serde_json::to_string(&json!({
+                "event": "model-ready",
+                "model": spec.id,
+                "path": directory,
+                "active": active,
+            }))?
+        ),
+    }
+    Ok(())
 }
 
 fn model_spec(id: &str) -> Result<&'static omawake::catalog::ModelSpec> {
@@ -605,46 +752,116 @@ fn detect_live(detector: &Detector, config: &Config, duration: Duration) -> Resu
         capture.sample_rate, capture.channels, capture.device_name
     );
     let session = detector.session();
-    let deadline = Instant::now() + duration;
+    collect_live_detections(
+        duration,
+        |timeout| capture.receiver().recv_timeout(timeout),
+        |sample_rate, samples| session.accept(sample_rate, samples),
+        || session.finish(),
+    )
+}
+
+fn collect_live_detections<R, A, F>(
+    duration: Duration,
+    receive: R,
+    accept: A,
+    finish: F,
+) -> Result<Vec<Detection>>
+where
+    R: FnMut(Duration) -> std::result::Result<AudioEvent, RecvTimeoutError>,
+    A: FnMut(i32, &[f32]) -> Result<Vec<Detection>>,
+    F: FnOnce() -> Result<Vec<Detection>>,
+{
+    collect_live_detections_with_clock(duration, receive, accept, finish, Instant::now)
+}
+
+fn collect_live_detections_with_clock<R, A, F, N>(
+    duration: Duration,
+    mut receive: R,
+    mut accept: A,
+    finish: F,
+    mut now: N,
+) -> Result<Vec<Detection>>
+where
+    R: FnMut(Duration) -> std::result::Result<AudioEvent, RecvTimeoutError>,
+    A: FnMut(i32, &[f32]) -> Result<Vec<Detection>>,
+    F: FnOnce() -> Result<Vec<Detection>>,
+    N: FnMut() -> Instant,
+{
+    let deadline = now() + duration;
     let mut detections = Vec::new();
-    while Instant::now() < deadline {
-        match capture.receiver().recv_timeout(Duration::from_millis(100)) {
+    while now() < deadline {
+        match receive(Duration::from_millis(100)) {
             Ok(AudioEvent::Samples {
                 sample_rate,
                 samples,
-            }) => detections.extend(session.accept(sample_rate, &samples)?),
+            }) => detections.extend(accept(sample_rate, &samples)?),
             Ok(AudioEvent::Error(error)) => bail!("audio capture failed: {error}"),
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => bail!("audio capture disconnected"),
         }
     }
-    detections.extend(session.finish()?);
+    detections.extend(finish()?);
     Ok(detections)
 }
 
 fn present_detections(
-    detector: &Detector,
+    detector: &impl DetectorControl,
     detections: Vec<Detection>,
     execute: bool,
     as_json: bool,
 ) -> Result<()> {
-    let actions = if execute {
+    let actions = collect_detection_actions(&detections, execute, |id| detector.run(id))?;
+    print_detections(
+        detections,
+        actions,
+        as_json,
+        detector.load_time(),
+        detector.keywords_buffer(),
+        detector.backend_kind(),
+        detector.effective_runtime(),
+        detector.fallback_used(),
+    )
+}
+
+fn collect_detection_actions<F>(
+    detections: &[Detection],
+    execute: bool,
+    run_action: F,
+) -> Result<Vec<ActionResult>>
+where
+    F: FnMut(&str) -> Result<ActionResult>,
+{
+    if execute {
         detections
             .iter()
-            .map(|item| detector.run_action(&item.id))
-            .collect::<Result<Vec<_>>>()?
+            .map(|item| item.id.as_str())
+            .map(run_action)
+            .collect()
     } else {
-        Vec::new()
-    };
+        Ok(Vec::new())
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn print_detections(
+    detections: Vec<Detection>,
+    actions: Vec<ActionResult>,
+    as_json: bool,
+    load_time: Duration,
+    keywords_buffer: &str,
+    backend_kind: &str,
+    effective_runtime: Runtime,
+    fallback_used: bool,
+) -> Result<()> {
     if as_json {
         println!(
             "{}",
             serde_json::to_string_pretty(&json!({
-                "model_load_milliseconds": detector.load_time.as_millis() as u64,
-                "keywords_buffer": detector.keywords_buffer,
+                "model_load_milliseconds": load_time.as_millis() as u64,
+                "keywords_buffer": keywords_buffer,
                 "detections": detections,
                 "actions": actions,
-                "backend": {"kind": detector.backend_kind, "effective_runtime": detector.effective_runtime, "fallback_used": detector.fallback_used}
+                "backend": {"kind": backend_kind, "effective_runtime": effective_runtime, "fallback_used": fallback_used}
             }))?
         );
     } else {
@@ -662,167 +879,384 @@ fn run_daemon(config: &Config, paths: &AppPaths) -> Result<()> {
         "loaded wake-word model in {} ms",
         detector.load_time.as_millis()
     );
-    let mut paused = false;
-    let mut shutdown = false;
-    while !shutdown {
-        if paused {
-            if let Some(command) = poll_control(&listener, "paused", &detector, None)? {
-                match command {
-                    Command::Resume => paused = false,
-                    Command::Shutdown => shutdown = true,
-                    _ => {}
+    let serve_result = (|| -> Result<()> {
+        let mut paused = false;
+        let mut shutdown = false;
+        while !shutdown {
+            if paused {
+                if let Some(command) =
+                    poll_control(&detector, "paused", None, || accept_control(&listener))?
+                {
+                    apply_daemon_command(command, &mut paused, &mut shutdown);
                 }
+                thread::sleep(Duration::from_millis(50));
+                continue;
             }
-            thread::sleep(Duration::from_millis(50));
-            continue;
-        }
 
-        let capture = Capture::start(&config.audio.device, config.daemon.queue_capacity)?;
-        eprintln!(
-            "armed on {} ({} Hz, {} channel(s))",
-            capture.device_name, capture.sample_rate, capture.channels
-        );
-        let session = detector.session();
-        let mut triggered = Vec::new();
-        loop {
-            let audio_details = json!({"device":capture.device_name,"sample_rate":capture.sample_rate,"channels":capture.channels});
-            if let Some(command) = poll_control(&listener, "armed", &detector, Some(audio_details))?
-            {
-                match command {
-                    Command::Pause => paused = true,
-                    Command::Shutdown => shutdown = true,
-                    _ => {}
-                }
-                if paused || shutdown {
-                    break;
-                }
+            let capture = Capture::start(&config.audio.device, config.daemon.queue_capacity)?;
+            eprintln!(
+                "armed on {} ({} Hz, {} channel(s))",
+                capture.device_name, capture.sample_rate, capture.channels
+            );
+            let session = detector.session();
+            let (triggered, command) = collect_armed_detections(
+                &capture.device_name,
+                capture.sample_rate,
+                capture.channels,
+                |audio| {
+                    poll_control(&detector, "armed", Some(audio), || {
+                        accept_control(&listener)
+                    })
+                },
+                |timeout| capture.receiver().recv_timeout(timeout),
+                |sample_rate, samples| session.accept(sample_rate, samples),
+            )?;
+            if let Some(command) = command {
+                apply_daemon_command(command, &mut paused, &mut shutdown);
             }
-            match capture.receiver().recv_timeout(Duration::from_millis(50)) {
-                Ok(AudioEvent::Samples {
-                    sample_rate,
-                    samples,
-                }) => {
-                    triggered.extend(session.accept(sample_rate, &samples)?);
-                    if !triggered.is_empty() {
-                        break;
-                    }
-                }
-                Ok(AudioEvent::Error(error)) => bail!("audio capture failed: {error}"),
-                Err(RecvTimeoutError::Timeout) => {}
-                Err(RecvTimeoutError::Disconnected) => bail!("audio capture disconnected"),
+            drop(session);
+            drop(capture);
+            execute_detected_actions(triggered, |id| detector.run_action(id));
+            if !paused && !shutdown {
+                thread::sleep(Duration::from_millis(config.daemon.cooldown_milliseconds));
             }
         }
-        drop(session);
-        drop(capture);
-        for detection in triggered {
-            match detector.run_action(&detection.id) {
-                Ok(result) => {
-                    eprintln!("detected {}; action exited {}", detection.id, result.status)
-                }
-                Err(error) => eprintln!("action for {} failed: {error:#}", detection.id),
-            }
+        Ok(())
+    })();
+    drop(listener);
+    finish_daemon(paths, serve_result)
+}
+
+fn finish_daemon(paths: &AppPaths, serve_result: Result<()>) -> Result<()> {
+    let path = socket_path(paths);
+    let cleanup_result = fs::remove_file(&path)
+        .or_else(|error| {
+            (error.kind() == std::io::ErrorKind::NotFound)
+                .then_some(())
+                .ok_or(error)
+        })
+        .with_context(|| format!("remove daemon socket {}", path.display()));
+    if let Err(error) = serve_result {
+        if let Err(cleanup_error) = cleanup_result {
+            eprintln!("omawake: {cleanup_error:#}");
         }
-        if !paused && !shutdown {
-            thread::sleep(Duration::from_millis(config.daemon.cooldown_milliseconds));
-        }
+        return Err(error);
     }
-    let _ = fs::remove_file(socket_path(paths));
+    cleanup_result?;
     eprintln!("stopped");
     Ok(())
 }
 
+fn collect_armed_detections<P, R, A>(
+    device_name: &str,
+    sample_rate: u32,
+    channels: u16,
+    mut poll: P,
+    mut receive: R,
+    mut accept: A,
+) -> Result<(Vec<Detection>, Option<Command>)>
+where
+    P: FnMut(Value) -> Result<Option<Command>>,
+    R: FnMut(Duration) -> std::result::Result<AudioEvent, RecvTimeoutError>,
+    A: FnMut(i32, &[f32]) -> Result<Vec<Detection>>,
+{
+    let mut triggered = Vec::new();
+    loop {
+        let audio = json!({"device":device_name,"sample_rate":sample_rate,"channels":channels});
+        if let Some(command) = poll(audio)? {
+            match command {
+                Command::Pause | Command::Shutdown => return Ok((triggered, Some(command))),
+                Command::Resume | Command::Status => continue,
+            }
+        }
+        triggered.extend(handle_audio_event(
+            receive(Duration::from_millis(50)),
+            &mut accept,
+        )?);
+        if !triggered.is_empty() {
+            return Ok((triggered, None));
+        }
+    }
+}
+
+fn apply_daemon_command(command: Command, paused: &mut bool, shutdown: &mut bool) {
+    match command {
+        Command::Pause => *paused = true,
+        Command::Resume => *paused = false,
+        Command::Shutdown => *shutdown = true,
+        Command::Status => {}
+    }
+}
+
+fn handle_audio_event<F>(
+    event: std::result::Result<AudioEvent, RecvTimeoutError>,
+    mut accept: F,
+) -> Result<Vec<Detection>>
+where
+    F: FnMut(i32, &[f32]) -> Result<Vec<Detection>>,
+{
+    match event {
+        Ok(AudioEvent::Samples {
+            sample_rate,
+            samples,
+        }) => accept(sample_rate, &samples),
+        Ok(AudioEvent::Error(error)) => bail!("audio capture failed: {error}"),
+        Err(RecvTimeoutError::Timeout) => Ok(Vec::new()),
+        Err(RecvTimeoutError::Disconnected) => bail!("audio capture disconnected"),
+    }
+}
+
+fn execute_detected_actions<F>(detections: Vec<Detection>, mut run: F)
+where
+    F: FnMut(&str) -> Result<ActionResult>,
+{
+    for detection in detections {
+        match run(&detection.id) {
+            Ok(result) => eprintln!("detected {}; action exited {}", detection.id, result.status),
+            Err(error) => eprintln!("action for {} failed: {error:#}", detection.id),
+        }
+    }
+}
+
 fn bind_socket(paths: &AppPaths) -> Result<UnixListener> {
+    bind_socket_with(
+        paths,
+        |path| UnixStream::connect(path).is_ok(),
+        |path| UnixListener::bind(path),
+        |listener| listener.set_nonblocking(true),
+    )
+}
+
+fn bind_socket_with<L, C, B, N>(
+    paths: &AppPaths,
+    is_live: C,
+    bind: B,
+    set_nonblocking: N,
+) -> Result<L>
+where
+    C: FnOnce(&Path) -> bool,
+    B: FnOnce(&Path) -> std::io::Result<L>,
+    N: FnOnce(&L) -> std::io::Result<()>,
+{
     fs::create_dir_all(&paths.runtime_dir)
         .with_context(|| format!("create {}", paths.runtime_dir.display()))?;
     fs::set_permissions(&paths.runtime_dir, fs::Permissions::from_mode(0o700))?;
     let path = socket_path(paths);
     if path.exists() {
-        if UnixStream::connect(&path).is_ok() {
+        if is_live(&path) {
             bail!("daemon is already running at {}", path.display());
         }
         fs::remove_file(&path)
             .with_context(|| format!("remove stale socket {}", path.display()))?;
     }
-    let listener = UnixListener::bind(&path).with_context(|| format!("bind {}", path.display()))?;
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
-    listener.set_nonblocking(true)?;
+    let listener = bind(&path).with_context(|| format!("bind {}", path.display()))?;
+    if let Err(error) = fs::set_permissions(&path, fs::Permissions::from_mode(0o600)) {
+        drop(listener);
+        let _ = fs::remove_file(&path);
+        return Err(error.into());
+    }
+    if let Err(error) = set_nonblocking(&listener) {
+        drop(listener);
+        let _ = fs::remove_file(&path);
+        return Err(error.into());
+    }
     Ok(listener)
 }
 
-fn poll_control(
-    listener: &UnixListener,
+fn poll_control<S, A>(
+    detector: &impl DetectorControl,
     state: &str,
-    detector: &Detector,
     audio: Option<serde_json::Value>,
-) -> Result<Option<Command>> {
-    loop {
-        let (mut stream, _) = match listener.accept() {
-            Ok(value) => value,
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => return Ok(None),
-            Err(error) => return Err(error.into()),
-        };
-        stream.set_read_timeout(Some(Duration::from_millis(500)))?;
-        let mut bytes = Vec::new();
-        let read_result = BufReader::new(stream.try_clone()?)
-            .take(65_537)
-            .read_until(b'\n', &mut bytes);
-        let request: Request = match read_result.context("read daemon request").and_then(|_| {
-            if bytes.len() > 65_536 {
-                bail!("message exceeds 65536 bytes");
-            }
-            serde_json::from_slice(&bytes).context("parse daemon request")
-        }) {
-            Ok(request) => request,
-            Err(error) => {
-                write_response(
-                    &mut stream,
-                    &Response::error("unknown", "invalid_request", error),
-                );
-                continue;
-            }
-        };
-        if request.protocol != 1 {
-            write_response(
-                &mut stream,
-                &Response::error(
-                    request.id,
-                    "protocol_mismatch",
-                    format!("unsupported protocol version {}", request.protocol),
-                ),
-            );
-            continue;
+    accept: A,
+) -> Result<Option<Command>>
+where
+    S: Read + Write,
+    A: FnMut() -> Result<Option<S>>,
+{
+    let details = daemon_details(
+        detector.backend_kind(),
+        detector.effective_runtime(),
+        detector.fallback_used(),
+        detector.load_time(),
+        audio,
+    );
+    poll_control_connections(accept, state, &details)
+}
+
+trait DetectorControl {
+    fn backend_kind(&self) -> &str;
+    fn effective_runtime(&self) -> Runtime;
+    fn fallback_used(&self) -> bool;
+    fn load_time(&self) -> Duration;
+    fn keywords_buffer(&self) -> &str;
+    fn run(&self, id: &str) -> Result<ActionResult>;
+}
+
+impl DetectorControl for Detector {
+    fn backend_kind(&self) -> &str {
+        self.backend_kind
+    }
+
+    fn effective_runtime(&self) -> Runtime {
+        self.effective_runtime
+    }
+
+    fn fallback_used(&self) -> bool {
+        self.fallback_used
+    }
+
+    fn load_time(&self) -> Duration {
+        self.load_time
+    }
+
+    fn keywords_buffer(&self) -> &str {
+        &self.keywords_buffer
+    }
+
+    fn run(&self, id: &str) -> Result<ActionResult> {
+        self.run_action(id)
+    }
+}
+
+fn daemon_details(
+    backend_kind: &str,
+    effective_runtime: Runtime,
+    fallback_used: bool,
+    load_time: Duration,
+    audio: Option<Value>,
+) -> Value {
+    json!({
+        "backend": {
+            "kind": backend_kind,
+            "effective_runtime": effective_runtime,
+            "fallback_used": fallback_used,
+        },
+        "model_load_milliseconds": load_time.as_millis() as u64,
+        "audio": audio,
+    })
+}
+
+fn accept_control(listener: &UnixListener) -> Result<Option<UnixStream>> {
+    prepare_accepted_control(listener.accept().map(|(stream, _)| stream), |stream| {
+        stream.set_read_timeout(Some(Duration::from_millis(500)))
+    })
+}
+
+fn prepare_accepted_control<S, F>(accepted: std::io::Result<S>, configure: F) -> Result<Option<S>>
+where
+    F: FnOnce(&S) -> std::io::Result<()>,
+{
+    match accepted {
+        Ok(stream) => {
+            configure(&stream)?;
+            Ok(Some(stream))
         }
-        let next_state = match &request.command {
-            Command::Pause => "paused",
-            Command::Resume => "armed",
-            Command::Shutdown => "stopping",
-            Command::Status => state,
+        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn poll_control_connections<S, A>(
+    mut accept: A,
+    state: &str,
+    details: &Value,
+) -> Result<Option<Command>>
+where
+    S: Read + Write,
+    A: FnMut() -> Result<Option<S>>,
+{
+    loop {
+        let Some(mut stream) = accept()? else {
+            return Ok(None);
         };
-        let response = Response {
-            protocol: 1,
-            id: request.id,
-            result: ResultPayload::State {
-                state: next_state.into(),
-                details: json!({
-                    "backend":{"kind":detector.backend_kind,"effective_runtime":detector.effective_runtime,"fallback_used":detector.fallback_used},
-                    "model_load_milliseconds":detector.load_time.as_millis() as u64,
-                    "audio":audio
-                }),
-            },
-        };
-        write_response(&mut stream, &response);
-        if !matches!(request.command, Command::Status) {
-            return Ok(Some(request.command));
+        let command = handle_control_stream(&mut stream, state, details);
+        if command.is_some() {
+            return Ok(command);
         }
     }
 }
 
+fn handle_control_stream(
+    stream: &mut (impl Read + Write),
+    state: &str,
+    details: &Value,
+) -> Option<Command> {
+    let (response, command) = control_response(read_request(&mut *stream), state, details);
+    write_response(stream, &response);
+    command
+}
+
+fn control_response(
+    request: Result<Request>,
+    state: &str,
+    details: &Value,
+) -> (Response, Option<Command>) {
+    let request = match request {
+        Ok(request) => request,
+        Err(error) => {
+            return (Response::error("unknown", "invalid_request", error), None);
+        }
+    };
+    if request.protocol != 1 {
+        return (
+            Response::error(
+                request.id,
+                "protocol_mismatch",
+                format!("unsupported protocol version {}", request.protocol),
+            ),
+            None,
+        );
+    }
+    let next_state = match &request.command {
+        Command::Pause => "paused",
+        Command::Resume => "armed",
+        Command::Shutdown => "stopping",
+        Command::Status => state,
+    };
+    let command = (!matches!(&request.command, Command::Status)).then_some(request.command);
+    (
+        Response {
+            protocol: 1,
+            id: request.id,
+            result: ResultPayload::State {
+                state: next_state.into(),
+                details: details.clone(),
+            },
+        },
+        command,
+    )
+}
+
+fn read_request(reader: impl Read) -> Result<Request> {
+    let mut bytes = Vec::new();
+    BufReader::new(reader)
+        .take(65_537)
+        .read_until(b'\n', &mut bytes)
+        .context("read daemon request")?;
+    if bytes.len() > 65_536 {
+        bail!("message exceeds 65536 bytes");
+    }
+    serde_json::from_slice(&bytes).context("parse daemon request")
+}
+
 fn request(paths: &AppPaths, command: Command) -> Result<Response> {
+    request_with_connector(paths, command, |path| UnixStream::connect(path))
+}
+
+fn request_with_connector<S, C>(paths: &AppPaths, command: Command, connect: C) -> Result<Response>
+where
+    S: Read + Write,
+    C: FnOnce(&Path) -> std::io::Result<S>,
+{
     let path = socket_path(paths);
-    let mut stream = UnixStream::connect(&path)
-        .with_context(|| format!("daemon is not running at {}", path.display()))?;
+    let mut stream =
+        connect(&path).with_context(|| format!("daemon is not running at {}", path.display()))?;
+    request_over_stream(&mut stream, command)
+}
+
+fn request_over_stream(stream: &mut (impl Read + Write), command: Command) -> Result<Response> {
     serde_json::to_writer(
-        &mut stream,
+        &mut *stream,
         &Request {
             protocol: 1,
             id: request_id(),
@@ -831,7 +1265,7 @@ fn request(paths: &AppPaths, command: Command) -> Result<Response> {
     )?;
     stream.write_all(b"\n")?;
     let mut line = String::new();
-    BufReader::new(stream).read_line(&mut line)?;
+    BufReader::new(&mut *stream).read_line(&mut line)?;
     serde_json::from_str(&line).context("parse daemon response")
 }
 
@@ -851,7 +1285,7 @@ fn socket_path(paths: &AppPaths) -> PathBuf {
     paths.socket()
 }
 
-fn write_response(stream: &mut UnixStream, response: &Response) {
+fn write_response(stream: &mut impl Write, response: &Response) {
     match serde_json::to_vec(response) {
         Ok(mut bytes) => {
             bytes.push(b'\n');
@@ -887,3 +1321,7 @@ fn schema(config: &Config, config_path: &Path, paths: &AppPaths) -> serde_json::
         "collections":[{"key":"wake_words","id_key":"id","label":"Wake words","items":config.wake_words}],
         "constraints":[{"kind":"matrix","keys":["backend.runtime","backend.device"],"rows":[{"backend.runtime":"default","backend.device":["auto","cpu"]},{"backend.runtime":"cuda","backend.device":["auto","gpu"]},{"backend.runtime":"openvino","backend.device":["auto","npu","gpu","cpu","auto:<devices>","hetero:<2+ devices>","multi:<2+ devices>"]}]}]})
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/app_main.rs"]
+mod tests;

@@ -126,19 +126,5 @@ impl ModelSpec {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_model_references_a_backend() {
-        for model in models() {
-            assert!(
-                backends()
-                    .iter()
-                    .any(|backend| backend.kind == model.backend)
-            );
-            assert_eq!(model.archive_sha256.len(), 64);
-            assert!(!model.required_files.is_empty());
-        }
-    }
-}
+#[path = "../tests/unit/catalog.rs"]
+mod tests;

@@ -245,3 +245,7 @@ fn fail(
         remediation: Some(remediation.into()),
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/setup_mod.rs"]
+mod tests;

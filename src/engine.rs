@@ -5,12 +5,15 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
-use sherpa_onnx::{KeywordSpotter, KeywordSpotterConfig, Wave};
+use sherpa_onnx::KeywordSpotterConfig;
 
 use crate::backend::{Fallback, Runtime, compiled_capabilities};
 use crate::config::{Config, WakeWord};
 use crate::keyword::KeywordCompiler;
 use crate::paths::AppPaths;
+
+mod sherpa;
+use self::sherpa::SherpaOnnxBackend;
 
 pub trait WakeWordBackend {
     fn kind(&self) -> &'static str;
@@ -21,15 +24,6 @@ pub trait WakeWordBackend {
 pub trait WakeWordStream {
     fn accept(&self, sample_rate: i32, samples: &[f32]) -> Result<Vec<Detection>>;
     fn finish(&self) -> Result<Vec<Detection>>;
-}
-
-struct SherpaOnnxBackend {
-    spotter: KeywordSpotter,
-}
-
-struct SherpaOnnxStream<'a> {
-    backend: &'a SherpaOnnxBackend,
-    stream: sherpa_onnx::OnlineStream,
 }
 
 pub struct Detector {
@@ -65,6 +59,23 @@ pub struct ActionResult {
 
 impl Detector {
     pub fn load(config: &Config, paths: &AppPaths) -> Result<Self> {
+        if config.backend.kind != "sherpa-onnx" {
+            bail!(
+                "wake-word backend {} is not available in this build; run `omawake setup runtime`",
+                config.backend.kind
+            );
+        }
+        Self::load_with(config, paths, |config, directory, runtime, keywords| {
+            Ok(Box::new(SherpaOnnxBackend::load(
+                config, directory, runtime, keywords,
+            )?))
+        })
+    }
+
+    pub fn load_with<F>(config: &Config, paths: &AppPaths, load_backend: F) -> Result<Self>
+    where
+        F: FnOnce(&Config, &Path, Runtime, &str) -> Result<Box<dyn WakeWordBackend>>,
+    {
         config.backend.validate_shape()?;
         let (effective_runtime, fallback_used) = match config
             .backend
@@ -82,18 +93,25 @@ impl Detector {
         let keywords_buffer = compiler.compile(&config.wake_words)?;
 
         let started = Instant::now();
-        let backend: Box<dyn WakeWordBackend> = match config.backend.kind.as_str() {
-            "sherpa-onnx" => Box::new(SherpaOnnxBackend::load(
-                config,
-                &directory,
-                effective_runtime,
-                &keywords_buffer,
-            )?),
-            kind => bail!(
-                "wake-word backend {kind} is not available in this build; run `omawake setup runtime`"
-            ),
-        };
-        let load_time = started.elapsed();
+        let backend = load_backend(config, &directory, effective_runtime, &keywords_buffer)?;
+        Self::from_backend(
+            config,
+            backend,
+            keywords_buffer,
+            effective_runtime,
+            fallback_used,
+            started.elapsed(),
+        )
+    }
+
+    pub fn from_backend(
+        config: &Config,
+        backend: Box<dyn WakeWordBackend>,
+        keywords_buffer: String,
+        effective_runtime: Runtime,
+        fallback_used: bool,
+        load_time: Duration,
+    ) -> Result<Self> {
         let backend_kind = backend.kind();
         let actions = config
             .wake_words
@@ -171,105 +189,86 @@ impl DetectionSession<'_> {
     }
 }
 
-impl SherpaOnnxBackend {
-    fn load(
-        config: &Config,
-        directory: &Path,
-        runtime: Runtime,
-        keywords_buffer: &str,
-    ) -> Result<Self> {
-        let required = |name: &str| -> Result<String> {
-            let path = directory.join(name);
-            if !path.exists() {
-                bail!("required model asset is missing: {}", path.display());
-            }
-            Ok(path.to_string_lossy().into_owned())
-        };
-        let mut sherpa_config = KeywordSpotterConfig::default();
-        sherpa_config.model_config.transducer.encoder = Some(required(&config.model.encoder)?);
-        sherpa_config.model_config.transducer.decoder = Some(required(&config.model.decoder)?);
-        sherpa_config.model_config.transducer.joiner = Some(required(&config.model.joiner)?);
-        sherpa_config.model_config.tokens = Some(required(&config.model.tokens)?);
-        sherpa_config.model_config.num_threads = config.backend.threads.into();
-        sherpa_config.model_config.provider = Some(match runtime {
-            Runtime::Default => "cpu".into(),
-            Runtime::Cuda => "cuda".into(),
-            Runtime::Openvino => {
-                bail!("OpenVINO provider file generation is unavailable in this build")
-            }
-        });
-        sherpa_config.feat_config.sample_rate = config.model.sample_rate;
-        sherpa_config.max_active_paths = config.model.max_active_paths;
-        sherpa_config.num_trailing_blanks = config.model.num_trailing_blanks;
-        sherpa_config.keywords_score = config.model.keywords_score;
-        sherpa_config.keywords_threshold = config.model.keywords_threshold;
-        sherpa_config.keywords_buf = Some(keywords_buffer.into());
-        let spotter = KeywordSpotter::create(&sherpa_config)
-            .context("sherpa-onnx could not create the keyword spotter")?;
-        Ok(Self { spotter })
-    }
-
-    fn decode_ready(&self, stream: &sherpa_onnx::OnlineStream) -> Vec<Detection> {
-        let mut detections = Vec::new();
-        while self.spotter.is_ready(stream) {
-            self.spotter.decode(stream);
-            if let Some(result) = self.spotter.get_result(stream)
-                && !result.keyword.is_empty()
-            {
-                detections.push(Detection {
-                    id: result.keyword,
-                    tokens: result.tokens_arr,
-                    timestamps: result.timestamps,
-                    start_time: result.start_time,
-                });
-            }
+fn drain_ready(mut next: impl FnMut() -> Option<Option<Detection>>) -> Vec<Detection> {
+    let mut detections = Vec::new();
+    while let Some(result) = next() {
+        if let Some(detection) = result {
+            detections.push(detection);
         }
-        detections
     }
+    detections
 }
 
-impl WakeWordBackend for SherpaOnnxBackend {
-    fn kind(&self) -> &'static str {
-        "sherpa-onnx"
-    }
+fn detection_from_parts(
+    id: String,
+    tokens: Vec<String>,
+    timestamps: Vec<f32>,
+    start_time: f32,
+) -> Option<Detection> {
+    (!id.is_empty()).then_some(Detection {
+        id,
+        tokens,
+        timestamps,
+        start_time,
+    })
+}
 
-    fn stream(&self) -> Box<dyn WakeWordStream + '_> {
-        Box::new(SherpaOnnxStream {
-            backend: self,
-            stream: self.spotter.create_stream(),
-        })
-    }
-
-    fn detect_file(&self, path: &Path) -> Result<Vec<Detection>> {
-        let wave = Wave::read(path.to_string_lossy().as_ref())
-            .with_context(|| format!("read audio fixture {}", path.display()))?;
-        let stream = self.stream();
-        let chunk_sizes = [317usize, 1600, 89, 2711, 503, 997];
-        let mut offset = 0usize;
-        let mut chunk_index = 0usize;
-        let samples = wave.samples();
-        let mut detections = Vec::new();
-        while offset < samples.len() {
-            let end = (offset + chunk_sizes[chunk_index % chunk_sizes.len()]).min(samples.len());
-            detections.extend(stream.accept(wave.sample_rate(), &samples[offset..end])?);
-            offset = end;
-            chunk_index += 1;
+fn build_sherpa_config(
+    config: &Config,
+    directory: &Path,
+    runtime: Runtime,
+    keywords_buffer: &str,
+) -> Result<KeywordSpotterConfig> {
+    let required = |name: &str| -> Result<String> {
+        let path = directory.join(name);
+        if !path.exists() {
+            bail!("required model asset is missing: {}", path.display());
         }
-        let padding = vec![0.0; wave.sample_rate().max(1) as usize / 2];
-        detections.extend(stream.accept(wave.sample_rate(), &padding)?);
-        detections.extend(stream.finish()?);
-        Ok(detections)
-    }
+        Ok(path.to_string_lossy().into_owned())
+    };
+    let mut sherpa_config = KeywordSpotterConfig::default();
+    sherpa_config.model_config.transducer.encoder = Some(required(&config.model.encoder)?);
+    sherpa_config.model_config.transducer.decoder = Some(required(&config.model.decoder)?);
+    sherpa_config.model_config.transducer.joiner = Some(required(&config.model.joiner)?);
+    sherpa_config.model_config.tokens = Some(required(&config.model.tokens)?);
+    sherpa_config.model_config.num_threads = config.backend.threads.into();
+    sherpa_config.model_config.provider = Some(match runtime {
+        Runtime::Default => "cpu".into(),
+        Runtime::Cuda => "cuda".into(),
+        Runtime::Openvino => {
+            bail!("OpenVINO provider file generation is unavailable in this build")
+        }
+    });
+    sherpa_config.feat_config.sample_rate = config.model.sample_rate;
+    sherpa_config.max_active_paths = config.model.max_active_paths;
+    sherpa_config.num_trailing_blanks = config.model.num_trailing_blanks;
+    sherpa_config.keywords_score = config.model.keywords_score;
+    sherpa_config.keywords_threshold = config.model.keywords_threshold;
+    sherpa_config.keywords_buf = Some(keywords_buffer.into());
+    Ok(sherpa_config)
 }
 
-impl WakeWordStream for SherpaOnnxStream<'_> {
-    fn accept(&self, sample_rate: i32, samples: &[f32]) -> Result<Vec<Detection>> {
-        self.stream.accept_waveform(sample_rate, samples);
-        Ok(self.backend.decode_ready(&self.stream))
+fn detect_samples(
+    stream: &dyn WakeWordStream,
+    sample_rate: i32,
+    samples: &[f32],
+) -> Result<Vec<Detection>> {
+    let chunk_sizes = [317usize, 1600, 89, 2711, 503, 997];
+    let mut offset = 0usize;
+    let mut chunk_index = 0usize;
+    let mut detections = Vec::new();
+    while offset < samples.len() {
+        let end = (offset + chunk_sizes[chunk_index % chunk_sizes.len()]).min(samples.len());
+        detections.extend(stream.accept(sample_rate, &samples[offset..end])?);
+        offset = end;
+        chunk_index += 1;
     }
-
-    fn finish(&self) -> Result<Vec<Detection>> {
-        self.stream.input_finished();
-        Ok(self.backend.decode_ready(&self.stream))
-    }
+    let padding = vec![0.0; sample_rate.max(1) as usize / 2];
+    detections.extend(stream.accept(sample_rate, &padding)?);
+    detections.extend(stream.finish()?);
+    Ok(detections)
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/engine.rs"]
+mod tests;

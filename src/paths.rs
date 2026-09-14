@@ -1,4 +1,5 @@
-use std::path::PathBuf;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AppPaths {
@@ -10,23 +11,27 @@ pub struct AppPaths {
 
 impl AppPaths {
     pub fn discover() -> Self {
-        let home = std::env::var_os("HOME")
+        Self::discover_with(|key| std::env::var_os(key), &std::env::temp_dir())
+    }
+
+    fn discover_with(mut variable: impl FnMut(&str) -> Option<OsString>, temp: &Path) -> Self {
+        let home = variable("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let config = std::env::var_os("XDG_CONFIG_HOME")
+        let config = variable("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(".config"));
-        let data = std::env::var_os("XDG_DATA_HOME")
+        let data = variable("XDG_DATA_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(".local/share"));
-        let state = std::env::var_os("XDG_STATE_HOME")
+        let state = variable("XDG_STATE_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(".local/state"));
-        let runtime = std::env::var_os("XDG_RUNTIME_DIR")
+        let runtime = variable("XDG_RUNTIME_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| {
-                let user = std::env::var("USER").unwrap_or_else(|_| "unknown".into());
-                std::env::temp_dir().join(format!("omavoice-{user}"))
+                let user = variable("USER").unwrap_or_else(|| "unknown".into());
+                temp.join(format!("omavoice-{}", user.to_string_lossy()))
             });
         Self {
             config_file: config.join("omawake/config.toml"),
@@ -44,3 +49,7 @@ impl AppPaths {
         self.state_dir.join("status.json")
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/paths.rs"]
+mod tests;
