@@ -1,0 +1,2 @@
+e5170ce6fc50f614311160db6747bd60daaf09c8e389ef23ecacc2fc8542dfb2  /tmp/omawake-b878702-proof/target/release/omawake
+3a4ac5811cad403991a5a68a5455d57789af0dd8b0a2d8a0baa7e5d0b80886e1  /tmp/omawake-b878702-proof/runtime-current/libsherpa-onnx-c-api.so

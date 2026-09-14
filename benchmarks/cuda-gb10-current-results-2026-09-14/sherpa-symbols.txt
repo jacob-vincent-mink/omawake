@@ -1,0 +1,3 @@
+0000000000034240 T SherpaOnnxCreateKeywordSpotter
+0000000000026290 T SherpaOnnxCreateOrtRuntime
+0000000000025e80 T SherpaOnnxGetExtendedApiVersion

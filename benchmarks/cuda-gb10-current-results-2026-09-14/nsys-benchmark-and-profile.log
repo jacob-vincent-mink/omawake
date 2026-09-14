@@ -1,0 +1,117 @@
+{
+  "backend": {
+    "effective_runtime": "cuda",
+    "fallback_used": false,
+    "kind": "sherpa-onnx",
+    "placement_verified": false,
+    "requested_device": "gpu",
+    "requested_runtime": "cuda"
+  },
+  "benchmark": "omawake-file-detection",
+  "files": [
+    {
+      "audio_duration_milliseconds": 6625.0,
+      "iterations": [
+        {
+          "detections": [
+            {
+              "id": "light-up",
+              "start_time": 0.0,
+              "timestamps": [
+                3.0,
+                3.0399999618530273,
+                3.0799999237060547,
+                3.1599998474121094
+              ],
+              "tokens": [
+                " ",
+                "L",
+                "IGHT",
+                " UP"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 752.1574039999999,
+          "iteration": 1,
+          "real_time_factor": 0.11353319305660377
+        }
+      ],
+      "path": "/tmp/omawake-demo/xdg/data/omawake/models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/test_wavs/0.wav",
+      "summary": {
+        "p50_milliseconds": 752.1574039999999,
+        "p50_real_time_factor": 0.11353319305660377,
+        "p95_milliseconds": 752.1574039999999,
+        "p95_real_time_factor": 0.11353319305660377,
+        "samples": 1
+      }
+    },
+    {
+      "audio_duration_milliseconds": 16715.0,
+      "iterations": [
+        {
+          "detections": [
+            {
+              "id": "lovely-child",
+              "start_time": 0.0,
+              "timestamps": [
+                5.359999656677246,
+                5.559999942779541,
+                5.839999675750732,
+                6.0,
+                6.039999961853027
+              ],
+              "tokens": [
+                " LOVE",
+                "LY",
+                " CHI",
+                "L",
+                "D"
+              ]
+            },
+            {
+              "id": "forever",
+              "start_time": 0.0,
+              "timestamps": [
+                10.880000114440918,
+                11.039999961853027,
+                11.119999885559082
+              ],
+              "tokens": [
+                " FOR",
+                " E",
+                "VER"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 582.633727,
+          "iteration": 1,
+          "real_time_factor": 0.03485693849835477
+        }
+      ],
+      "path": "/tmp/omawake-demo/xdg/data/omawake/models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/test_wavs/1.wav",
+      "summary": {
+        "p50_milliseconds": 582.633727,
+        "p50_real_time_factor": 0.03485693849835477,
+        "p95_milliseconds": 582.633727,
+        "p95_real_time_factor": 0.03485693849835477,
+        "samples": 1
+      }
+    }
+  ],
+  "measured_iterations": 1,
+  "model_load_milliseconds": 768.1875070000001,
+  "schema_version": 1,
+  "summary": {
+    "p50_milliseconds": 582.633727,
+    "p50_real_time_factor": 0.03485693849835477,
+    "p95_milliseconds": 752.1574039999999,
+    "p95_real_time_factor": 0.11353319305660377,
+    "samples": 2
+  },
+  "warmup_iterations": 0
+}
+Collecting data...
+Generating '/tmp/nsys-report-24fd.qdstrm'
+[1/1] [0%                          ] omawake-cuda-current.nsys-rep[1/1] [0%                          ] omawake-cuda-current.nsys-rep[1/1] [0%                          ] omawake-cuda-current.nsys-rep[1/1] [6%                          ] omawake-cuda-current.nsys-rep[1/1] [9%                          ] omawake-cuda-current.nsys-rep[1/1] [11%                         ] omawake-cuda-current.nsys-rep[1/1] [13%                         ] omawake-cuda-current.nsys-rep[1/1] [=15%                        ] omawake-cuda-current.nsys-rep[1/1] [==18%                       ] omawake-cuda-current.nsys-rep[1/1] [==20%                       ] omawake-cuda-current.nsys-rep[1/1] [===22%                      ] omawake-cuda-current.nsys-rep[1/1] [===24%                      ] omawake-cuda-current.nsys-rep[1/1] [====27%                     ] omawake-cuda-current.nsys-rep[1/1] [=====29%                    ] omawake-cuda-current.nsys-rep[1/1] [=====31%                    ] omawake-cuda-current.nsys-rep[1/1] [======33%                   ] omawake-cuda-current.nsys-rep[1/1] [=======36%                  ] omawake-cuda-current.nsys-rep[1/1] [=======38%                  ] omawake-cuda-current.nsys-rep[1/1] [========40%                 ] omawake-cuda-current.nsys-rep[1/1] [=========43%                ] omawake-cuda-current.nsys-rep[1/1] [=========45%                ] omawake-cuda-current.nsys-rep[1/1] [==========47%               ] omawake-cuda-current.nsys-rep[1/1] [==========49%               ] omawake-cuda-current.nsys-rep[1/1] [===========52%              ] omawake-cuda-current.nsys-rep[1/1] [============54%             ] omawake-cuda-current.nsys-rep[1/1] [============56%             ] omawake-cuda-current.nsys-rep[1/1] [=============58%            ] omawake-cuda-current.nsys-rep[1/1] [==============61%           ] omawake-cuda-current.nsys-rep[1/1] [==============63%           ] omawake-cuda-current.nsys-rep[1/1] [===============65%          ] omawake-cuda-current.nsys-rep[1/1] [===============67%          ] omawake-cuda-current.nsys-rep[1/1] [================70%         ] omawake-cuda-current.nsys-rep[1/1] [=================72%        ] omawake-cuda-current.nsys-rep[1/1] [=================74%        ] omawake-cuda-current.nsys-rep[1/1] [==================76%       ] omawake-cuda-current.nsys-rep[1/1] [===================79%      ] omawake-cuda-current.nsys-rep[1/1] [===================81%      ] omawake-cuda-current.nsys-rep[1/1] [====================83%     ] omawake-cuda-current.nsys-rep[1/1] [========================100%] omawake-cuda-current.nsys-rep[1/1] [========================100%] omawake-cuda-current.nsys-rep
+Generated:
+	/tmp/omawake-b878702-proof/omawake-cuda-current.nsys-rep
