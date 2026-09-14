@@ -1060,6 +1060,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "sherpa-onnx",
+ "signal-hook",
  "tar",
  "thiserror 2.0.20",
  "toml",

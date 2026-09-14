@@ -1,5 +1,6 @@
 use serde::Serialize;
 
+use crate::backend::Runtime;
 use crate::config::Config;
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -28,8 +29,12 @@ pub struct ModelSpec {
     pub archive_sha256: &'static str,
     pub archive_root: &'static str,
     pub encoder: &'static str,
+    pub openvino_accelerator_encoder: &'static str,
+    pub cuda_encoder: &'static str,
     pub decoder: &'static str,
+    pub cuda_decoder: &'static str,
     pub joiner: &'static str,
+    pub cuda_joiner: &'static str,
     pub tokens: &'static str,
     pub bpe_model: &'static str,
     pub required_files: &'static [RequiredFile],
@@ -44,6 +49,11 @@ const BACKENDS: &[BackendSpec] = &[BackendSpec {
 
 const KWS_FILES: &[RequiredFile] = &[
     RequiredFile {
+        path: "encoder-epoch-12-avg-2-chunk-16-left-64.onnx",
+        size: 12_174_219,
+        sha256: "063fbc1aeae8a9b574607a331a00e60371846ef9eaa3c1d9ea48176665dfc693",
+    },
+    RequiredFile {
         path: "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
         size: 4_807_159,
         sha256: "1e721676515bcd42a186979733981213c66c80db680e1cc582dfedf3be76e678",
@@ -54,9 +64,19 @@ const KWS_FILES: &[RequiredFile] = &[
         sha256: "e40ff43297abe815e8898494c17e71bba2152d9d40fa3eb803f75d0f7533329a",
     },
     RequiredFile {
+        path: "decoder-epoch-12-avg-2-chunk-16-left-64.onnx",
+        size: 1_063_189,
+        sha256: "f61ebd3eed3773a44d088d53dfae92dbb6aec4839f4dcaee2d402414741663a3",
+    },
+    RequiredFile {
         path: "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
         size: 163_380,
         sha256: "eae9da0c7e1e6c6a3f4cc42d167899c388f6c6701b94cb96320e4f55df79624c",
+    },
+    RequiredFile {
+        path: "joiner-epoch-12-avg-2-chunk-16-left-64.onnx",
+        size: 642_462,
+        sha256: "0d7a37e749d8055223029318d6ffae82db1dae2d315d0892a68ba5dad17c1d2d",
     },
     RequiredFile {
         path: "tokens.txt",
@@ -95,8 +115,12 @@ const MODELS: &[ModelSpec] = &[ModelSpec {
     archive_sha256: "f170013b4716e41b62b9bfd809687c207cef798ef9bc6534d524e17af9b6561a",
     archive_root: "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01",
     encoder: "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
+    openvino_accelerator_encoder: "encoder-epoch-12-avg-2-chunk-16-left-64.onnx",
+    cuda_encoder: "encoder-epoch-12-avg-2-chunk-16-left-64.onnx",
     decoder: "decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
+    cuda_decoder: "decoder-epoch-12-avg-2-chunk-16-left-64.onnx",
     joiner: "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
+    cuda_joiner: "joiner-epoch-12-avg-2-chunk-16-left-64.onnx",
     tokens: "tokens.txt",
     bpe_model: "bpe.model",
     required_files: KWS_FILES,
@@ -122,6 +146,51 @@ impl ModelSpec {
         config.model.joiner = self.joiner.into();
         config.model.tokens = self.tokens.into();
         config.model.bpe_model = self.bpe_model.into();
+        self.apply_runtime_compatibility(config);
+    }
+
+    pub fn apply_runtime_compatibility(self, config: &mut Config) {
+        if !config.model.directory.trim().is_empty()
+            || !matches!(
+                config.model.encoder.as_str(),
+                encoder if [self.encoder, self.openvino_accelerator_encoder, self.cuda_encoder]
+                    .contains(&encoder)
+            )
+            || ![self.decoder, self.cuda_decoder].contains(&config.model.decoder.as_str())
+            || ![self.joiner, self.cuda_joiner].contains(&config.model.joiner.as_str())
+        {
+            return;
+        }
+        if config.backend.runtime == Runtime::Cuda {
+            config.model.encoder = self.cuda_encoder.into();
+            config.model.decoder = self.cuda_decoder.into();
+            config.model.joiner = self.cuda_joiner.into();
+        } else {
+            config.model.encoder = if self.uses_openvino_accelerator(config) {
+                self.openvino_accelerator_encoder
+            } else {
+                self.encoder
+            }
+            .into();
+            config.model.decoder = self.decoder.into();
+            config.model.joiner = self.joiner.into();
+        }
+    }
+
+    pub fn uses_openvino_accelerator(self, config: &Config) -> bool {
+        if config.backend.runtime != Runtime::Openvino {
+            return false;
+        }
+        config.backend.canonical_device().is_ok_and(|device| {
+            device == "auto"
+                || device == "gpu"
+                || device == "npu"
+                || device.split_once(':').is_some_and(|(_, devices)| {
+                    devices
+                        .split(',')
+                        .any(|device| matches!(device, "GPU" | "NPU"))
+                })
+        })
     }
 }
 

@@ -159,6 +159,10 @@ fn reads_wav_audio_duration() {
     fs::write(&path, pcm16_wav(16_000, 1_600)).unwrap();
     assert_eq!(wav_duration(&path).unwrap(), Duration::from_millis(100));
     assert!(wav_duration(&root.join("missing.wav")).is_err());
+
+    let invalid_rate = root.join("zero-rate.wav");
+    fs::write(&invalid_rate, pcm16_wav(0, 1)).unwrap();
+    assert!(wav_duration(&invalid_rate).is_err());
 }
 
 #[test]
@@ -277,6 +281,42 @@ fn injected_loader_exercises_complete_model_preparation_and_cpu_fallback() {
     .unwrap();
     assert!(detector.fallback_used);
 
+    let mut attempts = Vec::new();
+    let detector =
+        Detector::load_with_capabilities(&config, &paths, &["cpu", "cuda"], |_, _, runtime, _| {
+            attempts.push(runtime);
+            if runtime == Runtime::Cuda {
+                Err(anyhow!("CUDA provider unavailable"))
+            } else {
+                Ok(Box::new(FakeBackend { detections: vec![] }))
+            }
+        })
+        .unwrap();
+    assert_eq!(attempts, [Runtime::Cuda, Runtime::Default]);
+    assert_eq!(detector.effective_runtime, Runtime::Default);
+    assert!(detector.fallback_used);
+
+    config.backend.fallback = Fallback::Error;
+    let error =
+        Detector::load_with_capabilities(&config, &paths, &["cpu", "cuda"], |_, _, _, _| {
+            Err(anyhow!("CUDA provider unavailable"))
+        })
+        .err()
+        .unwrap();
+    assert_eq!(error.to_string(), "CUDA provider unavailable");
+
+    config.backend.fallback = Fallback::Cpu;
+    let mut attempts = 0;
+    let error =
+        Detector::load_with_capabilities(&config, &paths, &["cpu", "cuda"], |_, _, runtime, _| {
+            attempts += 1;
+            Err(anyhow!("{runtime:?} initialization failed"))
+        })
+        .err()
+        .unwrap();
+    assert_eq!(attempts, 2);
+    assert!(error.to_string().contains("CPU fallback also failed"));
+
     config.backend.kind = "future-local-backend".into();
     let detector = Detector::load_with(&config, &paths, |_, _, _, _| {
         Ok(Box::new(FakeBackend { detections: vec![] }))
@@ -358,7 +398,13 @@ fn builds_safe_sherpa_configuration_for_cpu_and_cuda() {
     );
 
     let cuda = build_sherpa_config(&config, &paths, &root, Runtime::Cuda, "X @x").unwrap();
-    assert_eq!(cuda.model_config.provider.as_deref(), Some("cuda"));
+    assert!(
+        cuda.model_config
+            .provider
+            .as_deref()
+            .unwrap()
+            .starts_with("cuda:/")
+    );
 
     config.backend.runtime = Runtime::Openvino;
     config.backend.device = "gpu".into();
@@ -371,6 +417,76 @@ fn builds_safe_sherpa_configuration_for_cpu_and_cuda() {
             .unwrap()
             .starts_with("openvino:/")
     );
+}
+
+#[test]
+fn generates_private_cuda_config_with_device_and_options() {
+    let root = temp("cuda-generated");
+    let paths = paths(&root);
+    let mut config = Config::default();
+    config.backend.runtime = Runtime::Cuda;
+    config.backend.device = "gpu".into();
+    config.backend.device_id = 2;
+    config
+        .backend
+        .options
+        .insert("cudnn_conv_algo_search".into(), "HEURISTIC".into());
+
+    let provider = cuda_provider(&config, &paths).unwrap();
+    let provider_path = Path::new(provider.strip_prefix("cuda:").unwrap());
+    assert_eq!(
+        provider_path,
+        paths.state_dir.join("cache/cuda/device-2/provider.config")
+    );
+    let contents = fs::read_to_string(provider_path).unwrap();
+    assert!(contents.contains("device_id=2\n"));
+    assert!(contents.contains("cudnn_conv_algo_search=HEURISTIC\n"));
+
+    config.backend.options.clear();
+    cuda_provider(&config, &paths).unwrap();
+    let defaults = fs::read_to_string(provider_path).unwrap();
+    assert!(defaults.contains("cudnn_conv_algo_search=HEURISTIC\n"));
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(provider_path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+
+    for (key, value) in [
+        ("device_id", "1"),
+        ("bad key", "value"),
+        ("good_key", "first\nsecond"),
+    ] {
+        config.backend.options.clear();
+        config.backend.options.insert(key.into(), value.into());
+        assert!(cuda_provider(&config, &paths).is_err(), "{key}");
+    }
+}
+
+#[test]
+fn honors_existing_relative_cuda_provider_config() {
+    let root = temp("cuda-supplied");
+    let paths = paths(&root);
+    fs::create_dir_all(paths.config_file.parent().unwrap()).unwrap();
+    let supplied = paths.config_file.parent().unwrap().join("cuda.config");
+    fs::write(&supplied, "device_id=1\n").unwrap();
+    let mut config = Config::default();
+    config.backend.runtime = Runtime::Cuda;
+    config.backend.device = "gpu".into();
+    config.backend.provider_config = "cuda.config".into();
+
+    assert_eq!(
+        cuda_provider(&config, &paths).unwrap(),
+        format!("cuda:{}", supplied.canonicalize().unwrap().display())
+    );
+    config.backend.provider_config = "missing.config".into();
+    assert!(cuda_provider(&config, &paths).is_err());
+    config.backend.provider_config = "..".into();
+    assert!(cuda_provider(&config, &paths).is_err());
 }
 
 #[test]
@@ -574,4 +690,86 @@ fn load_and_sherpa_backend_report_configuration_errors() {
         .to_string_lossy()
         .into_owned();
     assert!(Detector::load(&config, &paths).is_err());
+}
+
+#[test]
+fn accelerator_model_guard_rejects_the_known_lossy_encoder() {
+    let root = temp("openvino-compatibility-guard");
+    let paths = paths(&root);
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let mut config = Config::default();
+    config.model.directory = fixtures.to_string_lossy().into_owned();
+    config.backend.runtime = Runtime::Openvino;
+    config.backend.device = "npu".into();
+
+    let error =
+        Detector::load_with_capabilities(&config, &paths, &["cpu", "openvino"], |_, _, _, _| {
+            panic!("compatibility must be checked before loading the backend")
+        })
+        .err()
+        .unwrap();
+    assert!(error.to_string().contains("loses detections"));
+}
+
+#[test]
+fn provider_files_report_filesystem_failures_and_accept_absolute_paths() {
+    let root = temp("provider-filesystem-errors");
+    let mut app_paths = paths(&root);
+    let mut config = Config::default();
+    config.backend.runtime = Runtime::Cuda;
+    config.backend.device = "gpu".into();
+
+    let supplied = root.join("absolute-provider.config");
+    fs::write(&supplied, "device_id=0\n").unwrap();
+    config.backend.provider_config = supplied.display().to_string();
+    assert_eq!(
+        cuda_provider(&config, &app_paths).unwrap(),
+        format!("cuda:{}", supplied.canonicalize().unwrap().display())
+    );
+
+    config.backend.provider_config.clear();
+    fs::write(&app_paths.state_dir, "not a directory").unwrap();
+    let error = cuda_provider(&config, &app_paths).unwrap_err();
+    assert!(error.to_string().contains("create CUDA provider directory"));
+
+    app_paths.state_dir = root.join("openvino-state");
+    fs::write(&app_paths.state_dir, "not a directory").unwrap();
+    config.backend.runtime = Runtime::Openvino;
+    config.backend.device = "gpu".into();
+    let error = openvino_provider(&config, &app_paths).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("create OpenVINO provider directory")
+    );
+
+    app_paths.state_dir = root.join("cache-conflict-state");
+    let device_dir = app_paths.state_dir.join("cache/openvino/gpu");
+    fs::create_dir_all(&device_dir).unwrap();
+    fs::write(device_dir.join("compiled"), "not a directory").unwrap();
+    let error = openvino_provider(&config, &app_paths).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("create OpenVINO cache directory")
+    );
+
+    app_paths.state_dir = root.join("install-conflict-state");
+    let provider_dir = app_paths.state_dir.join("cache/cuda/device-0");
+    fs::create_dir_all(provider_dir.join("provider.config")).unwrap();
+    config.backend.runtime = Runtime::Cuda;
+    config.backend.device = "gpu".into();
+    let error = cuda_provider(&config, &app_paths).unwrap_err();
+    assert!(error.to_string().contains("install provider config"));
+    assert_eq!(
+        fs::read_dir(&provider_dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+            .count(),
+        0
+    );
+
+    assert!(atomic_write_private(Path::new("/"), b"x").is_err());
+    assert!(make_directory_private(&root.join("missing-directory")).is_err());
 }

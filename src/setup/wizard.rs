@@ -353,7 +353,10 @@ fn runtime_items(compiled: &[&str]) -> [MenuItem; 3] {
         if available("cuda") {
             MenuItem::available("CUDA", "Built in · NVIDIA GPU")
         } else {
-            MenuItem::unavailable("CUDA", "Unavailable in this build")
+            MenuItem::unavailable(
+                "CUDA",
+                "Unavailable in this build · install/build with --features cuda",
+            )
         },
     ]
 }

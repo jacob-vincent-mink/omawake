@@ -15,6 +15,7 @@ provider_config = ""
 [model]
 name = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
 directory = ""
+# CPU default. Setup selects the FP32 encoder automatically for OpenVINO GPU/NPU.
 encoder = "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx"
 decoder = "decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx"
 joiner = "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx"

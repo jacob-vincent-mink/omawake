@@ -14,12 +14,13 @@ The OpenVINO archive SHA-256 is
 The ORT patch SHA-256 is
 `6d6ec445dc761208aded9c7d786e9112d2920a1509e2683c86c6d2bca8fa499f`;
 the sherpa patch SHA-256 is
-`785d5f491cf195c3b39a855066867eb5d9e6dd7ed8a61abae3c379167e326909`.
+`b265953742a4d6a131e3c32e58ae648d108b4ca7e5e7bb5d26c60467981f18f0`.
 
 The build applies the tracked ORT zero-element tensor fix required by
 Supertonic and the tracked sherpa patch that lets Supertonic choose OpenVINO
-per component. Those patches are part of the tested runtime contract even when
-an application does not use Supertonic itself. OpenVINO 2026.2.1 is pinned
+per component and passes CUDA EP V2 options through provider config files.
+Those patches are part of the tested runtime contract even when an application
+does not use Supertonic or CUDA itself. OpenVINO 2026.2.1 is pinned
 because the OpenVINO 2026.3.1 combination tested on this host crashed during
 process teardown after NPU keyword inference.
 

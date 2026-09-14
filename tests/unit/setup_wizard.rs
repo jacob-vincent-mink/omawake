@@ -171,6 +171,9 @@ fn guided_setup_metadata_covers_modes_runtimes_devices_and_review() {
         assert_eq!(runtime_at(index), runtime);
         assert!(!device_items(runtime).is_empty());
     }
+    assert_eq!(runtime_name(Runtime::Default), "default");
+    assert_eq!(runtime_name(Runtime::Openvino), "openvino");
+    assert_eq!(runtime_name(Runtime::Cuda), "cuda");
     assert_eq!(device_values(Runtime::Openvino)[1].0, "npu");
 
     let review = apply_items(Runtime::Openvino, "npu", "wake-model", false);

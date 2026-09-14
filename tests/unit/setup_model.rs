@@ -112,8 +112,12 @@ fn spec(archive_bytes: &[u8], url: &str) -> &'static ModelSpec {
         archive_sha256: leak(digest(archive_bytes)),
         archive_root: "tiny-root",
         encoder: "model.bin",
+        openvino_accelerator_encoder: "model.bin",
+        cuda_encoder: "model.bin",
         decoder: "model.bin",
+        cuda_decoder: "model.bin",
         joiner: "model.bin",
+        cuda_joiner: "model.bin",
         tokens: "model.bin",
         bpe_model: "model.bin",
         required_files: required,
@@ -385,6 +389,23 @@ fn downloaded_bytes_succeed_cache_and_reject_bad_lengths() {
         )
         .is_err()
     );
+
+    let large_root = temp("large-progress");
+    let large_bytes = vec![0x5a; 1024 * 1024 + 17];
+    let large_spec = spec(&large_bytes, "http://unused.invalid/large");
+    let large_target = large_root.join("large.download");
+    write_download(
+        &large_bytes[..],
+        &large_target.with_extension("part"),
+        &large_target,
+        large_spec,
+        ProgressFormat::Json,
+    )
+    .unwrap();
+    assert_eq!(
+        fs::metadata(large_target).unwrap().len(),
+        large_bytes.len() as u64
+    );
 }
 
 #[test]
@@ -423,4 +444,11 @@ fn injected_download_replaces_partial_files_and_reports_human_progress() {
         Some(model_spec.archive_size),
     )
     .unwrap();
+
+    let invalid_url_root = temp("invalid-download-url");
+    let invalid_url_paths = paths(&invalid_url_root);
+    let invalid_url_spec = spec(&archive_bytes, "://invalid-url");
+    let error =
+        download_archive(&invalid_url_paths, invalid_url_spec, ProgressFormat::Human).unwrap_err();
+    assert!(error.to_string().contains("download"));
 }

@@ -104,3 +104,47 @@ fn check_printers_fail_when_remediation_is_required() {
     print_runtime(false).unwrap();
     print_runtime(true).unwrap();
 }
+
+#[test]
+fn checks_report_successful_engine_and_optional_service_states() {
+    let (root, paths) = fixture("injected-checks");
+    let mut config = Config::default();
+    config.model.name = "custom".into();
+    config.model.directory = root.join("custom-model").display().to_string();
+    fs::create_dir_all(&config.model.directory).unwrap();
+    config.save(&paths.config_file).unwrap();
+    let launcher = menu::launcher_path(&paths);
+    fs::create_dir_all(launcher.parent().unwrap()).unwrap();
+    fs::write(launcher, "launcher").unwrap();
+
+    let unavailable = checks_with(
+        &paths.config_file,
+        &paths,
+        &|_, _| Ok("fake initialized one mapping".into()),
+        false,
+        &|| panic!("inactive system manager must not be queried"),
+    );
+    assert!(unavailable.iter().all(|check| check.ok));
+    assert!(
+        unavailable
+            .iter()
+            .any(|check| check.name == "engine" && check.detail.contains("fake initialized"))
+    );
+    assert!(
+        unavailable
+            .iter()
+            .any(|check| check.name == "systemd" && check.detail.contains("not available"))
+    );
+
+    let active_external = checks_with(
+        &paths.config_file,
+        &paths,
+        &|_, _| Ok("fake initialized one mapping".into()),
+        true,
+        &|| true,
+    );
+    assert!(active_external.iter().all(|check| check.ok));
+    assert!(active_external.iter().any(|check| {
+        check.name == "systemd" && check.detail.contains("active from an external unit")
+    }));
+}

@@ -41,3 +41,12 @@ fn setup_reload_only_restarts_a_service_that_was_active() {
     assert!(reload_if_was_active_with(true, || Ok(()), || true).unwrap());
     assert!(reload_if_was_active_with(true, || Ok(()), || false).is_err());
 }
+
+#[test]
+fn atomic_unit_write_creates_missing_parent_directories() {
+    let root = std::env::temp_dir().join(format!("omawake-systemd-test-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    let unit = root.join("nested/omawake.service");
+    write_atomic(&unit, b"[Unit]\n").unwrap();
+    assert_eq!(fs::read(unit).unwrap(), b"[Unit]\n");
+}

@@ -12,27 +12,42 @@ cargo test
 ```
 
 The default binary uses sherpa-onnx's implicit static link mode and reports the
-`cpu` capability. To build the OpenVINO flavor, point sherpa-onnx at a shared
-library directory that was built with the ONNX Runtime OpenVINO execution
-provider, then enable Omawake's feature:
+`cpu` capability. Accelerated builds use a shared sherpa/ONNX Runtime stack.
+Point Omawake at a native library directory containing the requested execution
+provider, then enable the matching feature:
 
 ```bash
 SHERPA_ONNX_LIB_DIR=/absolute/path/to/sherpa-onnx/lib \
   cargo build --release --features openvino
+
+SHERPA_ONNX_LIB_DIR=/absolute/path/to/sherpa-onnx/lib \
+  cargo build --release --features cuda
+
+# One binary that can select CPU, OpenVINO, or CUDA at setup time:
+SHERPA_ONNX_LIB_DIR=/absolute/path/to/combined/lib \
+  cargo build --release --features all-runtimes
 ```
 
-The feature selects sherpa-onnx's shared link mode and makes Omawake report the
-`openvino` compiled capability. The build deliberately fails unless
-`SHERPA_ONNX_LIB_DIR` contains `libonnxruntime_providers_openvino.so`; the
-ordinary sherpa-onnx shared release is CPU-only. The supplied native libraries,
-their OpenVINO plugins, and loader paths must remain available at runtime. A
-successful build or accepted configuration does not establish device placement;
-inspect runtime provider evidence before treating NPU or GPU placement as
-verified.
+Each feature selects sherpa-onnx's shared link mode and reports its compiled
+capability. The build fails unless `SHERPA_ONNX_LIB_DIR` contains the matching
+`libonnxruntime_providers_openvino.so` or
+`libonnxruntime_providers_cuda.so`. `all-runtimes` (and Cargo's
+`--all-features`) requires both in the same shared stack. The native libraries,
+provider dependencies, and loader paths must remain available at runtime. A
+successful build or accepted configuration
+does not establish device placement; inspect runtime provider evidence before
+treating NPU or GPU placement as verified.
 
 [`native/openvino`](native/openvino/README.md) contains the reproducible build
 for the pinned ONNX Runtime 1.29, OpenVINO 2026.2.1, and sherpa-onnx 1.13.8
 stack used by the hardware benchmark, including both required source patches.
+[`native/cuda`](native/cuda/README.md) builds the corresponding CUDA stack for
+Linux x86_64 or aarch64.
+[`native/unified`](native/unified/README.md) builds the x86_64 stack used by
+release CI and documents what the all-runtime archive bundles versus what the
+host must provide.
+The [GB10 CUDA validation](benchmarks/cuda-gb10-2026-09-14.md) records direct
+WAV accuracy, node placement, GPU telemetry, and a CPU comparison.
 
 Copy `config.example.toml` to `${XDG_CONFIG_HOME:-$HOME/.config}/omawake/config.toml`, then verify everything with:
 
@@ -142,9 +157,28 @@ Actions are executed directly. Omawake does not insert a shell. Configure `sh -l
 | `cuda` | `auto`, `gpu` |
 | `openvino` | `auto`, `npu`, `gpu`, `cpu`, `AUTO:...`, `HETERO:...`, `MULTI:...` |
 
-The current build registers sherpa-onnx as the first (in-process ONNX) backend. The distributed CPU build reports only the `cpu` compiled capability. It rejects unavailable acceleration before model creation when `fallback = "error"`. With `fallback = "cpu"`, it emits a warning and exposes the fallback in status and test output. OpenVINO requires the `openvino` Cargo feature and an OpenVINO-enabled shared sherpa/ONNX Runtime stack. CUDA requires a separately linked release flavor. Merely selecting an accelerated runtime in TOML never counts as verified placement.
+The current build registers sherpa-onnx as the first (in-process ONNX) backend. The default static build reports only the `cpu` compiled capability. It rejects unavailable acceleration before model creation when `fallback = "error"`. With `fallback = "cpu"`, it emits a warning and exposes the fallback in status and test output. OpenVINO and CUDA require their corresponding Cargo features and a shared sherpa/ONNX Runtime stack containing the selected provider. A build with both features lets setup select either provider from the same executable. Merely selecting an accelerated runtime in TOML never counts as verified placement.
+
+For CUDA, an empty `backend.provider_config` makes Omawake write a private
+provider config below `$XDG_STATE_HOME/omawake/cache/cuda/device-<id>`. It maps
+`backend.device_id` to ONNX Runtime's `device_id` and passes validated
+`[backend.options]` entries through as CUDA EP V2 options. Omawake manages the
+`device_id` entry and defaults `cudnn_conv_algo_search` to `HEURISTIC`; an
+explicit backend option can override the search mode. Set
+`backend.provider_config` to an existing file for full manual control; relative
+paths resolve beside Omawake's application config.
+This provider-file behavior requires the tracked sherpa patch included by the
+native CUDA and unified runtime builders.
 
 For OpenVINO, an empty `backend.provider_config` makes Omawake atomically write a user-private config below `$XDG_STATE_HOME/omawake/cache/openvino/<device>/provider.config`. It includes the uppercase canonical `device_type` and a separate compiled-model `cache_dir` for that device. Exact `NPU` selection also defaults `enable_qdq_optimizer=True` and `disable_dynamic_shapes=True`; `[backend.options]` can override those values and pass through other single-line OpenVINO options such as `ProfilingFilePrefix`. Option keys accept ASCII letters, digits, `.`, `_`, and `-`. Omawake manages `cache_dir`, and a `device_type` option must exactly match the selected canonical device.
+
+For catalog-managed models, the setup and config commands select the FP32
+encoder for OpenVINO GPU, NPU, `auto`, and composite placements containing a
+GPU or NPU. Exact CPU and CPU-only composites retain the smaller INT8 encoder.
+CUDA selects the FP32 encoder, decoder, and joiner so model work reaches the
+GPU instead of falling back for quantized operators. An explicit custom model
+directory or model file remains untouched. The FP32 encoder avoids the lost
+detections observed with the INT8 encoder on Intel accelerators.
 
 Provider-specific device properties belong in OpenVINO's inline JSON
 `load_config` value. For example, the Panther Lake NPU used in the benchmark

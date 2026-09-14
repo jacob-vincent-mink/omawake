@@ -65,5 +65,21 @@ fn real_sentencepiece_model_compiles_enabled_keywords() {
     assert!(compiled.contains("@lovely-child"));
     assert!(!compiled.contains("@disabled"));
     assert!(compiler.compile(&[]).is_err());
+    assert!(
+        compiler
+            .compile(&[
+                word("duplicate", "First", true, &["true"]),
+                word("duplicate", "Second", true, &["true"]),
+            ])
+            .is_err()
+    );
+    assert!(
+        compiler
+            .compile(&[
+                word("first", "Same Phrase", true, &["true"]),
+                word("second", " same phrase ", true, &["true"]),
+            ])
+            .is_err()
+    );
     assert!(KeywordCompiler::open(Path::new("/definitely/missing.model")).is_err());
 }

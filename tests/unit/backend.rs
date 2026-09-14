@@ -83,8 +83,12 @@ fn acceleration_requires_a_compiled_capability() {
 
 #[test]
 fn reports_capabilities_from_cargo_features() {
-    #[cfg(feature = "openvino")]
+    #[cfg(all(feature = "openvino", feature = "cuda"))]
+    assert_eq!(compiled_capabilities(), &["cpu", "openvino", "cuda"]);
+    #[cfg(all(feature = "openvino", not(feature = "cuda")))]
     assert_eq!(compiled_capabilities(), &["cpu", "openvino"]);
-    #[cfg(not(feature = "openvino"))]
+    #[cfg(all(not(feature = "openvino"), feature = "cuda"))]
+    assert_eq!(compiled_capabilities(), &["cpu", "cuda"]);
+    #[cfg(not(any(feature = "openvino", feature = "cuda")))]
     assert_eq!(compiled_capabilities(), &["cpu"]);
 }

@@ -13,8 +13,11 @@ ORT_PATCH_SHA256=6d6ec445dc761208aded9c7d786e9112d2920a1509e2683c86c6d2bca8fa499
 SHERPA_PATCH_SHA256=b265953742a4d6a131e3c32e58ae648d108b4ca7e5e7bb5d26c60467981f18f0
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-work_dir=${OMA_NATIVE_ROOT:-/tmp/oma-native-openvino}
+work_dir=${OMA_NATIVE_ROOT:-/tmp/oma-native-unified}
 jobs=${OMA_BUILD_JOBS:-10}
+cuda_home=${CUDA_HOME:-/usr/local/cuda}
+cudnn_home=${CUDNN_HOME:-/usr}
+cuda_architectures=${OMA_CUDA_ARCHITECTURES:-75;80;86;89;90;100;120}
 ort_source=${work_dir}/onnxruntime
 ort_build=${work_dir}/ort-build
 sherpa_source=${work_dir}/sherpa-onnx
@@ -107,11 +110,50 @@ done
   echo "OMA_BUILD_JOBS must be a positive integer" >&2
   exit 1
 }
+[[ ${cuda_architectures} =~ ^([0-9]+|native)(;([0-9]+|native))*$ ]] || {
+  echo "OMA_CUDA_ARCHITECTURES must be a semicolon-separated list of CMake CUDA architectures" >&2
+  exit 1
+}
+[[ -x ${cuda_home}/bin/nvcc ]] || {
+  echo "CUDA_HOME does not contain bin/nvcc: ${cuda_home}" >&2
+  exit 1
+}
+[[ -d ${cudnn_home} ]] || {
+  echo "CUDNN_HOME is not a directory: ${cudnn_home}" >&2
+  exit 1
+}
+cudnn_include=
+for candidate in \
+  "${cudnn_home}/include" \
+  "${cudnn_home}/include/$(uname -m)-linux-gnu"; do
+  if [[ -f ${candidate}/cudnn.h ]]; then
+    cudnn_include=${candidate}
+    break
+  fi
+done
+[[ -n ${cudnn_include} ]] || {
+  echo "CUDNN_HOME does not contain cudnn.h: ${cudnn_home}" >&2
+  exit 1
+}
+cudnn_lib_dir=
+for candidate in \
+  "${cudnn_home}/lib64" \
+  "${cudnn_home}/lib" \
+  "${cudnn_home}/lib/$(uname -m)-linux-gnu"; do
+  if [[ -f ${candidate}/libcudnn.so ]]; then
+    cudnn_lib_dir=${candidate}
+    break
+  fi
+done
+[[ -n ${cudnn_lib_dir} ]] || {
+  echo "CUDNN_HOME does not contain libcudnn.so: ${cudnn_home}" >&2
+  exit 1
+}
 
 mkdir -p "${work_dir}"
 
-ort_patch=${script_dir}/patches/onnxruntime-openvino-zero-element-tensors-v1.29.0.patch
-sherpa_patch=${script_dir}/patches/sherpa-onnx-supertonic-component-providers-v1.13.8.patch
+ort_patch=${script_dir}/../openvino/patches/onnxruntime-openvino-zero-element-tensors-v1.29.0.patch
+sherpa_patch=${script_dir}/../openvino/patches/sherpa-onnx-supertonic-component-providers-v1.13.8.patch
 printf '%s  %s\n' "${ORT_PATCH_SHA256}" "${ort_patch}" | sha256sum -c -
 printf '%s  %s\n' "${SHERPA_PATCH_SHA256}" "${sherpa_patch}" | sha256sum -c -
 
@@ -151,6 +193,9 @@ fi
   --update \
   --build_shared_lib \
   --use_openvino NPU \
+  --use_cuda \
+  --cuda_home "${cuda_home}" \
+  --cudnn_home "${cudnn_home}" \
   --skip_tests \
   --parallel "${jobs}" \
   --compile_no_warning_as_error \
@@ -158,10 +203,11 @@ fi
   --build_dir "${ort_build}" \
   --cmake_extra_defines \
     FETCHCONTENT_TRY_FIND_PACKAGE_MODE=NEVER \
+    CMAKE_CUDA_ARCHITECTURES="${cuda_architectures}" \
     OpenVINO_DIR="${openvino_dir}/runtime/cmake"
 
 cmake --build "${ort_build}/Release" \
-  --target onnxruntime onnxruntime_providers_openvino -- -j"${jobs}"
+  --target onnxruntime onnxruntime_providers_openvino onnxruntime_providers_cuda -- -j"${jobs}"
 
 if [[ ! -d ${sherpa_source}/.git ]]; then
   git clone --branch "${SHERPA_TAG}" --depth 1 \
@@ -205,6 +251,7 @@ cp -a \
   "${ort_build}"/Release/libonnxruntime.so* \
   "${ort_build}/Release/libonnxruntime_providers_shared.so" \
   "${ort_build}/Release/libonnxruntime_providers_openvino.so" \
+  "${ort_build}/Release/libonnxruntime_providers_cuda.so" \
   "${runtime_dir}/lib/"
 cp -a "${sherpa_install}/include/sherpa-onnx/." \
   "${runtime_dir}/include/sherpa-onnx/"
@@ -213,13 +260,13 @@ cp -a "${ort_source}/include/onnxruntime/core/session/." \
 
 cat >"${runtime_dir}/env.sh" <<EOF
 export SHERPA_ONNX_LIB_DIR='${runtime_dir}/lib'
-export LD_LIBRARY_PATH='${runtime_dir}/lib:${openvino_dir}/runtime/lib/intel64:${openvino_dir}/runtime/3rdparty/tbb/lib'\${LD_LIBRARY_PATH:+:\${LD_LIBRARY_PATH}}
+export LD_LIBRARY_PATH='${runtime_dir}/lib:${openvino_dir}/runtime/lib/intel64:${openvino_dir}/runtime/3rdparty/tbb/lib:${cuda_home}/lib64:${cudnn_lib_dir}'\${LD_LIBRARY_PATH:+:\${LD_LIBRARY_PATH}}
 EOF
 
 cat <<EOF
 Native runtime assembled at ${runtime_dir}
 
-Load it before building or running an OpenVINO-enabled app:
+Load it before building an all-runtime app:
   source '${runtime_dir}/env.sh'
-  cargo build --release --features openvino
+  cargo build --release --all-features
 EOF

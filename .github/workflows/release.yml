@@ -1,0 +1,116 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+      - "v*.*.*-rc*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  linux-x86_64:
+    name: linux-x86_64-all-runtimes
+    runs-on: ubuntu-22.04
+    timeout-minutes: 300
+    container:
+      image: nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04@sha256:61f6c08f2b59036cb935e56d1e31a6b64e3ae2c7ddb86d33fa0b044c7917b719
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      OMA_BUILD_JOBS: "4"
+      OMA_CUDA_ARCHITECTURES: "75;80;86;89;90;100;120"
+      OMA_NATIVE_ROOT: /tmp/oma-native-unified
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          set -euo pipefail
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential ca-certificates cmake curl git libasound2-dev libbz2-dev \
+            ninja-build patchelf pkg-config python3 python3-dev python3-numpy \
+            python3-packaging python3-protobuf tar xz-utils
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build unified ONNX runtime
+        run: native/unified/build.sh
+
+      - name: Build the one all-runtime executable
+        run: |
+          set -euo pipefail
+          source "${OMA_NATIVE_ROOT}/runtime/env.sh"
+          cargo build --release --locked --all-features
+
+      - name: Stage self-contained base runtime
+        id: package
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
+          if [[ "${GITHUB_REF_TYPE:-}" == tag ]]; then
+            tag_version=${GITHUB_REF_NAME#v}
+            tag_base=${tag_version%%-rc*}
+            cargo_base=${version%%-rc*}
+            [[ "${tag_base}" == "${cargo_base}" ]] || {
+              echo "Cargo.toml version ${version} does not match tag ${GITHUB_REF_NAME}" >&2
+              exit 1
+            }
+            version=${tag_version}
+          fi
+          package="omawake-${version}-linux-x86_64-all-runtimes"
+          mkdir -p "dist/${package}/lib" "dist/${package}/licenses"
+          cp target/release/omawake "dist/${package}/omawake"
+          cp -a "${OMA_NATIVE_ROOT}"/runtime/lib/lib*.so* "dist/${package}/lib/"
+          cp "${OMA_NATIVE_ROOT}/onnxruntime/LICENSE" \
+            "dist/${package}/licenses/ONNX-RUNTIME-LICENSE"
+          cp "${OMA_NATIVE_ROOT}/sherpa-onnx/LICENSE" \
+            "dist/${package}/licenses/SHERPA-ONNX-LICENSE"
+          patchelf --set-rpath '$ORIGIN/lib' "dist/${package}/omawake"
+          while IFS= read -r library; do
+            patchelf --set-rpath '$ORIGIN' "${library}"
+          done < <(find "dist/${package}/lib" -maxdepth 1 -type f -name '*.so*')
+          printf '%s\n' \
+            'This package contains one Omawake executable with CPU, OpenVINO, and CUDA enabled.' \
+            'The bundled sherpa-onnx and ONNX Runtime libraries provide the CPU base.' \
+            'OpenVINO and CUDA use the provider libraries in lib/ and require compatible host' \
+            'OpenVINO or NVIDIA CUDA/cuDNN runtime libraries and drivers, respectively.' \
+            > "dist/${package}/RUNTIME.md"
+          tar -C dist -cJf "dist/${package}.tar.xz" "${package}"
+          (cd dist && sha256sum "${package}.tar.xz" > SHA256SUMS.txt)
+          echo "name=${package}" >> "${GITHUB_OUTPUT}"
+
+      - name: Verify the packaged executable and capabilities
+        run: |
+          set -euo pipefail
+          package='${{ steps.package.outputs.name }}'
+          "dist/${package}/omawake" --version
+          "dist/${package}/omawake" setup runtime --json > /tmp/runtime.json
+          python3 - <<'PY'
+          import json
+          with open("/tmp/runtime.json", encoding="utf-8") as handle:
+              actual = set(json.load(handle)["compiled_capabilities"])
+          expected = {"cpu", "openvino", "cuda"}
+          if actual != expected:
+              raise SystemExit(f"compiled capabilities {sorted(actual)} != {sorted(expected)}")
+          PY
+          readelf -d "dist/${package}/omawake" | grep -F 'Library runpath: [$ORIGIN/lib]'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: |
+            dist/${{ steps.package.outputs.name }}.tar.xz
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Publish GitHub release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: ${{ contains(github.ref_name, '-rc') }}
+          files: |
+            dist/${{ steps.package.outputs.name }}.tar.xz
+            dist/SHA256SUMS.txt

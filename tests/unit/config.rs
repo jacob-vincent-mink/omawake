@@ -63,4 +63,8 @@ fn malformed_and_unknown_config_is_rejected() {
     assert!(Config::load(&path).is_err());
     fs::write(&path, "unknown = true").unwrap();
     assert!(Config::load(&path).is_err());
+
+    let target = root.join("directory-as-config");
+    fs::create_dir_all(&target).unwrap();
+    assert!(Config::default().save(&target).is_err());
 }

@@ -274,6 +274,28 @@ fn config_commands_cover_supported_keys_and_errors() {
     ] {
         assert!(!run(&root, args).status.success());
     }
+
+    assert!(
+        run(&root, &["config", "set", "backend.runtime", "cuda"])
+            .status
+            .success()
+    );
+    assert!(
+        run(
+            &root,
+            &["config", "set", "backend.provider_config", "cuda.config",],
+        )
+        .status
+        .success()
+    );
+    assert!(
+        run(&root, &["config", "set", "backend.runtime", "default"])
+            .status
+            .success()
+    );
+    let saved = Config::load(&root.join("config/omawake/config.toml")).unwrap();
+    assert_eq!(saved.backend.runtime, omawake::backend::Runtime::Default);
+    assert!(saved.backend.provider_config.is_empty());
 }
 
 #[test]

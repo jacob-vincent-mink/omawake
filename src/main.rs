@@ -1,9 +1,11 @@
 use std::fs;
 use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::RecvTimeoutError;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -22,6 +24,7 @@ use omawake::setup::model::ProgressFormat;
 use omawake::setup::wizard::{self, RuntimeSelection, SetupMode};
 use serde::Serialize;
 use serde_json::{Value, json};
+use signal_hook::consts::signal::{SIGINT, SIGTERM};
 
 #[derive(Parser)]
 #[command(
@@ -313,12 +316,30 @@ where
 }
 
 fn config_mutation(command: ConfigCommand, mut config: Config, path: &Path) -> Result<()> {
+    let previous_runtime = config.backend.runtime;
+    let reconcile_model = matches!(
+        &command,
+        ConfigCommand::Set { key, .. } | ConfigCommand::Unset { key }
+            if matches!(key.as_str(), "backend.runtime" | "backend.device")
+    );
     match command {
         ConfigCommand::Set { key, value } => set_config(&mut config, &key, &value)?,
         ConfigCommand::Unset { key } => unset_config(&mut config, &key)?,
         _ => unreachable!(),
     }
+    let runtime_changed = config.backend.runtime != previous_runtime;
+    if runtime_changed {
+        config.backend.device = "auto".into();
+        config.backend.provider_config.clear();
+        config.backend.options.clear();
+        if config.backend.runtime != Runtime::Cuda {
+            config.backend.device_id = 0;
+        }
+    }
     config.backend.validate_shape()?;
+    if reconcile_model && let Some(spec) = omawake::catalog::model(&config.model.name) {
+        spec.apply_runtime_compatibility(&mut config);
+    }
     save_config(path, &config)
 }
 
@@ -854,12 +875,29 @@ where
 }
 
 fn save_runtime_selection(config_path: &Path, selection: &RuntimeSelection) -> Result<()> {
+    save_runtime_selection_with_capabilities(config_path, selection, compiled_capabilities())
+}
+
+fn save_runtime_selection_with_capabilities(
+    config_path: &Path,
+    selection: &RuntimeSelection,
+    capabilities: &[&str],
+) -> Result<()> {
     let mut config = app_setup::ensure_config(config_path)?;
+    let runtime_changed = config.backend.runtime != selection.runtime;
     config.backend.runtime = selection.runtime;
     config.backend.device = selection.device.clone();
-    config
-        .backend
-        .validate_capabilities(compiled_capabilities())?;
+    if runtime_changed {
+        config.backend.provider_config.clear();
+        config.backend.options.clear();
+    }
+    if selection.runtime != Runtime::Cuda {
+        config.backend.device_id = 0;
+    }
+    config.backend.validate_capabilities(capabilities)?;
+    if let Some(spec) = omawake::catalog::model(&config.model.name) {
+        spec.apply_runtime_compatibility(&mut config);
+    }
     config.save(config_path)
 }
 
@@ -1148,7 +1186,7 @@ fn benchmark_report(
             "requested_device": config.backend.canonical_device()?,
             "effective_runtime": detector.effective_runtime(),
             "fallback_used": detector.fallback_used(),
-            "placement_verified": false,
+            "placement_verified": detector.effective_runtime() == Runtime::Default,
         },
         "files": files,
         "summary": summary,
@@ -1380,7 +1418,16 @@ fn print_detections(
 
 fn run_daemon(config: &Config, paths: &AppPaths) -> Result<()> {
     let detector = Detector::load(config, paths)?;
+    let shutdown_requested = Arc::new(AtomicBool::new(false));
+    signal_hook::flag::register(SIGINT, Arc::clone(&shutdown_requested))?;
+    signal_hook::flag::register(SIGTERM, Arc::clone(&shutdown_requested))?;
     let listener = bind_socket(paths)?;
+    let socket_metadata = fs::symlink_metadata(socket_path(paths)).with_context(|| {
+        format!(
+            "inspect bound daemon socket {}",
+            socket_path(paths).display()
+        )
+    })?;
     eprintln!(
         "loaded wake-word model in {} ms",
         detector.load_time.as_millis()
@@ -1388,12 +1435,15 @@ fn run_daemon(config: &Config, paths: &AppPaths) -> Result<()> {
     let serve_result = (|| -> Result<()> {
         let mut paused = false;
         let mut shutdown = false;
-        while !shutdown {
+        while !shutdown && !shutdown_requested.load(Ordering::Relaxed) {
             if paused {
                 if let Some(command) =
                     poll_control(&detector, "paused", None, || accept_control(&listener))?
                 {
                     apply_daemon_command(command, &mut paused, &mut shutdown);
+                }
+                if shutdown_requested.load(Ordering::Relaxed) {
+                    shutdown = true;
                 }
                 thread::sleep(Duration::from_millis(50));
                 continue;
@@ -1416,6 +1466,7 @@ fn run_daemon(config: &Config, paths: &AppPaths) -> Result<()> {
                 },
                 |timeout| capture.receiver().recv_timeout(timeout),
                 |sample_rate, samples| session.accept(sample_rate, samples),
+                || shutdown_requested.load(Ordering::Relaxed),
             )?;
             if let Some(command) = command {
                 apply_daemon_command(command, &mut paused, &mut shutdown);
@@ -1430,18 +1481,18 @@ fn run_daemon(config: &Config, paths: &AppPaths) -> Result<()> {
         Ok(())
     })();
     drop(listener);
-    finish_daemon(paths, serve_result)
+    finish_daemon(paths, Some(&socket_metadata), serve_result)
 }
 
-fn finish_daemon(paths: &AppPaths, serve_result: Result<()>) -> Result<()> {
+fn finish_daemon(
+    paths: &AppPaths,
+    socket_metadata: Option<&fs::Metadata>,
+    serve_result: Result<()>,
+) -> Result<()> {
     let path = socket_path(paths);
-    let cleanup_result = fs::remove_file(&path)
-        .or_else(|error| {
-            (error.kind() == std::io::ErrorKind::NotFound)
-                .then_some(())
-                .ok_or(error)
-        })
-        .with_context(|| format!("remove daemon socket {}", path.display()));
+    let cleanup_result = socket_metadata.map_or(Ok(()), |metadata| {
+        remove_socket_if_unchanged(&path, metadata)
+    });
     if let Err(error) = serve_result {
         if let Err(cleanup_error) = cleanup_result {
             eprintln!("omawake: {cleanup_error:#}");
@@ -1460,6 +1511,7 @@ fn collect_armed_detections<P, R, A>(
     mut poll: P,
     mut receive: R,
     mut accept: A,
+    mut should_shutdown: impl FnMut() -> bool,
 ) -> Result<(Vec<Detection>, Option<Command>)>
 where
     P: FnMut(Value) -> Result<Option<Command>>,
@@ -1468,6 +1520,9 @@ where
 {
     let mut triggered = Vec::new();
     loop {
+        if should_shutdown() {
+            return Ok((triggered, Some(Command::Shutdown)));
+        }
         let audio = json!({"device":device_name,"sample_rate":sample_rate,"channels":channels});
         if let Some(command) = poll(audio)? {
             match command {
@@ -1548,22 +1603,38 @@ where
         .with_context(|| format!("create {}", paths.runtime_dir.display()))?;
     fs::set_permissions(&paths.runtime_dir, fs::Permissions::from_mode(0o700))?;
     let path = socket_path(paths);
-    if path.exists() {
+    let existing = match fs::symlink_metadata(&path) {
+        Ok(metadata) => Some(metadata),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error).with_context(|| format!("inspect {}", path.display())),
+    };
+    if let Some(metadata) = existing {
+        if !metadata.file_type().is_socket() {
+            bail!(
+                "refusing to remove non-socket daemon path {}",
+                path.display()
+            );
+        }
         if is_live(&path) {
             bail!("daemon is already running at {}", path.display());
         }
-        fs::remove_file(&path)
-            .with_context(|| format!("remove stale socket {}", path.display()))?;
+        remove_socket_if_unchanged(&path, &metadata)?;
     }
     let listener = bind(&path).with_context(|| format!("bind {}", path.display()))?;
+    let bound_metadata = fs::symlink_metadata(&path)
+        .with_context(|| format!("inspect bound daemon socket {}", path.display()))?;
+    if !bound_metadata.file_type().is_socket() {
+        drop(listener);
+        bail!("bound daemon path is not a socket: {}", path.display());
+    }
     if let Err(error) = fs::set_permissions(&path, fs::Permissions::from_mode(0o600)) {
         drop(listener);
-        let _ = fs::remove_file(&path);
+        let _ = remove_socket_if_unchanged(&path, &bound_metadata);
         return Err(error.into());
     }
     if let Err(error) = set_nonblocking(&listener) {
         drop(listener);
-        let _ = fs::remove_file(&path);
+        let _ = remove_socket_if_unchanged(&path, &bound_metadata);
         return Err(error.into());
     }
     Ok(listener)
@@ -1746,7 +1817,63 @@ fn read_request(reader: impl Read) -> Result<Request> {
 }
 
 fn request(paths: &AppPaths, command: Command) -> Result<Response> {
-    request_with_connector(paths, command, |path| UnixStream::connect(path))
+    request_with_connector(paths, command, connect_control_socket)
+}
+
+fn connect_control_socket(path: &Path) -> std::io::Result<UnixStream> {
+    connect_control_socket_with(path, |path| UnixStream::connect(path))
+}
+
+fn connect_control_socket_with<S>(
+    path: &Path,
+    connect: impl FnOnce(&Path) -> std::io::Result<S>,
+) -> std::io::Result<S> {
+    let before = fs::symlink_metadata(path).ok();
+    match connect(path) {
+        Ok(stream) => Ok(stream),
+        Err(error) => {
+            if indicates_stale_socket(error.kind()) {
+                remove_stale_socket_if_unchanged(path, before.as_ref());
+            }
+            Err(error)
+        }
+    }
+}
+
+fn indicates_stale_socket(kind: std::io::ErrorKind) -> bool {
+    matches!(
+        kind,
+        std::io::ErrorKind::ConnectionRefused
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::ConnectionAborted
+    )
+}
+
+fn remove_stale_socket_if_unchanged(path: &Path, before: Option<&fs::Metadata>) {
+    let Some(before) = before else {
+        return;
+    };
+    let _ = remove_socket_if_unchanged(path, before);
+}
+
+fn remove_socket_if_unchanged(path: &Path, before: &fs::Metadata) -> Result<()> {
+    if !before.file_type().is_socket() {
+        bail!(
+            "refusing to remove non-socket daemon path {}",
+            path.display()
+        );
+    }
+    let Ok(after) = fs::symlink_metadata(path) else {
+        return Ok(());
+    };
+    if !after.file_type().is_socket() || before.dev() != after.dev() || before.ino() != after.ino()
+    {
+        bail!(
+            "daemon socket {} changed; refusing to remove it",
+            path.display()
+        );
+    }
+    fs::remove_file(path).with_context(|| format!("remove daemon socket {}", path.display()))
 }
 
 fn request_with_connector<S, C>(paths: &AppPaths, command: Command, connect: C) -> Result<Response>

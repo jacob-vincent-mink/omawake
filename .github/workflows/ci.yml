@@ -14,7 +14,8 @@ jobs:
           components: clippy,llvm-tools-preview,rustfmt
       - uses: taiki-e/install-action@cargo-llvm-cov
       - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - run: find native -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
-      - run: DOCS_RS=1 cargo clippy --all-targets --features openvino -- -D warnings
+      - run: DOCS_RS=1 cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo llvm-cov --all-targets --locked --ignore-filename-regex 'src/(audio/cpal|engine/sherpa)\.rs$' --fail-under-lines 90.01

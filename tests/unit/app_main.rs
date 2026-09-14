@@ -562,6 +562,20 @@ fn config_mutation_saves_and_wake_words_compile_when_model_exists() {
     .unwrap();
     assert_eq!(Config::load(&paths.config_file).unwrap().backend.threads, 4);
     config_mutation(
+        ConfigCommand::Set {
+            key: "backend.runtime".into(),
+            value: "openvino".into(),
+        },
+        Config::load(&paths.config_file).unwrap(),
+        &paths.config_file,
+    )
+    .unwrap();
+    let accelerated = Config::load(&paths.config_file).unwrap();
+    assert_eq!(
+        accelerated.model.encoder,
+        omawake::catalog::models()[0].openvino_accelerator_encoder
+    );
+    config_mutation(
         ConfigCommand::Unset {
             key: "backend.threads".into(),
         },
@@ -605,6 +619,69 @@ fn config_mutation_saves_and_wake_words_compile_when_model_exists() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn runtime_changes_reset_cuda_only_device_state() {
+    let paths = test_paths("runtime-reset");
+    let mut cuda = Config::default();
+    cuda.backend.runtime = Runtime::Cuda;
+    cuda.backend.device = "gpu".into();
+    cuda.backend.device_id = 3;
+    cuda.backend.provider_config = "cuda.conf".into();
+    cuda.backend
+        .options
+        .insert("gpu_mem_limit".into(), "1024".into());
+
+    config_mutation(
+        ConfigCommand::Set {
+            key: "backend.runtime".into(),
+            value: "openvino".into(),
+        },
+        cuda.clone(),
+        &paths.config_file,
+    )
+    .unwrap();
+    let openvino = Config::load(&paths.config_file).unwrap();
+    assert_eq!(openvino.backend.runtime, Runtime::Openvino);
+    assert_eq!(openvino.backend.device, "auto");
+    assert_eq!(openvino.backend.device_id, 0);
+    assert!(openvino.backend.provider_config.is_empty());
+    assert!(openvino.backend.options.is_empty());
+
+    cuda.save(&paths.config_file).unwrap();
+    config_mutation(
+        ConfigCommand::Unset {
+            key: "backend.runtime".into(),
+        },
+        cuda.clone(),
+        &paths.config_file,
+    )
+    .unwrap();
+    let default = Config::load(&paths.config_file).unwrap();
+    assert_eq!(default.backend.runtime, Runtime::Default);
+    assert_eq!(default.backend.device_id, 0);
+    assert!(default.backend.provider_config.is_empty());
+    assert!(default.backend.options.is_empty());
+
+    for (runtime, device) in [(Runtime::Openvino, "npu"), (Runtime::Default, "cpu")] {
+        cuda.save(&paths.config_file).unwrap();
+        save_runtime_selection_with_capabilities(
+            &paths.config_file,
+            &RuntimeSelection {
+                runtime,
+                device: device.into(),
+            },
+            &["cpu", "openvino", "cuda"],
+        )
+        .unwrap();
+        let saved = Config::load(&paths.config_file).unwrap();
+        assert_eq!(saved.backend.runtime, runtime);
+        assert_eq!(saved.backend.device, device);
+        assert_eq!(saved.backend.device_id, 0);
+        assert!(saved.backend.provider_config.is_empty());
+        assert!(saved.backend.options.is_empty());
+    }
 }
 
 #[test]
@@ -861,7 +938,7 @@ fn file_benchmark_reports_warmups_iterations_percentiles_and_rtf() {
     assert_eq!(report["measured_iterations"], 2);
     assert_eq!(report["backend"]["kind"], "fake");
     assert_eq!(report["backend"]["requested_device"], "auto");
-    assert_eq!(report["backend"]["placement_verified"], false);
+    assert_eq!(report["backend"]["placement_verified"], true);
     assert_eq!(report["summary"]["samples"], 4);
     assert_eq!(report["summary"]["p50_milliseconds"], 10.0);
     assert_eq!(report["summary"]["p95_milliseconds"], 20.0);
@@ -1108,6 +1185,7 @@ fn armed_cycle_reports_control_commands_and_detections_without_hardware() {
                 start_time: 0.0,
             }])
         },
+        || false,
     )
     .unwrap();
     assert_eq!(detections.len(), 1);
@@ -1120,6 +1198,7 @@ fn armed_cycle_reports_control_commands_and_detections_without_hardware() {
         |_| Ok(Some(Command::Pause)),
         |_| unreachable!(),
         |_, _| unreachable!(),
+        || false,
     )
     .unwrap();
     assert!(detections.is_empty());
@@ -1148,6 +1227,7 @@ fn armed_cycle_reports_control_commands_and_detections_without_hardware() {
                 start_time: 0.0,
             }])
         },
+        || false,
     )
     .unwrap();
     assert_eq!(detections.len(), 1);
@@ -1161,9 +1241,23 @@ fn armed_cycle_reports_control_commands_and_detections_without_hardware() {
             |_| bail!("control failed"),
             |_| unreachable!(),
             |_, _| unreachable!(),
+            || false,
         )
         .is_err()
     );
+
+    let (detections, command) = collect_armed_detections(
+        "test microphone",
+        16_000,
+        1,
+        |_| unreachable!(),
+        |_| unreachable!(),
+        |_, _| unreachable!(),
+        || true,
+    )
+    .unwrap();
+    assert!(detections.is_empty());
+    assert!(matches!(command, Some(Command::Shutdown)));
 }
 
 #[test]
@@ -1171,6 +1265,13 @@ fn socket_binding_replaces_stale_socket_and_rejects_live_daemon() {
     let paths = test_paths("bind");
     fs::create_dir_all(&paths.runtime_dir).unwrap();
     fs::write(socket_path(&paths), "stale").unwrap();
+    assert!(bind_socket(&paths).is_err());
+    assert_eq!(fs::read_to_string(socket_path(&paths)).unwrap(), "stale");
+    fs::remove_file(socket_path(&paths)).unwrap();
+    let Some(stale) = io_or_skip(UnixListener::bind(socket_path(&paths))) else {
+        return;
+    };
+    drop(stale);
     let Some(listener) = anyhow_or_skip(bind_socket(&paths)) else {
         return;
     };
@@ -1197,11 +1298,14 @@ fn socket_binding_replaces_stale_socket_and_rejects_live_daemon() {
 #[test]
 fn socket_preparation_is_testable_without_creating_a_unix_socket() {
     let paths = test_paths("bind-memory");
-    let fake_bind = |path: &Path| {
-        fs::write(path, "fake socket")?;
-        Ok(())
+    let Some(listener) = anyhow_or_skip(bind_socket_with(
+        &paths,
+        |_| false,
+        |path| UnixListener::bind(path),
+        |listener| listener.set_nonblocking(true),
+    )) else {
+        return;
     };
-    bind_socket_with(&paths, |_| false, fake_bind, |_| Ok(())).unwrap();
     assert_eq!(
         fs::metadata(&paths.runtime_dir)
             .unwrap()
@@ -1219,17 +1323,6 @@ fn socket_preparation_is_testable_without_creating_a_unix_socket() {
         0o600
     );
 
-    bind_socket_with(
-        &paths,
-        |_| false,
-        |path| {
-            assert!(!path.exists());
-            fs::write(path, "replacement")?;
-            Ok(())
-        },
-        |_| Ok(()),
-    )
-    .unwrap();
     assert!(
         bind_socket_with(
             &paths,
@@ -1239,16 +1332,14 @@ fn socket_preparation_is_testable_without_creating_a_unix_socket() {
         )
         .is_err()
     );
+    drop(listener);
 
     let failing_paths = test_paths("bind-configure-failure");
     assert!(
         bind_socket_with(
             &failing_paths,
             |_| false,
-            |path| {
-                fs::write(path, "temporary socket")?;
-                Ok(())
-            },
+            |path| UnixListener::bind(path),
             |_| Err(std::io::Error::other("nonblocking failed")),
         )
         .is_err()
@@ -1264,25 +1355,35 @@ fn daemon_socket_cleanup_runs_after_success_and_failure() {
     ] {
         let paths = test_paths(name);
         fs::create_dir_all(&paths.runtime_dir).unwrap();
-        fs::write(socket_path(&paths), "socket placeholder").unwrap();
-        let result = finish_daemon(&paths, serve_result);
+        let Some(listener) = io_or_skip(UnixListener::bind(socket_path(&paths))) else {
+            return;
+        };
+        let metadata = fs::symlink_metadata(socket_path(&paths)).unwrap();
+        drop(listener);
+        let result = finish_daemon(&paths, Some(&metadata), serve_result);
         assert!(!socket_path(&paths).exists());
         assert_eq!(result.is_err(), name == "failure");
     }
 
     let absent = test_paths("already-absent");
-    finish_daemon(&absent, Ok(())).unwrap();
+    finish_daemon(&absent, None, Ok(())).unwrap();
 
     let cleanup_failure = test_paths("cleanup-failure");
     fs::create_dir_all(socket_path(&cleanup_failure)).unwrap();
-    assert!(finish_daemon(&cleanup_failure, Ok(())).is_err());
+    let metadata = fs::symlink_metadata(socket_path(&cleanup_failure)).unwrap();
+    assert!(finish_daemon(&cleanup_failure, Some(&metadata), Ok(())).is_err());
 
     let original_error = test_paths("cleanup-and-serve-failure");
     fs::create_dir_all(socket_path(&original_error)).unwrap();
+    let metadata = fs::symlink_metadata(socket_path(&original_error)).unwrap();
     assert_eq!(
-        finish_daemon(&original_error, Err(anyhow::anyhow!("original failure")))
-            .unwrap_err()
-            .to_string(),
+        finish_daemon(
+            &original_error,
+            Some(&metadata),
+            Err(anyhow::anyhow!("original failure")),
+        )
+        .unwrap_err()
+        .to_string(),
         "original failure"
     );
 }
@@ -1958,4 +2059,78 @@ fn client_request_exchange_is_testable_without_a_socket() {
         })
         .is_err()
     );
+}
+
+#[test]
+fn refused_client_connection_removes_only_the_same_stale_socket() {
+    let paths = test_paths("stale-client");
+    fs::create_dir_all(&paths.runtime_dir).unwrap();
+    let path = socket_path(&paths);
+    let Some(stale) = io_or_skip(std::os::unix::net::UnixDatagram::bind(&path)) else {
+        return;
+    };
+    let error = connect_control_socket_with::<UnixStream>(&path, |_| {
+        Err(std::io::Error::from(std::io::ErrorKind::ConnectionRefused))
+    })
+    .unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::ConnectionRefused);
+    assert!(!path.exists());
+    drop(stale);
+
+    let untouched_path = paths.runtime_dir.join("other-error.sock");
+    let untouched = std::os::unix::net::UnixDatagram::bind(&untouched_path).unwrap();
+    assert!(
+        connect_control_socket_with::<UnixStream>(&untouched_path, |_| {
+            Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
+        })
+        .is_err()
+    );
+    assert!(untouched_path.exists());
+    drop(untouched);
+
+    let replacement_paths = test_paths("replaced-client");
+    fs::create_dir_all(&replacement_paths.runtime_dir).unwrap();
+    let replacement_path = socket_path(&replacement_paths);
+    let Some(original) = io_or_skip(UnixListener::bind(&replacement_path)) else {
+        return;
+    };
+    drop(original);
+    let original_metadata = fs::metadata(&replacement_path).unwrap();
+    fs::remove_file(&replacement_path).unwrap();
+    let replacement = UnixListener::bind(&replacement_path).unwrap();
+    remove_stale_socket_if_unchanged(&replacement_path, Some(&original_metadata));
+    assert!(replacement_path.exists());
+    drop(replacement);
+
+    let regular_file = paths.runtime_dir.join("regular-file");
+    fs::write(&regular_file, "keep").unwrap();
+    let metadata = fs::metadata(&regular_file).unwrap();
+    remove_stale_socket_if_unchanged(&regular_file, Some(&metadata));
+    assert!(regular_file.exists());
+
+    let symlink_target = paths.runtime_dir.join("symlink-target.sock");
+    let symlink_socket = std::os::unix::net::UnixDatagram::bind(&symlink_target).unwrap();
+    let symlink_path = paths.runtime_dir.join("symlink.sock");
+    std::os::unix::fs::symlink(&symlink_target, &symlink_path).unwrap();
+    let error = connect_control_socket_with::<UnixStream>(&symlink_path, |_| {
+        Err(std::io::Error::from(std::io::ErrorKind::ConnectionRefused))
+    })
+    .unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::ConnectionRefused);
+    assert!(symlink_path.exists());
+    drop(symlink_socket);
+}
+
+#[test]
+fn stale_socket_connection_errors_cover_kernel_variants() {
+    for kind in [
+        std::io::ErrorKind::ConnectionRefused,
+        std::io::ErrorKind::ConnectionReset,
+        std::io::ErrorKind::ConnectionAborted,
+    ] {
+        assert!(indicates_stale_socket(kind));
+    }
+    assert!(!indicates_stale_socket(
+        std::io::ErrorKind::PermissionDenied
+    ));
 }

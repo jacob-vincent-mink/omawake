@@ -89,26 +89,68 @@ impl Detector {
 
     pub fn load_with<F>(config: &Config, paths: &AppPaths, load_backend: F) -> Result<Self>
     where
-        F: FnOnce(&Config, &Path, Runtime, &str) -> Result<Box<dyn WakeWordBackend>>,
+        F: FnMut(&Config, &Path, Runtime, &str) -> Result<Box<dyn WakeWordBackend>>,
+    {
+        Self::load_with_capabilities(config, paths, compiled_capabilities(), load_backend)
+    }
+
+    fn load_with_capabilities<F>(
+        config: &Config,
+        paths: &AppPaths,
+        capabilities: &[&str],
+        mut load_backend: F,
+    ) -> Result<Self>
+    where
+        F: FnMut(&Config, &Path, Runtime, &str) -> Result<Box<dyn WakeWordBackend>>,
     {
         config.backend.validate_shape()?;
-        let (effective_runtime, fallback_used) = match config
-            .backend
-            .validate_capabilities(compiled_capabilities())
+        let (mut effective_runtime, mut fallback_used) =
+            match config.backend.validate_capabilities(capabilities) {
+                Ok(()) => (config.backend.runtime, false),
+                Err(error) if config.backend.fallback == Fallback::Cpu => {
+                    eprintln!("omawake: warning: {error}; falling back to cpu");
+                    (Runtime::Default, true)
+                }
+                Err(error) => return Err(error.into()),
+            };
+        if effective_runtime == Runtime::Openvino
+            && let Some(spec) = crate::catalog::model(&config.model.name)
+            && spec.uses_openvino_accelerator(config)
+            && config.model.encoder == spec.encoder
         {
-            Ok(()) => (config.backend.runtime, false),
-            Err(error) if config.backend.fallback == Fallback::Cpu => {
-                eprintln!("omawake: warning: {error}; falling back to cpu");
-                (Runtime::Default, true)
-            }
-            Err(error) => return Err(error.into()),
-        };
+            bail!(
+                "model {} uses an encoder that loses detections on OpenVINO accelerators; run `omawake setup model --set {}` to select {}",
+                spec.id,
+                spec.id,
+                spec.openvino_accelerator_encoder
+            );
+        }
         let directory = config.model_directory(paths);
         let compiler = KeywordCompiler::open(&directory.join(&config.model.bpe_model))?;
         let keywords_buffer = compiler.compile(&config.wake_words)?;
 
         let started = Instant::now();
-        let backend = load_backend(config, &directory, effective_runtime, &keywords_buffer)?;
+        let backend = match load_backend(config, &directory, effective_runtime, &keywords_buffer) {
+            Ok(backend) => backend,
+            Err(accelerator_error)
+                if effective_runtime != Runtime::Default
+                    && config.backend.fallback == Fallback::Cpu =>
+            {
+                eprintln!(
+                    "omawake: warning: accelerated backend initialization failed: {accelerator_error:#}; falling back to cpu"
+                );
+                effective_runtime = Runtime::Default;
+                fallback_used = true;
+                load_backend(config, &directory, Runtime::Default, &keywords_buffer).with_context(
+                    || {
+                        format!(
+                            "accelerated backend initialization failed ({accelerator_error:#}); CPU fallback also failed"
+                        )
+                    },
+                )?
+            }
+            Err(error) => return Err(error),
+        };
         Self::from_backend(
             config,
             backend,
@@ -250,7 +292,7 @@ fn build_sherpa_config(
     sherpa_config.model_config.num_threads = config.backend.threads.into();
     sherpa_config.model_config.provider = Some(match runtime {
         Runtime::Default => "cpu".into(),
-        Runtime::Cuda => "cuda".into(),
+        Runtime::Cuda => cuda_provider(config, paths)?,
         Runtime::Openvino => openvino_provider(config, paths)?,
     });
     sherpa_config.feat_config.sample_rate = config.model.sample_rate;
@@ -262,28 +304,57 @@ fn build_sherpa_config(
     Ok(sherpa_config)
 }
 
+fn cuda_provider(config: &Config, paths: &AppPaths) -> Result<String> {
+    let supplied = config.backend.provider_config.trim();
+    if !supplied.is_empty() {
+        return provider_config_path("CUDA", "cuda", supplied, paths);
+    }
+
+    for (key, value) in &config.backend.options {
+        validate_provider_option(key, value)?;
+        if key == "device_id" {
+            bail!("backend.options.device_id is managed by backend.device_id");
+        }
+    }
+    let device_directory = paths
+        .state_dir
+        .join("cache/cuda")
+        .join(format!("device-{}", config.backend.device_id));
+    fs::create_dir_all(&device_directory).with_context(|| {
+        format!(
+            "create CUDA provider directory {}",
+            device_directory.display()
+        )
+    })?;
+    make_directory_private(&device_directory)?;
+    let device_directory = fs::canonicalize(&device_directory).with_context(|| {
+        format!(
+            "resolve CUDA provider directory {}",
+            device_directory.display()
+        )
+    })?;
+
+    let mut properties = config.backend.options.clone();
+    properties.insert("device_id".to_owned(), config.backend.device_id.to_string());
+    properties
+        .entry("cudnn_conv_algo_search".to_owned())
+        .or_insert_with(|| "HEURISTIC".to_owned());
+    let mut contents = String::new();
+    for (key, value) in properties {
+        contents.push_str(&key);
+        contents.push('=');
+        contents.push_str(&value);
+        contents.push('\n');
+    }
+    let config_path = device_directory.join("provider.config");
+    atomic_write_private(&config_path, contents.as_bytes())?;
+    Ok(format!("cuda:{}", utf8_path(&config_path)?))
+}
+
 fn openvino_provider(config: &Config, paths: &AppPaths) -> Result<String> {
     let supplied = config.backend.provider_config.trim();
     if !supplied.is_empty() {
-        let supplied = Path::new(supplied);
-        let path = if supplied.is_absolute() {
-            supplied.to_owned()
-        } else {
-            paths
-                .config_file
-                .parent()
-                .unwrap_or_else(|| Path::new("."))
-                .join(supplied)
-        };
-        let path = fs::canonicalize(&path)
-            .with_context(|| format!("resolve OpenVINO provider config {}", path.display()))?;
-        if !path.is_file() {
-            bail!(
-                "OpenVINO provider config is not a regular file: {}",
-                path.display()
-            );
-        }
-        return Ok(format!("openvino:{}", utf8_path(&path)?));
+        return provider_config_path("OpenVINO", "openvino", supplied, paths);
     }
 
     let canonical = config.backend.canonical_device()?.to_ascii_uppercase();
@@ -350,6 +421,33 @@ fn openvino_provider(config: &Config, paths: &AppPaths) -> Result<String> {
     Ok(format!("openvino:{}", utf8_path(&config_path)?))
 }
 
+fn provider_config_path(
+    runtime: &str,
+    provider: &str,
+    supplied: &str,
+    paths: &AppPaths,
+) -> Result<String> {
+    let supplied = Path::new(supplied);
+    let path = if supplied.is_absolute() {
+        supplied.to_owned()
+    } else {
+        paths
+            .config_file
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(supplied)
+    };
+    let path = fs::canonicalize(&path)
+        .with_context(|| format!("resolve {runtime} provider config {}", path.display()))?;
+    if !path.is_file() {
+        bail!(
+            "{runtime} provider config is not a regular file: {}",
+            path.display()
+        );
+    }
+    Ok(format!("{provider}:{}", utf8_path(&path)?))
+}
+
 fn validate_provider_option(key: &str, value: &str) -> Result<()> {
     let mut characters = key.chars();
     let valid_first = characters
@@ -409,7 +507,7 @@ fn atomic_write_private(path: &Path, contents: &[u8]) -> Result<()> {
         file.sync_all()?;
         drop(file);
         fs::rename(&temporary, path)
-            .with_context(|| format!("install OpenVINO provider config {}", path.display()))?;
+            .with_context(|| format!("install provider config {}", path.display()))?;
         Ok(())
     })();
     if install.is_err() {

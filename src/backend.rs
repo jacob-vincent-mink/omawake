@@ -104,14 +104,14 @@ impl BackendConfig {
 }
 
 pub const fn compiled_capabilities() -> &'static [&'static str] {
-    #[cfg(feature = "openvino")]
-    const CAPABILITIES: &[&str] = &["cpu", "openvino"];
-    #[cfg(not(feature = "openvino"))]
-    const CPU_ONLY: &[&str] = &["cpu"];
-    #[cfg(feature = "openvino")]
-    return CAPABILITIES;
-    #[cfg(not(feature = "openvino"))]
-    CPU_ONLY
+    #[cfg(all(feature = "openvino", feature = "cuda"))]
+    return &["cpu", "openvino", "cuda"];
+    #[cfg(all(feature = "openvino", not(feature = "cuda")))]
+    return &["cpu", "openvino"];
+    #[cfg(all(not(feature = "openvino"), feature = "cuda"))]
+    return &["cpu", "cuda"];
+    #[cfg(not(any(feature = "openvino", feature = "cuda")))]
+    &["cpu"]
 }
 
 pub fn canonical_device(runtime: Runtime, raw: &str) -> Result<String, BackendError> {

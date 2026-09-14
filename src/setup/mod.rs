@@ -31,6 +31,29 @@ pub fn ensure_config(path: &Path) -> Result<Config> {
 }
 
 pub fn checks(path: &Path, paths: &AppPaths) -> Vec<Check> {
+    checks_with(
+        path,
+        paths,
+        &|config, paths| {
+            let detector = crate::engine::Detector::load(config, paths)?;
+            Ok(format!(
+                "{} initialized {} wake-word mapping(s)",
+                detector.backend_kind,
+                config.wake_words.iter().filter(|word| word.enabled).count()
+            ))
+        },
+        command_exists("systemctl"),
+        &systemd::is_active,
+    )
+}
+
+fn checks_with(
+    path: &Path,
+    paths: &AppPaths,
+    check_engine: &dyn Fn(&Config, &AppPaths) -> Result<String>,
+    systemctl_available: bool,
+    service_is_active: &dyn Fn() -> bool,
+) -> Vec<Check> {
     let mut result = Vec::new();
     let config = match Config::load(path) {
         Ok(config) => {
@@ -94,15 +117,8 @@ pub fn checks(path: &Path, paths: &AppPaths) -> Vec<Check> {
             }
         }
     }
-    match crate::engine::Detector::load(&config, paths) {
-        Ok(detector) => result.push(ok(
-            "engine",
-            format!(
-                "{} initialized {} wake-word mapping(s)",
-                detector.backend_kind,
-                config.wake_words.iter().filter(|word| word.enabled).count()
-            ),
-        )),
+    match check_engine(&config, paths) {
+        Ok(detail) => result.push(ok("engine", detail)),
         Err(error) => result.push(fail(
             "engine",
             format!("{error:#}"),
@@ -132,8 +148,7 @@ pub fn checks(path: &Path, paths: &AppPaths) -> Vec<Check> {
         )
     });
     let service = systemd::service_path(paths);
-    let systemctl_available = command_exists("systemctl");
-    let service_active = systemctl_available && systemd::is_active();
+    let service_active = systemctl_available && service_is_active();
     result.push(if !systemctl_available {
         ok(
             "systemd",
