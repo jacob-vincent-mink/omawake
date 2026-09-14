@@ -37,6 +37,19 @@ require_command() {
   }
 }
 
+require_supported_cmake() {
+  local version
+  version=$(cmake --version | awk 'NR == 1 { print $3 }')
+  if [[ ! ${version} =~ ^([0-9]+)\.([0-9]+)(\.|$) ]]; then
+    echo "unable to parse CMake version: ${version}" >&2
+    exit 1
+  fi
+  if ((BASH_REMATCH[1] < 3 || (BASH_REMATCH[1] == 3 && BASH_REMATCH[2] < 28))); then
+    echo "CMake 3.28 or newer is required by ONNX Runtime ${ORT_TAG}; found ${version}" >&2
+    exit 1
+  fi
+}
+
 verify_checkout() {
   local directory=$1
   local expected=$2
@@ -101,6 +114,7 @@ verify_patch_state() {
 for command in awk c++ cc cmake cp curl env git make mkdir mv python3 sed sha256sum tar uname; do
   require_command "${command}"
 done
+require_supported_cmake
 
 [[ $(uname -s) == Linux && $(uname -m) == x86_64 ]] || {
   echo "the pinned OpenVINO archive supports Linux x86_64 only" >&2

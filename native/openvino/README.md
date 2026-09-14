@@ -29,8 +29,8 @@ The script downloads source and binaries into `${OMA_NATIVE_ROOT}` (default
 and shared libraries below `${OMA_NATIVE_ROOT}/runtime`. It does not install
 files into the system. The native build is large and can take a substantial
 amount of time and disk space. Prerequisites are Python 3, a C/C++ toolchain,
-CMake, Make, Git, curl, tar, and the build dependencies required by ONNX
-Runtime.
+CMake 3.28 or newer, Make, Git, curl, tar, and the build dependencies required
+by ONNX Runtime.
 
 ```bash
 OMA_BUILD_JOBS=10 native/openvino/build.sh

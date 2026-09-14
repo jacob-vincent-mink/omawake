@@ -6,10 +6,10 @@ OpenVINO Execution Provider, and CUDA Execution Provider, then links one shared
 sherpa-onnx layer against that runtime. The source commits, OpenVINO package,
 and local patches are pinned identically to the OpenVINO-only builder.
 
-The build requires Linux x86_64, a CUDA 12.8-compatible toolkit, cuDNN 9, and
-the prerequisites listed by the OpenVINO builder. By default it reads CUDA from
-`/usr/local/cuda`, cuDNN from `/usr`, and targets the NVIDIA architectures used
-by Turing through Blackwell:
+The build requires Linux x86_64, CMake 3.28 or newer, a CUDA 12.8-compatible
+toolkit, cuDNN 9, and the prerequisites listed by the OpenVINO builder. By
+default it reads CUDA from `/usr/local/cuda`, cuDNN from `/usr`, and targets the
+NVIDIA architectures used by Turing through Blackwell:
 
 ```bash
 OMA_BUILD_JOBS=10 native/unified/build.sh

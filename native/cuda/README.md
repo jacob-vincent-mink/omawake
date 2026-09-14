@@ -12,9 +12,9 @@ The tracked sherpa patch SHA-256 is
 It passes CUDA EP V2 settings, including the device ordinal, through a provider
 config file for online and offline models.
 
-The builder supports Linux x86_64 and aarch64. Install a CUDA toolkit and its
-matching cuDNN development package first. `CUDA_HOME` defaults to
-`/usr/local/cuda`; `CUDNN_HOME` defaults to `/usr`.
+The builder supports Linux x86_64 and aarch64. Install CMake 3.28 or newer, a
+CUDA toolkit, and its matching cuDNN development package first. `CUDA_HOME`
+defaults to `/usr/local/cuda`; `CUDNN_HOME` defaults to `/usr`.
 
 ```bash
 OMA_BUILD_JOBS=10 native/cuda/build.sh
