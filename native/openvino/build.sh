@@ -54,7 +54,18 @@ apply_once() {
   fi
 }
 
-for command in c++ cc cmake cp curl env git make mkdir mv python3 sha256sum tar uname; do
+verify_patch_state() {
+  local directory=$1
+  local expected=$2
+  local actual
+  actual=$(git -C "${directory}" -c diff.mnemonicPrefix=true diff --binary | sha256sum | awk '{print $1}')
+  if [[ ${actual} != "${expected}" ]]; then
+    echo "${directory} contains changes other than the reviewed patch" >&2
+    exit 1
+  fi
+}
+
+for command in awk c++ cc cmake cp curl env git make mkdir mv python3 sha256sum tar uname; do
   require_command "${command}"
 done
 
@@ -84,6 +95,7 @@ if [[ ! -d ${ort_source}/.git ]]; then
 fi
 verify_checkout "${ort_source}" "${ORT_COMMIT}"
 apply_once "${ort_source}" "${ort_patch}"
+verify_patch_state "${ort_source}" "${ORT_PATCH_SHA256}"
 
 openvino_archive_path=${work_dir}/${OPENVINO_ARCHIVE}
 if [[ ! -f ${openvino_archive_path} ]]; then
@@ -131,6 +143,7 @@ if [[ ! -d ${sherpa_source}/.git ]]; then
 fi
 verify_checkout "${sherpa_source}" "${SHERPA_COMMIT}"
 apply_once "${sherpa_source}" "${sherpa_patch}"
+verify_patch_state "${sherpa_source}" "${SHERPA_PATCH_SHA256}"
 
 env \
   SHERPA_ONNXRUNTIME_INCLUDE_DIR="${ort_source}/include/onnxruntime/core/session" \

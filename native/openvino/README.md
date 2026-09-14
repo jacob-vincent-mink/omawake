@@ -38,9 +38,9 @@ cargo build --release --features openvino
 ```
 
 `build.sh` is safe to rerun at the pinned commits and detects already-applied
-patches. It stops if an existing source checkout is at another commit or a
-patch no longer applies. Set `OMA_NATIVE_ROOT` to use another absolute build
-directory.
+patches. It stops if an existing source checkout is at another commit, a patch
+no longer applies, or the checkout contains changes beyond the reviewed patch.
+Set `OMA_NATIVE_ROOT` to use another absolute build directory.
 
 ORT's `--use_openvino NPU` build selection enables the OpenVINO EP rather than
 restricting the assembled provider to one device. This exact provider build was
