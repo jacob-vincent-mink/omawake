@@ -19,6 +19,10 @@ sherpa_source=${work_dir}/sherpa-onnx
 sherpa_build=${work_dir}/sherpa-build
 sherpa_install=${work_dir}/sherpa-install
 runtime_dir=${work_dir}/runtime
+ort_root_args=()
+if ((EUID == 0)); then
+  ort_root_args+=(--allow_running_as_root)
+fi
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -166,6 +170,7 @@ verify_checkout "${ort_source}" "${ORT_COMMIT}"
 verify_clean_checkout "${ort_source}"
 
 "${ort_source}/build.sh" \
+  "${ort_root_args[@]}" \
   --config Release \
   --update \
   --build_shared_lib \

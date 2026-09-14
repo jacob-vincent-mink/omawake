@@ -25,6 +25,10 @@ sherpa_build=${work_dir}/sherpa-build
 sherpa_install=${work_dir}/sherpa-install
 openvino_dir=${work_dir}/openvino-2026.2.1
 runtime_dir=${work_dir}/runtime
+ort_root_args=()
+if ((EUID == 0)); then
+  ort_root_args+=(--allow_running_as_root)
+fi
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -189,6 +193,7 @@ if [[ ! -d ${openvino_dir}/runtime ]]; then
 fi
 
 "${ort_source}/build.sh" \
+  "${ort_root_args[@]}" \
   --config Release \
   --update \
   --build_shared_lib \
