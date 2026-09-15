@@ -1314,6 +1314,23 @@ fn configure_runtime_directory(config: &mut Config, directory: &Path) -> Result<
             directory.display()
         );
     }
+    let sherpa_library = runtime_paths::packaged_library("libsherpa-onnx-c-api.so").context(
+        "this Omawake installation is missing its bundled extended sherpa library; reinstall the release package or copy its lib directory beside the executable",
+    )?;
+    configure_runtime_directory_with(config, directory, sherpa_library)
+}
+
+fn configure_runtime_directory_with(
+    config: &mut Config,
+    directory: &Path,
+    sherpa_library: PathBuf,
+) -> Result<()> {
+    if !directory.is_absolute() || !directory.is_dir() {
+        bail!(
+            "runtime library directory must be an absolute existing directory: {}",
+            directory.display()
+        );
+    }
     let candidates = [
         directory.to_owned(),
         directory.join("lib"),
@@ -1344,7 +1361,6 @@ fn configure_runtime_directory(config: &mut Config, directory: &Path) -> Result<
             .with_context(|| format!("{} does not contain {prefix}", directory.display()))
     };
     let onnxruntime_library = find("libonnxruntime.so")?;
-    let sherpa_library = find("libsherpa-onnx-c-api.so")?;
     let provider_library = match config.backend.runtime {
         Runtime::Default => PathBuf::new(),
         Runtime::Openvino => find("libonnxruntime_providers_openvino.so")?,

@@ -96,6 +96,7 @@ cargo build --release --locked
 cargo test --locked
 ```
 
-The source-built executable is runtime-neutral and does not contain the CPU
-libraries shipped in the release archive. Supply compatible runtime libraries
-through setup or copy the release `lib/` directory beside the executable.
+The source-built executable is runtime-neutral and does not contain Omawake's
+CPU runtime or extended sherpa companion. Copy the release `lib/` directory
+beside the executable before running setup; accelerator setup can then replace
+the ONNX Runtime core/provider while retaining Omawake's companion library.

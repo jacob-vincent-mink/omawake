@@ -6,21 +6,23 @@ probes, and records native libraries the user already installed; it never
 downloads or installs OpenVINO, CUDA, ONNX Runtime, or a driver.
 
 Unlike Omaspeak's direct OpenVINO path, Omawake runs keyword spotting through
-its patched sherpa-onnx C API. An accelerator bundle therefore needs four
-pieces from the same ABI-compatible stack:
+its bundled extended sherpa-onnx C API. An accelerator bundle therefore needs
+these external pieces from the same ABI-compatible stack:
 
 - ONNX Runtime 1.29 core;
 - `libonnxruntime_providers_shared.so` and the selected provider DSO;
-- `libsherpa-onnx-c-api.so` built by [`native/sherpa/build.sh`](native/sherpa/build.sh)
-  against that exact ONNX Runtime SDK;
 - the matching Intel or NVIDIA runtime and driver libraries.
+
+Omawake supplies and selects `libsherpa-onnx-c-api.so`; users do not build or
+provide it. [`native/sherpa/build.sh`](native/sherpa/build.sh) is the maintainer
+reproduction path for the companion shipped in release archives.
 
 `omawake setup runtime --json` shows all runtime/device rows, discovered paths,
 probe evidence, and remediation. Only `--apply` writes a selection.
 
 ## Default CPU
 
-The release archive and `-bin-rc` package need no inference runtime package.
+The release archive and `omawake-bin` package need no inference runtime package.
 After supplying the licensed model archive, verify the file path without a
 microphone:
 
@@ -29,8 +31,8 @@ omawake setup all --archive /path/to/sherpa-onnx-kws-model.tar.bz2
 omawake test --audio /path/to/test.wav --json
 ```
 
-The release's ONNX Runtime 1.29 CPU core and patched sherpa library are found
-beside the executable or under `/usr/lib/omawake` when packaged.
+The release's ONNX Runtime 1.29 CPU core and extended sherpa library are found
+under the archive's `lib/` directory or `/usr/lib/omawake` when packaged.
 
 ## Intel integrated GPU and NPU with OpenVINO
 
@@ -71,24 +73,16 @@ cd onnxruntime-openvino-1.29.0
   onnxruntime_BUILD_UNIT_TESTS=OFF
 ```
 
-Build the patched sherpa library against that result, then assemble a private
-runtime directory. These commands run from an Omawake source checkout:
+Assemble a private runtime directory from that result:
 
 ```bash
 ort_source=/absolute/path/to/onnxruntime-openvino-1.29.0
 ort_build="$ort_source/build-openvino/Release"
-OMA_ORT_INCLUDE_DIR="$ort_source/include/onnxruntime/core/session" \
-OMA_ORT_LIB_DIR="$ort_build" \
-OMA_NATIVE_ROOT="$HOME/.cache/omawake-sherpa-openvino" \
-  native/sherpa/build.sh
-
 runtime_root="$HOME/.local/share/omawake/runtimes/openvino-1.29.0"
 mkdir -p "$runtime_root/lib"
 cp -a "$ort_build"/libonnxruntime.so* "$runtime_root/lib/"
 cp -a "$ort_build"/libonnxruntime_providers_shared.so "$runtime_root/lib/"
 cp -a "$ort_build"/libonnxruntime_providers_openvino.so "$runtime_root/lib/"
-cp -a "$HOME/.cache/omawake-sherpa-openvino/runtime/lib/libsherpa-onnx-c-api.so" \
-  "$runtime_root/lib/"
 ```
 
 Install the wake model before applying the accelerator so setup can compile it
@@ -138,21 +132,15 @@ tar -xzf onnxruntime-linux-x64-gpu_cuda13-1.29.0.tgz
 # 4ca594a0da83927befbd73fe020d7f569be151d70bb4fe9741ad405f4882e2ad
 ```
 
-Build sherpa against the extracted SDK and assemble the runtime directory:
+Assemble the runtime directory from the extracted SDK:
 
 ```bash
 ort_root="$PWD/onnxruntime-linux-x64-gpu_cuda13-1.29.0"
-OMA_ORT_ROOT="$ort_root" \
-OMA_NATIVE_ROOT="$HOME/.cache/omawake-sherpa-cuda" \
-  native/sherpa/build.sh
-
 runtime_root="$HOME/.local/share/omawake/runtimes/cuda-1.29.0"
 mkdir -p "$runtime_root/lib"
 cp -a "$ort_root"/lib/libonnxruntime.so* "$runtime_root/lib/"
 cp -a "$ort_root"/lib/libonnxruntime_providers_shared.so "$runtime_root/lib/"
 cp -a "$ort_root"/lib/libonnxruntime_providers_cuda.so "$runtime_root/lib/"
-cp -a "$HOME/.cache/omawake-sherpa-cuda/runtime/lib/libsherpa-onnx-c-api.so" \
-  "$runtime_root/lib/"
 
 omawake setup runtime --runtime cuda --device gpu \
   --dir "$runtime_root" --apply

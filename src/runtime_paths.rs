@@ -68,9 +68,10 @@ pub fn report(config: &BackendConfig, config_path: &Path) -> RuntimeLibraryRepor
         let state = crate::runtime_inventory::probe(&candidate, config_path);
         if !state.ready {
             report.remediation.push(format!(
-                "{}: {}; supply matching ONNX Runtime 1.29.0 and patched sherpa-onnx 1.13.8 plus the selected external provider/vendor stack",
+                "{}: {}; {}",
                 crate::runtime_inventory::name(runtime),
-                state.errors.join("; ")
+                state.errors.join("; "),
+                crate::runtime_inventory::remediation(runtime, &candidate.device),
             ));
         }
         report
@@ -202,11 +203,12 @@ pub(crate) fn report_with(
         &search_dirs,
         ldconfig,
     );
-    let sherpa_library = effective_library(
+    let sherpa_library = effective_packaged_library(
         &config.sherpa_library,
         environment_libraries[1].as_deref(),
         "libsherpa-onnx-c-api.so",
         config_directory,
+        &package_library_dirs,
         &search_dirs,
         ldconfig,
     );
@@ -308,7 +310,7 @@ pub(crate) fn report_with(
     }
     if !base_loadable {
         remediation.push(format!(
-            "provide matching ONNX Runtime 1.29.0 and patched sherpa-onnx 1.13.8 libraries, then set their exact paths or add their directories to backend.library_dirs or {LIBRARY_PATH_ENV}"
+            "restore Omawake's bundled lib directory for the default CPU runtime and extended sherpa library; accelerator setups only need an ABI-matched ONNX Runtime provider and vendor stack via backend.library_dirs or {LIBRARY_PATH_ENV}"
         ));
     }
     if base_loadable {
@@ -374,6 +376,29 @@ fn effective_library(
         return Some(environment.to_owned());
     }
     runtime_library(prefix, search_dirs, ldconfig)
+}
+
+fn effective_packaged_library(
+    configured: &Path,
+    environment: Option<&Path>,
+    prefix: &str,
+    config_directory: &Path,
+    package_dirs: &[PathBuf],
+    search_dirs: &[PathBuf],
+    ldconfig: Option<&str>,
+) -> Option<PathBuf> {
+    if !configured.as_os_str().is_empty() {
+        return Some(if configured.is_absolute() {
+            configured.to_owned()
+        } else {
+            config_directory.join(configured)
+        });
+    }
+    if let Some(environment) = environment.filter(|path| !path.as_os_str().is_empty()) {
+        return Some(environment.to_owned());
+    }
+    runtime_library(prefix, package_dirs, None)
+        .or_else(|| runtime_library(prefix, search_dirs, ldconfig))
 }
 
 pub fn effective_library_path(
@@ -476,16 +501,20 @@ fn package_library_dirs(executable: &Path) -> Vec<PathBuf> {
     let Some(binary_dir) = executable.parent() else {
         return Vec::new();
     };
-    let candidates = [
-        binary_dir.join("lib"),
-        binary_dir.to_owned(),
-        binary_dir.join("../lib/omawake"),
-    ];
+    let candidates = [binary_dir.join("lib"), binary_dir.join("../lib/omawake")];
     deduplicate_paths(
         candidates
             .into_iter()
             .filter(|directory| contains_runtime_anchor(directory)),
     )
+}
+
+pub(crate) fn packaged_library(name: &str) -> Option<PathBuf> {
+    env::current_exe()
+        .ok()
+        .into_iter()
+        .flat_map(|executable| package_library_dirs(&executable))
+        .find_map(|directory| library_path_in_directory(name, &directory))
 }
 
 fn contains_runtime_anchor(directory: &Path) -> bool {

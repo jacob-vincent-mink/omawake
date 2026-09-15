@@ -74,6 +74,54 @@ fn report_separates_config_environment_package_and_loadability() {
 }
 
 #[test]
+fn package_discovery_ignores_unrelated_libraries_beside_the_executable() {
+    let root = temp("package-layout");
+    let binary_dir = root.join("bin");
+    let package = binary_dir.join("lib");
+    fs::create_dir_all(&package).unwrap();
+    fs::write(binary_dir.join("omawake"), b"").unwrap();
+    fs::write(binary_dir.join("libsherpa-onnx-c-api.so"), b"stale").unwrap();
+    fs::write(package.join("libsherpa-onnx-c-api.so"), b"bundled").unwrap();
+
+    assert_eq!(package_library_dirs(&binary_dir.join("omawake")), [package]);
+}
+
+#[test]
+fn bundled_sherpa_wins_over_a_library_found_in_an_external_directory() {
+    let root = temp("bundled-sherpa-precedence");
+    let external = root.join("external");
+    let package = root.join("bin/lib");
+    fs::create_dir_all(&external).unwrap();
+    fs::create_dir_all(&package).unwrap();
+    fs::write(root.join("bin/omawake"), b"").unwrap();
+    let ort = external.join("libonnxruntime.so.1.29.0");
+    let upstream_sherpa = external.join("libsherpa-onnx-c-api.so");
+    let bundled_sherpa = package.join("libsherpa-onnx-c-api.so");
+    fs::write(&ort, b"external").unwrap();
+    fs::write(&upstream_sherpa, b"upstream").unwrap();
+    fs::write(&bundled_sherpa, b"bundled extended").unwrap();
+
+    let report = report_with(
+        &BackendConfig {
+            library_dirs: vec![external],
+            ..Default::default()
+        },
+        &root.join("config.toml"),
+        Some(&root.join("bin/omawake")),
+        None,
+        None,
+        None,
+        [None, None, None],
+        |_, _| true,
+        |_, _| true,
+        |_, _, _, _, _, _| true,
+    );
+
+    assert_eq!(report.onnxruntime_library, Some(ort));
+    assert_eq!(report.sherpa_library, Some(bundled_sherpa));
+}
+
+#[test]
 fn invalid_paths_are_reported_and_reexec_is_refused() {
     let root = temp("invalid");
     let relative = PathBuf::from("relative/lib");

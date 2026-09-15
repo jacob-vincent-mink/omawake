@@ -4,8 +4,9 @@ The extended sherpa library is required for the exception-safe KWS C boundary,
 but default CPU inference does not create or retain a provider-plugin runtime.
 
 Run `omawake setup runtime --json` to inspect runtime/device availability.
-OpenVINO and CUDA are external: supply matching ORT core, patched sherpa,
-provider DSO and Intel/NVIDIA dependencies. Setup never installs these files.
+Omawake always supplies its extended sherpa companion. OpenVINO and CUDA are
+external: supply a matching ORT core/provider DSO and Intel/NVIDIA dependencies.
+Setup never installs those external files.
 
 `omawake setup runtime --runtime openvino --device npu --dir /absolute/runtime`
 previews and probes a candidate. Add `--apply` to save after a successful probe.

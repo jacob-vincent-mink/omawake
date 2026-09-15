@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed runtime setup so stale or upstream sherpa libraries beside a developer
+  binary cannot shadow Omawake's extended companion library.
+- Accelerator setup now requires only the external ONNX Runtime provider and
+  vendor stack; Omawake always supplies its matching sherpa companion.
+- Added packaged-layout release coverage for conflicting adjacent native
+  libraries.
+
 ## 0.0.1-rc - 2026-09-14
 
 - Added local wake-word detection from live capture or WAV files.

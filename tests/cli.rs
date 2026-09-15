@@ -287,7 +287,7 @@ fn setup_discovery_and_remediation_commands() {
 }
 
 #[test]
-fn setup_runtime_directory_rejects_unloadable_cpu_and_cuda_stacks_without_persisting() {
+fn source_build_rejects_external_runtime_without_the_app_supplied_sherpa() {
     for (runtime, expected_runtime, provider) in [
         ("default", omawake::backend::Runtime::Default, None),
         (
@@ -301,7 +301,6 @@ fn setup_runtime_directory_rejects_unloadable_cpu_and_cuda_stacks_without_persis
         let libraries = bundle.join("lib64");
         fs::create_dir_all(&libraries).unwrap();
         fs::write(libraries.join("libonnxruntime.so.1.29.0"), b"fixture").unwrap();
-        fs::write(libraries.join("libsherpa-onnx-c-api.so.1.13.8"), b"fixture").unwrap();
         if let Some(provider) = provider {
             fs::write(libraries.join(provider), b"fixture").unwrap();
         }
@@ -320,7 +319,7 @@ fn setup_runtime_directory_rejects_unloadable_cpu_and_cuda_stacks_without_persis
             ],
         );
         assert!(!output.status.success());
-        assert!(stderr(&output).contains("runtime candidate rejected; config unchanged"));
+        assert!(stderr(&output).contains("missing its bundled extended sherpa library"));
         assert!(!root.join("config/omawake/config.toml").exists());
         let _ = expected_runtime;
     }
@@ -432,7 +431,9 @@ const char *SherpaOnnxGetOnnxruntimeVersionStr(void) { return "1.29.0"; }
     let unpatched = run(&root, &["setup", "runtime"]);
     assert!(unpatched.status.success(), "{}", stderr(&unpatched));
     assert!(stdout(&unpatched).contains("default   auto, cpu                 runtime not found"));
-    assert!(stdout(&unpatched).contains("patched sherpa-onnx 1.13.8"));
+    assert!(
+        stdout(&unpatched).contains("loaded sherpa-onnx is not the required extended sherpa API")
+    );
     config.backend.sherpa_library = sherpa;
 
     for (runtime, device, library) in [

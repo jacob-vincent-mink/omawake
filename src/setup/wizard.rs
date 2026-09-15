@@ -414,7 +414,7 @@ fn choose_runtime_directory_with(
         MenuItem::available("Use current discovery", configured),
         MenuItem::available(
             "Choose runtime directory",
-            "Point Omawake at external ONNX Runtime, patched sherpa, and provider libraries",
+            "Point Omawake at an external ONNX Runtime provider and vendor libraries; Sherpa is bundled",
         ),
     ];
     if prompter.choose(

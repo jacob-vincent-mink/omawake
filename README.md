@@ -66,19 +66,19 @@ omawake setup runtime --runtime openvino --device npu \
 The normal Linux release archive includes a working CPU default under `lib/`:
 the official ONNX Runtime 1.29.0 CPU library and its matching extended
 sherpa-onnx 1.13.8 C API. An unpacked release therefore needs only a model for
-CPU inference. OpenVINO and CUDA setup points the same executable at a
-user-supplied, ABI-matched ONNX Runtime core, patched sherpa library, provider
-plugin, and vendor runtime. Setup accepts a flat library directory or an SDK
-root with libraries under `lib`, `lib64`, or OpenVINO's
+CPU inference. Omawake always supplies and selects its extended sherpa library.
+OpenVINO and CUDA setup points the same executable at a user-supplied,
+ABI-matched ONNX Runtime core, provider plugin, and vendor runtime. Setup accepts
+a flat library directory or an SDK root with libraries under `lib`, `lib64`, or OpenVINO's
 `runtime/lib/intel64[/Release]` layout. The release does not bundle acceleration
 provider plugins. A successful setup does not establish device placement;
 inspect runtime provider evidence before treating NPU or GPU placement as
 verified.
 
-[`native/sherpa`](native/sherpa/README.md) builds the patched sherpa-onnx
-library against a user-supplied ONNX Runtime 1.29 SDK. CUDA and OpenVINO
-providers remain external runtime inputs; Omawake does not build or bundle
-their libraries.
+[`native/sherpa`](native/sherpa/README.md) documents how maintainers reproduce
+the bundled sherpa companion. End users never need to build or supply it. CUDA
+and OpenVINO providers remain external runtime inputs; Omawake does not build or
+bundle their libraries.
 The [GB10 CUDA validation](benchmarks/cuda-gb10-2026-09-14.md) records direct
 WAV accuracy, Nsight kernel placement, GPU telemetry, and a CPU comparison.
 
@@ -196,9 +196,9 @@ Actions are executed directly. Omawake does not insert a shell. Configure `sh -l
 | `cuda` | `auto`, `gpu` |
 | `openvino` | `auto`, `npu`, `gpu`, `cpu` |
 
-The executable exposes all three runtime choices and loads an external, patched
-sherpa-onnx C API plus its exact ONNX Runtime dynamically. It rejects a missing,
-version-mismatched, or unpatched stack before model creation. OpenVINO and CUDA
+The executable exposes all three runtime choices and dynamically loads its
+bundled extended sherpa-onnx C API plus the selected ONNX Runtime. It rejects a
+missing or version-mismatched stack before model creation. OpenVINO and CUDA
 also require a matching execution-provider plugin and the requested hardware
 device. With `fallback = "cpu"`, an accelerator initialization failure emits a
 warning and is visible in status and test output. Selecting a runtime in TOML
@@ -216,10 +216,11 @@ Relative entries resolve beside Omawake's config file. `OMAWAKE_LIBRARY_PATH`
 adds a path-list overlay after configured directories. Exact configured
 libraries win over environment and directory discovery. Directory search order
 is configured directories, the app environment overlay, then package
-directories; the ambient loader remains a final discovery fallback. This makes
-the bundled CPU stack automatic while configured external acceleration stacks
-win deterministically. Omawake discovers package libraries in the executable
-directory, its `lib/` child, or `../lib/omawake`. Before an
+directories; the ambient loader remains a final discovery fallback. Omawake's
+companion sherpa library is selected from the package before generic external
+directories, so an upstream sherpa copy in an accelerator SDK cannot shadow it.
+Omawake discovers package libraries in the executable's `lib/` child or
+`../lib/omawake`. Before an
 engine command (`test`, `benchmark`, or `daemon`) loads the provider on Linux,
 Omawake validates these app-owned directories and re-executes itself once with
 them prepended to `LD_LIBRARY_PATH`. A sentinel prevents re-exec loops. Config
@@ -242,9 +243,9 @@ dependency directories. Ambient `LD_LIBRARY_PATH` is discovery context only and
 is never saved. Setup does not install native runtimes; model setup and explicit
 `setup systemd` remain separate.
 
-The release package supplies the CPU ONNX Runtime and patched sherpa C API.
-These settings replace that default with an external matching stack for
-OpenVINO or CUDA and locate its provider and vendor dependencies. Explicit
+The release package supplies the CPU ONNX Runtime and extended sherpa C API.
+Accelerator settings replace the CPU ONNX Runtime with an external matching
+core/provider stack while continuing to use Omawake's sherpa companion. Explicit
 `omawake setup systemd` writes only Omawake's effective config, app environment,
 and package-relative paths into the unit. It never copies the caller's ambient
 `LD_LIBRARY_PATH`.

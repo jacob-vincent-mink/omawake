@@ -972,43 +972,44 @@ fn runtime_changes_reset_cuda_only_device_state() {
 fn runtime_directory_populates_exact_external_library_paths() {
     let paths = test_paths("runtime-directory");
     let runtime = paths.data_dir.join("runtime");
+    let bundled_sherpa = paths.data_dir.join("package/lib/libsherpa-onnx-c-api.so");
     fs::create_dir_all(&runtime).unwrap();
+    fs::create_dir_all(bundled_sherpa.parent().unwrap()).unwrap();
+    fs::write(&bundled_sherpa, b"bundled patched fixture").unwrap();
     for library in [
         "libonnxruntime.so.1.29.0",
-        "libsherpa-onnx-c-api.so.1.13.8",
         "libonnxruntime_providers_openvino.so",
     ] {
         fs::write(runtime.join(library), b"fixture").unwrap();
     }
-    save_runtime_selection_impl_with(
-        &paths.config_file,
-        &RuntimeSelection {
-            runtime: Runtime::Openvino,
-            device: "npu".into(),
-        },
-        Some(&runtime),
-        |_, _| Ok(()),
-    )
-    .unwrap();
-    let mut config = Config::load(&paths.config_file).unwrap();
+    let mut config = Config::default();
+    config.backend.runtime = Runtime::Openvino;
+    configure_runtime_directory_with(&mut config, &runtime, bundled_sherpa.clone()).unwrap();
     assert_eq!(
         config.backend.library_dirs.as_slice(),
-        std::slice::from_ref(&runtime)
+        [
+            runtime.clone(),
+            bundled_sherpa.parent().unwrap().to_path_buf()
+        ]
     );
     assert_eq!(
         config.backend.onnxruntime_library,
         runtime.join("libonnxruntime.so.1.29.0")
     );
-    assert_eq!(
-        config.backend.sherpa_library,
-        runtime.join("libsherpa-onnx-c-api.so.1.13.8")
-    );
+    assert_eq!(config.backend.sherpa_library, bundled_sherpa);
     assert_eq!(
         config.backend.provider_library,
         runtime.join("libonnxruntime_providers_openvino.so")
     );
 
-    assert!(configure_runtime_directory(&mut Config::default(), Path::new("relative")).is_err());
+    assert!(
+        configure_runtime_directory_with(
+            &mut Config::default(),
+            Path::new("relative"),
+            PathBuf::from("unused")
+        )
+        .is_err()
+    );
 
     let sdk = paths.data_dir.join("sdk");
     let base = sdk.join("lib");
@@ -1016,14 +1017,19 @@ fn runtime_directory_populates_exact_external_library_paths() {
     fs::create_dir_all(&base).unwrap();
     fs::create_dir_all(&provider).unwrap();
     fs::write(base.join("libonnxruntime.so"), b"fixture").unwrap();
-    fs::write(base.join("libsherpa-onnx-c-api.so"), b"fixture").unwrap();
     fs::write(
         provider.join("libonnxruntime_providers_openvino.so"),
         b"fixture",
     )
     .unwrap();
-    configure_runtime_directory(&mut config, &sdk).unwrap();
-    assert_eq!(config.backend.library_dirs, [base, provider]);
+    let packaged = paths.data_dir.join("other/lib/libsherpa-onnx-c-api.so");
+    fs::create_dir_all(packaged.parent().unwrap()).unwrap();
+    fs::write(&packaged, b"bundled patched fixture").unwrap();
+    configure_runtime_directory_with(&mut config, &sdk, packaged.clone()).unwrap();
+    assert_eq!(
+        config.backend.library_dirs,
+        [base, packaged.parent().unwrap().to_path_buf(), provider]
+    );
 }
 
 fn runtime_report(runtime: Runtime, loadable: bool) -> runtime_paths::RuntimeLibraryReport {

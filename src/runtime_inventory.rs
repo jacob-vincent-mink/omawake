@@ -53,31 +53,80 @@ pub fn name(runtime: Runtime) -> &'static str {
     }
 }
 
+pub(crate) fn remediation(runtime: Runtime, device: &str) -> String {
+    match runtime {
+        Runtime::Default => "Reinstall Omawake with its bundled lib directory; the default CPU runtime and extended sherpa library are supplied by Omawake.".into(),
+        Runtime::Openvino => format!("Omawake supplies the extended sherpa library. Supply an ABI-matched ONNX Runtime 1.29.0 OpenVINO provider stack and Intel OpenVINO dependencies, then run `omawake setup runtime --runtime openvino --device {device} --dir /absolute/runtime --apply`."),
+        Runtime::Cuda => format!("Omawake supplies the extended sherpa library. Supply an ABI-matched ONNX Runtime 1.29.0 CUDA provider stack and NVIDIA CUDA dependencies, then run `omawake setup runtime --runtime cuda --device {device} --dir /absolute/runtime --apply`."),
+    }
+}
+
 pub fn inventory(config: &BackendConfig, path: &Path) -> Vec<State> {
-    [ (Runtime::Default, &["auto", "cpu"][..]),
-      (Runtime::Openvino, &["auto", "cpu", "gpu", "npu"][..]),
-      (Runtime::Cuda, &["auto", "gpu"][..]) ]
-    .into_iter().flat_map(|(runtime, devices)| devices.iter().map(move |device| (runtime, *device)))
+    [
+        (Runtime::Default, &["auto", "cpu"][..]),
+        (Runtime::Openvino, &["auto", "cpu", "gpu", "npu"][..]),
+        (Runtime::Cuda, &["auto", "gpu"][..]),
+    ]
+    .into_iter()
+    .flat_map(|(runtime, devices)| devices.iter().map(move |device| (runtime, *device)))
     .map(|(runtime, device)| {
         let mut candidate = config.clone();
-        if runtime != config.runtime { candidate.provider_library.clear(); candidate.device_id = 0; }
+        if runtime != config.runtime {
+            candidate.provider_library.clear();
+            candidate.device_id = 0;
+        }
         candidate.runtime = runtime;
         candidate.device = device.into();
         let locations = runtime_paths::discover(&candidate, path);
         let exact = resolve(&candidate, path);
-        let anchor = if runtime == Runtime::Default { &exact.onnxruntime_library } else { &exact.provider_library };
-        let configured = path.is_file() && config.runtime == runtime && config.device.eq_ignore_ascii_case(device);
-        let source = if locations.configured_library_dirs.iter().any(|dir| anchor.starts_with(dir)) { "configured" }
-            else if locations.environment_library_dirs.iter().any(|dir| anchor.starts_with(dir)) { "environment" }
-            else if locations.package_library_dirs.iter().any(|dir| anchor.starts_with(dir)) { "package" }
-            else if env::var_os("LD_LIBRARY_PATH").is_some_and(|value| env::split_paths(&value).any(|dir| anchor.starts_with(dir))) { "environment" }
-            else if anchor.is_file() { "system" } else { "candidate" };
-        State { runtime: name(runtime), device: device.into(), supported: true,
-            discovered: required(&exact).iter().all(|p| p.is_file()), source, configured,
-            probe: probe(&candidate, path), paths: exact,
-            remediation: vec![format!("Supply external {} libraries and dependencies, then run `omawake setup runtime --runtime {} --device {device} --dir /absolute/runtime --apply`. Required: ONNX Runtime 1.29.0, sherpa with the extended API 1.13.8{}.", name(runtime), name(runtime), match runtime {Runtime::Default => "", Runtime::Openvino => ", libonnxruntime_providers_openvino.so and Intel OpenVINO", Runtime::Cuda => ", libonnxruntime_providers_cuda.so and NVIDIA CUDA"})],
+        let anchor = if runtime == Runtime::Default {
+            &exact.onnxruntime_library
+        } else {
+            &exact.provider_library
+        };
+        let configured = path.is_file()
+            && config.runtime == runtime
+            && config.device.eq_ignore_ascii_case(device);
+        let source = if locations
+            .configured_library_dirs
+            .iter()
+            .any(|dir| anchor.starts_with(dir))
+        {
+            "configured"
+        } else if locations
+            .environment_library_dirs
+            .iter()
+            .any(|dir| anchor.starts_with(dir))
+        {
+            "environment"
+        } else if locations
+            .package_library_dirs
+            .iter()
+            .any(|dir| anchor.starts_with(dir))
+        {
+            "package"
+        } else if env::var_os("LD_LIBRARY_PATH")
+            .is_some_and(|value| env::split_paths(&value).any(|dir| anchor.starts_with(dir)))
+        {
+            "environment"
+        } else if anchor.is_file() {
+            "system"
+        } else {
+            "candidate"
+        };
+        State {
+            runtime: name(runtime),
+            device: device.into(),
+            supported: true,
+            discovered: required(&exact).iter().all(|p| p.is_file()),
+            source,
+            configured,
+            probe: probe(&candidate, path),
+            paths: exact,
+            remediation: vec![remediation(runtime, device)],
         }
-    }).collect()
+    })
+    .collect()
 }
 
 pub fn resolve(config: &BackendConfig, path: &Path) -> BackendConfig {

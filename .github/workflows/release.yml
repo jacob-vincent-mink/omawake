@@ -163,10 +163,29 @@ jobs:
           expected_version="${package#omawake-}"
           expected_version="${expected_version%-linux-x86_64}"
           [[ "$("${binary}" --version)" == "omawake ${expected_version}" ]]
-          "${binary}" setup runtime --json > /tmp/runtime.json
-          python3 - <<'PY'
+          cat > "${smoke_root}/stale-sherpa.c" <<'EOF'
+          const char *SherpaOnnxGetVersionStr(void) { return "1.13.8"; }
+          const char *SherpaOnnxGetOnnxruntimeVersionStr(void) { return "1.29.0"; }
+          EOF
+          cc -shared -fPIC "${smoke_root}/stale-sherpa.c" \
+            -o "${smoke_root}/${package}/libsherpa-onnx-c-api.so"
+          smoke_xdg="${smoke_root}/xdg"
+          mkdir -p "${smoke_xdg}/config" "${smoke_xdg}/data" \
+            "${smoke_xdg}/cache" "${smoke_xdg}/state" "${smoke_xdg}/run"
+          HOME="${smoke_xdg}" \
+            XDG_CONFIG_HOME="${smoke_xdg}/config" \
+            XDG_DATA_HOME="${smoke_xdg}/data" \
+            XDG_CACHE_HOME="${smoke_xdg}/cache" \
+            XDG_STATE_HOME="${smoke_xdg}/state" \
+            XDG_RUNTIME_DIR="${smoke_xdg}/run" \
+            "${binary}" setup runtime --json > "${smoke_root}/runtime.json"
+          python3 - "${smoke_root}/runtime.json" \
+            "${smoke_root}/${package}/lib/libsherpa-onnx-c-api.so" <<'PY'
           import json
-          with open("/tmp/runtime.json", encoding="utf-8") as handle:
+          import pathlib
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as handle:
               report = json.load(handle)
           actual = set(report["supported_capabilities"])
           expected = {"cpu", "openvino", "cuda"}
@@ -180,6 +199,12 @@ jobs:
           )
           assert cpu["ready"] and cpu["loadable"] and cpu["device_accessible"]
           assert cpu["source"] == "package" and not cpu["configured"]
+          actual_sherpa = pathlib.Path(report["libraries"]["sherpa_library"]).resolve()
+          expected_sherpa = pathlib.Path(sys.argv[2]).resolve()
+          if actual_sherpa != expected_sherpa:
+              raise SystemExit(
+                  f"packaged sherpa {expected_sherpa} was shadowed by {actual_sherpa}"
+              )
           PY
           if readelf -d "${binary}" | grep -E 'libonnxruntime|libsherpa-onnx'; then
             echo "release executable must not link ONNX Runtime or sherpa-onnx" >&2
