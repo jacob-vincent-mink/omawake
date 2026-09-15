@@ -372,6 +372,8 @@ fn build_session(
             ));
         }
         builder = builder
+            .with_disable_cpu_fallback()
+            .map_err(ort_error)?
             .with_devices(devices, Some(&options))
             .map_err(ort_error)?;
     }
