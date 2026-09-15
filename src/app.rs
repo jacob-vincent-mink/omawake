@@ -366,13 +366,34 @@ where
 
 fn run_with_paths_and_services<F, D>(
     cli: Cli,
-    mut paths: AppPaths,
+    paths: AppPaths,
     mut send_request: F,
     list_devices: D,
 ) -> Result<()>
 where
     F: FnMut(&AppPaths, Command) -> Result<Response>,
     D: FnOnce() -> Result<Vec<String>>,
+{
+    run_with_paths_services_and_loader(
+        cli,
+        paths,
+        &mut send_request,
+        list_devices,
+        runtime_paths::ensure_engine_library_path,
+    )
+}
+
+fn run_with_paths_services_and_loader<F, D, L>(
+    cli: Cli,
+    mut paths: AppPaths,
+    mut send_request: F,
+    list_devices: D,
+    ensure_engine_library_path: L,
+) -> Result<()>
+where
+    F: FnMut(&AppPaths, Command) -> Result<Response>,
+    D: FnOnce() -> Result<Vec<String>>,
+    L: FnOnce(&crate::backend::BackendConfig, &Path) -> Result<()>,
 {
     let config_path = cli.config.unwrap_or_else(|| paths.config_file.clone());
     paths.config_file = config_path.clone();
@@ -412,7 +433,7 @@ where
     };
     let config = Config::load(&config_path)?;
     if command_uses_engine(&command) {
-        runtime_paths::ensure_engine_library_path(&config.backend, &config_path)?;
+        ensure_engine_library_path(&config.backend, &config_path)?;
     }
     match command {
         TopCommand::Benchmark {

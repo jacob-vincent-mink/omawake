@@ -3223,8 +3223,14 @@ fn real_model_runs_through_top_level_file_and_benchmark_commands_when_available(
         ],
     ] {
         let cli = Cli::try_parse_from(args).unwrap();
-        run_with_paths_and_services(cli, paths.clone(), |_, _| unreachable!(), || unreachable!())
-            .unwrap();
+        run_with_paths_services_and_loader(
+            cli,
+            paths.clone(),
+            |_, _| unreachable!(),
+            || unreachable!(),
+            |_, _| Ok(()),
+        )
+        .unwrap();
     }
 }
 
