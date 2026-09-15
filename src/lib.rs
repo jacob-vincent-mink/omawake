@@ -8,6 +8,7 @@ pub mod evaluation;
 pub mod keyword;
 mod native_worker;
 pub mod paths;
+pub mod phrase;
 pub mod protocol;
 pub mod runtime_inventory;
 pub mod runtime_paths;
