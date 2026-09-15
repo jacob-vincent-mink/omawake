@@ -56,6 +56,29 @@ Omawake's complete phrase matcher, it is model-selection evidence only. Tiny
 verifier profiles must not be recommended without passing the same positive
 and negative gates.
 
+Those 60 WAV files have now also been replayed through Omawake. With the
+complete configured phrase `hey jarvis`, the default Moonshine verifier found
+59/60 after adding 320 ms of bounded post-roll (98.33% recall, 99.16% F1,
+aggregate real-time factor 0.031). The remaining clip transcribes as
+`Page Arvis` even when the complete WAV is sent directly to Moonshine. Before
+post-roll, two other clips lost the final consonant when cut exactly at
+Silero's speech-end timestamp; direct ASR recovered them with trailing
+context. This is why the native ring retains post-roll instead of compensating
+with fuzzy phrase matching.
+
+OpenVINO Whisper Base.en found only 51/60 when required to match the complete
+`hey jarvis` phrase: all nine misses transcribed as `Hate Jarvis`. Configuring
+the intentional shorter phrase `jarvis` found 60/60. This reproduces the
+research harness result and confirms its boundary: changing the configured
+phrase changes product behavior, so the shorter-phrase score cannot be
+reported as complete-phrase recall. The checksum-pinned input manifest is
+`3c30d570a2b8f7a6ed67eddc6f056cd775379aff13a57e5e4b4afdd9bbafa0de`;
+the Moonshine complete-phrase, OpenVINO complete-phrase, and OpenVINO
+shorter-phrase report hashes are respectively
+`0e247994b811247f3473b4e1cc60169144ade6226a8ef20c03b1b9bc0c6a7039`,
+`33a8e74733c776e0674c4b304c6296f21a5a8befa26a5f6904d091e7d16baaf2`,
+and `c280f380029f57bd4eb82fc5e53e18758c2a4889216013955fa5b41475a205cd`.
+
 ## Latency and resource reporting
 
 Report at least:
