@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "audio_cpp_revision": "e9ff20042ec85af960a720368c6927cda19ad65f",
+  "provider_sha256": "2ebb97d4cf2d0251d88b8f4b1eaee9544607b6562c2722d3979bc85cba179468",
+  "reports": {
+    "wake-cpu-benchmark.json": {
+      "sha256": "ab083ab230926eb915e8a6b518fc267b65b491ac182cb1fbecbb9883f41739af",
+      "backend": {
+        "effective_runtime": "default",
+        "fallback_used": false,
+        "kind": "audiocpp",
+        "placement_evidence": "audio.cpp created explicit CPU Silero and ASR sessions",
+        "placement_verified": true,
+        "requested_device": "cpu",
+        "requested_runtime": "default"
+      },
+      "model_load_milliseconds": 177.09598300000002,
+      "summary": {
+        "p50_milliseconds": 72.45434300000001,
+        "p50_real_time_factor": 0.03419471545831717,
+        "p95_milliseconds": 92.987989,
+        "p95_real_time_factor": 0.03807472167059064,
+        "samples": 10
+      }
+    },
+    "wake-cpu-evaluate.json": {
+      "sha256": "dce06c7320abec444d1416edb290685d5f533d73bc38236dc7dd59fcaebf579e",
+      "application_version": "0.0.1-rc.3",
+      "backend": {
+        "backend_kind": "audiocpp",
+        "effective_runtime": "default",
+        "fallback_used": false,
+        "placement_evidence": "audio.cpp created explicit CPU Silero and ASR sessions",
+        "placement_verified": true,
+        "requested_device": "cpu",
+        "requested_runtime": "default"
+      },
+      "model_load_milliseconds": 209.068776,
+      "prediction_fingerprint": "d94b3311a79b5d8be04149d52dd4408819403089cfa3a4b94123eb238d5d014e",
+      "summary": {
+        "duplicate_predictions": 0,
+        "expected_events": 60,
+        "f1": 0.991596638655462,
+        "false_activations": 0,
+        "false_activations_per_hour": null,
+        "false_negatives": 1,
+        "false_positives": 0,
+        "negative_audio_hours": 0.0,
+        "precision": 1.0,
+        "predictions": 59,
+        "recall": 0.9833333333333332,
+        "true_positives": 59,
+        "wrong_id_predictions": 0
+      },
+      "timing": {
+        "aggregate_real_time_factor": 0.040947887641679885,
+        "files": 60,
+        "p50_file_milliseconds": 86.499333,
+        "p95_file_milliseconds": 132.730028,
+        "total_audio_milliseconds": 132406.75,
+        "total_elapsed_milliseconds": 5421.776721999998
+      }
+    },
+    "wake-vulkan-benchmark.json": {
+      "sha256": "382d3005e0194d85117d70ee85c5726d49fb592338dec51c4e9dbdf258645400",
+      "backend": {
+        "effective_runtime": "vulkan",
+        "fallback_used": false,
+        "kind": "audiocpp",
+        "placement_evidence": "audio.cpp created explicit Vulkan sessions",
+        "placement_verified": true,
+        "requested_device": "gpu",
+        "requested_runtime": "vulkan"
+      },
+      "model_load_milliseconds": 180.791134,
+      "summary": {
+        "p50_milliseconds": 118.859557,
+        "p50_real_time_factor": 0.05438964916574635,
+        "p95_milliseconds": 147.356029,
+        "p95_real_time_factor": 0.06033617729552666,
+        "samples": 10
+      }
+    },
+    "wake-vulkan-evaluate.json": {
+      "sha256": "87314daf9e6d6ba9949437fc8a1ef5c5dd7c8f6179043d994ab697a68008e80d",
+      "application_version": "0.0.1-rc.3",
+      "backend": {
+        "backend_kind": "audiocpp",
+        "effective_runtime": "vulkan",
+        "fallback_used": false,
+        "placement_evidence": "audio.cpp created explicit Vulkan sessions",
+        "placement_verified": true,
+        "requested_device": "gpu",
+        "requested_runtime": "vulkan"
+      },
+      "model_load_milliseconds": 163.48765400000002,
+      "prediction_fingerprint": "d94b3311a79b5d8be04149d52dd4408819403089cfa3a4b94123eb238d5d014e",
+      "summary": {
+        "duplicate_predictions": 0,
+        "expected_events": 60,
+        "f1": 0.991596638655462,
+        "false_activations": 0,
+        "false_activations_per_hour": null,
+        "false_negatives": 1,
+        "false_positives": 0,
+        "negative_audio_hours": 0.0,
+        "precision": 1.0,
+        "predictions": 59,
+        "recall": 0.9833333333333332,
+        "true_positives": 59,
+        "wrong_id_predictions": 0
+      },
+      "timing": {
+        "aggregate_real_time_factor": 0.08663155022685777,
+        "files": 60,
+        "p50_file_milliseconds": 164.240894,
+        "p95_file_milliseconds": 205.381701,
+        "total_audio_milliseconds": 132406.75,
+        "total_elapsed_milliseconds": 11470.602013
+      }
+    }
+  },
+  "source_revision": "d3da01b482f0d518d8cd96a748cbad13ed562f83",
+  "binary_sha256": "e21e2b06dd2a354035123ee3649b815e6d0dbc832317c46320ee4baf9e580f04",
+  "release": "v0.0.1-rc.3"
+}

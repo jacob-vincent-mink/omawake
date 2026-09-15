@@ -58,6 +58,10 @@ cmake -S /tmp/audio.cpp -B /tmp/audio.cpp-build \
 cmake --build /tmp/audio.cpp-build --parallel --target audiocpp
 ```
 
+The pinned audio.cpp C API always includes Silero VAD; `moonshine_asr`
+selects the additional speech recognizer. For one provider shared with
+Omaspeak, use `-DAUDIOCPP_MODELS=moonshine_asr,supertonic`.
+
 For a local CUDA build, add `-DCMAKE_CUDA_ARCHITECTURES=native`. Select the
 result with `--dir /tmp/audio.cpp-build/bin`. The provider must retain the
 matching vendor libraries in its normal loader path.
