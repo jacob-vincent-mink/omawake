@@ -31,13 +31,14 @@ fn rejected_and_preview_candidates_preserve_config_bytes() {
 
     let probe = Probe {
         loadable: true,
-        device_accessible: true,
+        device_accessible: Some(true),
         ready: true,
         evidence: Evidence {
             versions: vec!["audio.cpp 0.1.0".into()],
             provider_registration: true,
             available_devices: vec!["cpu".into()],
             selected_device: Some("cpu".into()),
+            ..Default::default()
         },
         errors: Vec::new(),
     };
@@ -57,7 +58,7 @@ fn successful_apply_is_atomic_and_persists_only_a_ready_candidate() {
     config.backend.device = "cpu".into();
     let result = apply_with(&config, &path, true, |_, _| Probe {
         loadable: true,
-        device_accessible: true,
+        device_accessible: Some(true),
         ready: true,
         ..Default::default()
     })

@@ -1091,7 +1091,7 @@ where
         device_id,
         directory.as_deref(),
     )?;
-    let evidence = crate::runtime_inventory::apply_with(&candidate, config_path, false, probe)?;
+    let mut evidence = crate::runtime_inventory::apply_with(&candidate, config_path, false, probe)?;
     if apply {
         prepare_and_save_runtime_candidate_with(
             &candidate,
@@ -1101,6 +1101,8 @@ where
             prepare_cache,
             prove,
         )?;
+        evidence.device_accessible = Some(true);
+        evidence.evidence.model_inference_verified = true;
     }
     println!(
         "{}",
@@ -1789,7 +1791,7 @@ where
         return match openvino_probe(config, &paths) {
             Ok(evidence) => crate::runtime_inventory::Probe {
                 loadable: true,
-                device_accessible: true,
+                device_accessible: Some(true),
                 ready: true,
                 evidence: crate::runtime_inventory::Evidence {
                     versions: vec![format!(
@@ -1799,6 +1801,8 @@ where
                     provider_registration: true,
                     available_devices: vec![evidence.available_device.to_ascii_lowercase()],
                     selected_device: Some(evidence.requested_device.to_ascii_lowercase()),
+                    provider_path: Some(evidence.genai_library.clone().into()),
+                    model_inference_verified: false,
                 },
                 errors: Vec::new(),
             },
@@ -1811,7 +1815,7 @@ where
     match audiocpp_probe(config, &paths) {
         Ok((library, version)) => crate::runtime_inventory::Probe {
             loadable: true,
-            device_accessible: true,
+            device_accessible: None,
             ready: true,
             evidence: crate::runtime_inventory::Evidence {
                 versions: vec![format!("{version} · {}", library.display())],
@@ -1826,6 +1830,8 @@ where
                         .canonical_device()
                         .unwrap_or_else(|_| backend.device.clone()),
                 ),
+                provider_path: Some(library),
+                model_inference_verified: false,
             },
             errors: Vec::new(),
         },

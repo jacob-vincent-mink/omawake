@@ -49,10 +49,10 @@ pub(crate) fn probe_provider(config: &Config, paths: &AppPaths) -> Result<(PathB
     let api = AudioCppApi::load(&library)?;
     let version = unsafe { (api.build_version)() };
     let version = if version.is_null() {
-        format!("audio.cpp ABI 0.1.0 ({backend}:{device})")
+        format!("audio.cpp ABI 0.1.0 (requested {backend}:{device})")
     } else {
         format!(
-            "audio.cpp {} (ABI 0.1.0, {backend}:{device})",
+            "audio.cpp {} (ABI 0.1.0, requested {backend}:{device})",
             unsafe { CStr::from_ptr(version) }.to_string_lossy()
         )
     };

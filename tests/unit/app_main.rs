@@ -73,7 +73,7 @@ impl GuidedPrompts for ScriptedGuidedPrompts {
         }
         Ok(crate::runtime_inventory::Probe {
             loadable: true,
-            device_accessible: true,
+            device_accessible: Some(true),
             ready: true,
             ..Default::default()
         })
@@ -1329,7 +1329,7 @@ fn focused_runtime_preview_failure_and_apply_recover_invalid_config_transactiona
 
     let ready = |_: &Config, _: &Path| crate::runtime_inventory::Probe {
         loadable: true,
-        device_accessible: true,
+        device_accessible: Some(true),
         ready: true,
         ..Default::default()
     };
@@ -1415,7 +1415,7 @@ fn focused_openvino_runtime_probe_and_proof_receive_the_compatible_model() {
             assert_eq!(candidate.model.name, crate::catalog::OPENVINO_MODEL_ID);
             crate::runtime_inventory::Probe {
                 loadable: true,
-                device_accessible: true,
+                device_accessible: Some(true),
                 ready: true,
                 ..Default::default()
             }
@@ -3440,7 +3440,7 @@ fn noninteractive_setup_covers_safe_runtime_model_and_service_decisions() {
 
     let ready = |_: &Config, _: &Path| crate::runtime_inventory::Probe {
         loadable: true,
-        device_accessible: true,
+        device_accessible: Some(true),
         ready: true,
         ..Default::default()
     };
@@ -3514,7 +3514,13 @@ fn native_runtime_probe_reports_real_safe_audio_cpp_and_openvino_evidence() {
     audio_cpp.backend.library = crate::engine::audiocpp::tests::fake_library().to_path_buf();
     let probe = native_runtime_probe(&audio_cpp, &paths.config_file);
     assert!(probe.ready);
+    assert_eq!(probe.device_accessible, None);
+    assert!(!probe.evidence.model_inference_verified);
     assert_eq!(probe.evidence.selected_device.as_deref(), Some("cpu"));
+    assert_eq!(
+        probe.evidence.provider_path.as_deref(),
+        Some(crate::engine::audiocpp::tests::fake_library())
+    );
     assert!(probe.evidence.versions[0].contains("fake-provider-1"));
 
     let mut openvino = Config::default();
@@ -3541,7 +3547,13 @@ fn native_runtime_probe_reports_real_safe_audio_cpp_and_openvino_evidence() {
         |_, _| unreachable!(),
     );
     assert!(probe.ready, "{:?}", probe.errors);
+    assert_eq!(probe.device_accessible, Some(true));
+    assert!(!probe.evidence.model_inference_verified);
     assert_eq!(probe.evidence.selected_device.as_deref(), Some("npu"));
+    assert_eq!(
+        probe.evidence.provider_path.as_deref(),
+        Some(Path::new("/fake/libopenvino_genai_c.so"))
+    );
     assert!(probe.evidence.versions[0].contains("OpenVINO"));
 
     let failed = native_runtime_probe_with(

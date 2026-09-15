@@ -3,7 +3,7 @@
 //! Discovery and validation live with each provider because a loadable shared
 //! library alone cannot prove that the selected device can create a session.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
@@ -18,12 +18,17 @@ pub struct Evidence {
     pub provider_registration: bool,
     pub available_devices: Vec<String>,
     pub selected_device: Option<String>,
+    pub provider_path: Option<PathBuf>,
+    pub model_inference_verified: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Probe {
     pub loadable: bool,
-    pub device_accessible: bool,
+    /// Whether the selected device has actually been exercised. Loading the
+    /// audio.cpp ABI alone cannot establish this, so an unproved selection is
+    /// represented as `None` rather than the misleading value `false`.
+    pub device_accessible: Option<bool>,
     pub ready: bool,
     pub evidence: Evidence,
     pub errors: Vec<String>,
@@ -47,7 +52,7 @@ pub fn probe(config: &Config, config_path: &Path) -> Probe {
         return match crate::engine::openvino_genai::probe_runtime(config, &paths) {
             Ok(evidence) => Probe {
                 loadable: true,
-                device_accessible: true,
+                device_accessible: Some(true),
                 ready: true,
                 evidence: Evidence {
                     versions: vec![format!(
@@ -57,6 +62,8 @@ pub fn probe(config: &Config, config_path: &Path) -> Probe {
                     provider_registration: true,
                     available_devices: vec![evidence.available_device.to_ascii_lowercase()],
                     selected_device: Some(evidence.requested_device.to_ascii_lowercase()),
+                    provider_path: Some(evidence.genai_library.clone().into()),
+                    model_inference_verified: false,
                 },
                 errors: Vec::new(),
             },
@@ -69,7 +76,7 @@ pub fn probe(config: &Config, config_path: &Path) -> Probe {
     match crate::engine::audiocpp::probe_provider(config, &paths) {
         Ok((library, version)) => Probe {
             loadable: true,
-            device_accessible: true,
+            device_accessible: None,
             ready: true,
             evidence: Evidence {
                 versions: vec![format!("{version} · {}", library.display())],
@@ -84,6 +91,8 @@ pub fn probe(config: &Config, config_path: &Path) -> Probe {
                         .canonical_device()
                         .unwrap_or_else(|_| backend.device.clone()),
                 ),
+                provider_path: Some(library),
+                model_inference_verified: false,
             },
             errors: Vec::new(),
         },
