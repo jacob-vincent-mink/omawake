@@ -22,7 +22,7 @@ fn ensure_config_creates_and_reloads_defaults() {
     let created = ensure_config(&paths.config_file).unwrap();
     assert_eq!(created.wake_words.len(), 1);
     let loaded = ensure_config(&paths.config_file).unwrap();
-    assert_eq!(loaded.backend.kind, "omawake-onnx");
+    assert_eq!(loaded.backend.kind, "audiocpp");
 }
 
 #[test]
@@ -35,7 +35,7 @@ fn setup_loader_uses_defaults_for_invalid_config_without_changing_the_file() {
     let issue = config_recovery(&paths.config_file).unwrap().unwrap();
     assert!(issue.contains("unknown field `provider_config`"));
     let config = ensure_config(&paths.config_file).unwrap();
-    assert_eq!(config.backend.kind, "omawake-onnx");
+    assert_eq!(config.backend.kind, "audiocpp");
     assert_eq!(fs::read(&paths.config_file).unwrap(), invalid);
 
     let unreadable = paths.config_file.with_file_name("config-directory");

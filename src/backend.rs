@@ -40,9 +40,9 @@ pub struct BackendConfig {
 impl Default for BackendConfig {
     fn default() -> Self {
         Self {
-            kind: "omawake-onnx".into(),
+            kind: "audiocpp".into(),
             runtime: Runtime::Default,
-            device: "auto".into(),
+            device: "cpu".into(),
             threads: 2,
             fallback: Fallback::Error,
             device_id: 0,
@@ -83,7 +83,7 @@ impl BackendConfig {
 }
 
 pub const fn supported_capabilities() -> &'static [&'static str] {
-    &["cpu", "openvino", "cuda"]
+    &["cpu"]
 }
 
 pub fn canonical_device(runtime: Runtime, raw: &str) -> Result<String, BackendError> {

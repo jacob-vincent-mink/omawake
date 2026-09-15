@@ -1,82 +1,61 @@
 use super::*;
 
 #[test]
-fn every_model_references_a_backend() {
-    for model in models() {
-        assert!(
-            backends()
-                .iter()
-                .any(|backend| backend.kind == model.backend)
-        );
-        assert_eq!(model.archive_sha256.len(), 64);
-        assert!(!model.required_files.is_empty());
-        assert!(model.license_url.starts_with("https://"));
-        assert!(model.source_url.starts_with("https://"));
+fn catalog_pins_a_complete_originally_sourced_profile() {
+    let spec = model(DEFAULT_MODEL_ID).unwrap();
+    assert_eq!(models().len(), 1);
+    assert_eq!(spec.backend, "audiocpp");
+    assert_eq!(spec.license, "MIT");
+    assert_eq!(spec.license_status, "verified");
+    assert_eq!(spec.assets.len(), 2);
+    assert_eq!(spec.total_size(), 61_647_652);
+    for asset in spec.assets {
+        assert_eq!(asset.sha256.len(), 64);
+        assert!(asset.url.starts_with("https://"));
+        assert!(asset.source_url.starts_with("https://"));
+        assert_eq!(asset.source_revision.len(), 40);
+        assert_eq!(asset.license, "MIT");
     }
+    assert_eq!(
+        spec.assets[1].source_url,
+        "https://github.com/snakers4/silero-vad"
+    );
+    assert!(spec.assets[1].url.contains(SILERO_REVISION));
+    assert_eq!(spec.converted_source_revision, AUDIOCPP_GGUF_REVISION);
+    assert!(model("missing").is_none());
 }
 
 #[test]
-fn lookup_and_activation_populate_config() {
-    assert!(model("missing").is_none());
-    let spec = model("sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01").unwrap();
-    assert_eq!(spec.license_status, "publisher-declared");
+fn default_and_activation_are_the_qualified_audio_cpp_profile() {
+    let spec = model(DEFAULT_MODEL_ID).unwrap();
     let mut config = Config::default();
+    assert_eq!(config.backend.kind, "audiocpp");
+    assert_eq!(config.backend.runtime, Runtime::Default);
+    assert_eq!(config.model.name, DEFAULT_MODEL_ID);
+    assert_eq!(config.model.verifier, spec.verifier);
+    assert_eq!(config.model.vad, spec.vad);
+    assert!(!format!("{config:?}").contains("sherpa"));
+
     config.backend.kind = "other".into();
+    config.backend.runtime = Runtime::Cuda;
+    config.backend.device = "gpu".into();
     config.model.directory = "/custom".into();
+    config.model.encoder = "old.onnx".into();
     spec.activate(&mut config);
-    assert_eq!(config.backend.kind, "omawake-onnx");
+    assert_eq!(config.backend.kind, "audiocpp");
+    assert_eq!(config.backend.runtime, Runtime::Default);
+    assert_eq!(config.backend.device, "cpu");
     assert_eq!(config.model.name, spec.id);
     assert!(config.model.directory.is_empty());
-    assert_eq!(config.model.bpe_model, "bpe.model");
-    assert_eq!(config.model.encoder, spec.encoder);
-
-    config.backend.runtime = Runtime::Openvino;
-    config.backend.device = "npu".into();
-    spec.activate(&mut config);
-    assert_eq!(config.model.encoder, spec.openvino_accelerator_encoder);
-    assert_eq!(config.model.decoder, spec.openvino_accelerator_decoder);
-    assert_eq!(config.model.joiner, spec.openvino_accelerator_joiner);
-
-    config.backend.device = "gpu".into();
-    spec.apply_runtime_compatibility(&mut config);
-    assert_eq!(config.model.encoder, spec.openvino_accelerator_encoder);
-    assert_eq!(config.model.decoder, spec.openvino_accelerator_decoder);
-    assert_eq!(config.model.joiner, spec.openvino_accelerator_joiner);
-
-    config.backend.device = "cpu".into();
-    spec.apply_runtime_compatibility(&mut config);
-    assert_eq!(config.model.encoder, spec.encoder);
-
-    config.backend.device = "auto".into();
-    spec.apply_runtime_compatibility(&mut config);
-    assert_eq!(config.model.encoder, spec.encoder);
-
-    config.backend.runtime = Runtime::Cuda;
-    config.backend.device = "gpu".into();
-    spec.apply_runtime_compatibility(&mut config);
-    assert_eq!(config.model.encoder, spec.cuda_encoder);
-    assert_eq!(config.model.decoder, spec.cuda_decoder);
-    assert_eq!(config.model.joiner, spec.cuda_joiner);
-
-    config.backend.runtime = Runtime::Default;
-    config.backend.device = "cpu".into();
-    spec.apply_runtime_compatibility(&mut config);
-    assert_eq!(config.model.encoder, spec.encoder);
-    assert_eq!(config.model.decoder, spec.decoder);
-    assert_eq!(config.model.joiner, spec.joiner);
-
-    config.model.directory = "/models/custom".into();
-    config.model.encoder = "custom-encoder.onnx".into();
-    config.backend.device = "npu".into();
-    spec.apply_runtime_compatibility(&mut config);
-    assert_eq!(config.model.encoder, "custom-encoder.onnx");
-
-    config.model.directory.clear();
-    config.model.encoder = spec.encoder.into();
-    config.model.decoder = "custom-decoder.onnx".into();
-    config.backend.runtime = Runtime::Cuda;
-    spec.apply_runtime_compatibility(&mut config);
-    assert_eq!(config.model.encoder, spec.encoder);
-    assert_eq!(config.model.decoder, "custom-decoder.onnx");
-    assert_eq!(config.model.joiner, spec.joiner);
+    assert_eq!(config.model.verifier, "moonshine-streaming-tiny-q8_0.gguf");
+    assert_eq!(config.model.vad, "silero_vad_16k.safetensors");
+    assert!(config.model.encoder.is_empty());
+    assert_eq!(
+        config
+            .backend
+            .options
+            .get("audiocpp.asr_family")
+            .map(String::as_str),
+        Some("moonshine_asr")
+    );
 }

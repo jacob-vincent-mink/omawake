@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
@@ -201,13 +201,10 @@ enum SetupCommand {
     /// Install and configure a model plus the desktop launcher. Does not install a service;
     /// run `omawake setup systemd` to install one explicitly.
     All {
-        #[arg(
-            long,
-            default_value = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
-        )]
+        #[arg(long, default_value = crate::catalog::DEFAULT_MODEL_ID)]
         model: String,
-        #[arg(long)]
-        archive: Option<PathBuf>,
+        #[arg(long, value_name = "DIRECTORY")]
+        source_dir: Option<PathBuf>,
         #[arg(long, value_enum, default_value_t)]
         progress_format: ProgressFormat,
     },
@@ -222,8 +219,8 @@ enum SetupCommand {
         set: Option<String>,
         #[arg(long, value_name = "MODEL", conflicts_with_all = ["download", "set"])]
         verify: Option<String>,
-        #[arg(long, requires = "download")]
-        archive: Option<PathBuf>,
+        #[arg(long, value_name = "DIRECTORY", requires = "download")]
+        source_dir: Option<PathBuf>,
         #[arg(long, requires = "download")]
         no_activate: bool,
         #[arg(long, value_enum, default_value_t)]
@@ -645,9 +642,7 @@ fn config_mutation(command: ConfigCommand, mut config: Config, path: &Path) -> R
         }
     }
     config.backend.validate_shape()?;
-    if reconcile_model && let Some(spec) = crate::catalog::model(&config.model.name) {
-        spec.apply_runtime_compatibility(&mut config);
-    }
+    let _ = reconcile_model;
     save_config(path, &config)
 }
 
@@ -765,7 +760,11 @@ fn wake_word_command(
     };
     validate_wake_words(&config.wake_words)?;
     let bpe = config.model_directory(paths).join(&config.model.bpe_model);
-    if bpe.exists() && config.wake_words.iter().any(|word| word.enabled) {
+    if config.backend.kind == "omawake-onnx"
+        && !config.model.bpe_model.trim().is_empty()
+        && bpe.is_file()
+        && config.wake_words.iter().any(|word| word.enabled)
+    {
         KeywordCompiler::open(&bpe)?.compile(&config.wake_words)?;
     }
     save_config(path, &config)?;
@@ -830,7 +829,7 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
                     device,
                     dir,
                     apply,
-                    crate::runtime_inventory::probe,
+                    native_runtime_probe,
                 )?;
                 return Ok(());
             }
@@ -842,7 +841,7 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
             download,
             set,
             verify,
-            archive,
+            source_dir,
             no_activate,
             progress_format,
         } => {
@@ -873,7 +872,7 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
                 )?;
                 return Ok(());
             }
-            let default_id = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01";
+            let default_id = crate::catalog::DEFAULT_MODEL_ID;
             let selected = match download {
                 Some(id) => Some(id),
                 None if !list && !json && setup_is_interactive() => {
@@ -882,7 +881,7 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
                 None => {
                     print_models(paths);
                     println!(
-                        "Supply a licensed model archive with `omawake setup model --download {default_id} --archive /path/to/model.tar.bz2`."
+                        "Download the default with `omawake setup model --download {default_id}` or use exact offline assets with `--source-dir /path/to/assets`."
                     );
                     None
                 }
@@ -892,7 +891,7 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
                     &id,
                     config_path,
                     paths,
-                    archive.as_deref(),
+                    source_dir.as_deref(),
                     no_activate,
                     progress_format,
                     app_setup::model::install,
@@ -938,7 +937,7 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
         }
         SetupCommand::All {
             model,
-            archive,
+            source_dir,
             progress_format,
         } => {
             let spec = model_spec(&model)?;
@@ -947,7 +946,7 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
                 spec,
                 config_path,
                 paths,
-                archive.as_deref(),
+                source_dir.as_deref(),
                 progress_format,
                 service_was_active,
                 |config, path| {
@@ -955,11 +954,12 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
                         config,
                         path,
                         false,
-                        crate::runtime_inventory::probe,
+                        native_runtime_probe,
                     )?;
                     Ok(())
                 },
                 app_setup::model::install,
+                prove_setup_candidate,
                 app_setup::menu::install,
                 app_setup::systemd::reload_if_was_active,
                 |config, paths| app_setup::print_checks(config, paths, false),
@@ -1030,12 +1030,7 @@ trait GuidedPrompts {
         candidate: &Config,
         path: &Path,
     ) -> Result<crate::runtime_inventory::Probe> {
-        crate::runtime_inventory::apply_with(
-            candidate,
-            path,
-            false,
-            crate::runtime_inventory::probe,
-        )
+        crate::runtime_inventory::apply_with(candidate, path, false, native_runtime_probe)
     }
     fn setup_mode(&mut self) -> Result<Option<SetupMode>>;
     fn runtime(&mut self, current: &Config) -> Result<Option<RuntimeSelection>>;
@@ -1052,7 +1047,7 @@ trait GuidedPrompts {
         paths: &AppPaths,
         current: &Config,
     ) -> Result<Option<&'static crate::catalog::ModelSpec>>;
-    fn model_archive(
+    fn model_source_directory(
         &mut self,
         paths: &AppPaths,
         spec: &crate::catalog::ModelSpec,
@@ -1075,10 +1070,23 @@ impl GuidedPrompts for TerminalGuidedPrompts {
     }
 
     fn runtime(&mut self, current: &Config) -> Result<Option<RuntimeSelection>> {
-        let libraries = runtime_paths::report(&current.backend, &self.config_path);
+        let probe = native_runtime_probe(&current.backend, &self.config_path);
+        let loadable = BTreeMap::from([
+            ("default", probe.ready),
+            ("openvino", false),
+            ("cuda", false),
+        ]);
+        let provider = probe
+            .evidence
+            .versions
+            .first()
+            .cloned()
+            .unwrap_or_else(|| probe.errors.join("; "));
         wizard::choose_runtime(
-            &libraries.runtime_loadable,
-            &libraries.tui_context(),
+            &loadable,
+            &format!(
+                "audio.cpp is loaded through its public C ABI; Omawake never invokes the audio.cpp CLI.\r\nProvider discovery: {provider}"
+            ),
             current.backend.runtime,
             &current.backend.device,
         )
@@ -1118,7 +1126,7 @@ impl GuidedPrompts for TerminalGuidedPrompts {
         choose_model(paths, &current.model.name)
     }
 
-    fn model_archive(
+    fn model_source_directory(
         &mut self,
         paths: &AppPaths,
         spec: &crate::catalog::ModelSpec,
@@ -1126,7 +1134,7 @@ impl GuidedPrompts for TerminalGuidedPrompts {
         if spec.downloadable || app_setup::model::verify(paths, spec).is_ok() {
             Ok(None)
         } else {
-            wizard::choose_model_archive(spec.id)
+            wizard::choose_model_source_directory(spec.id)
         }
     }
 
@@ -1269,8 +1277,8 @@ where
         println!("active model: {}", spec.id);
         return Ok(());
     }
-    let archive = prompts.model_archive(paths, spec)?;
-    if !spec.downloadable && archive.is_none() {
+    let source_directory = prompts.model_source_directory(paths, spec)?;
+    if !spec.downloadable && source_directory.is_none() {
         println!("Model setup cancelled; no changes were made.");
         return Ok(());
     }
@@ -1278,7 +1286,7 @@ where
         spec.id,
         config_path,
         paths,
-        archive.as_deref(),
+        source_directory.as_deref(),
         false,
         ProgressFormat::Human,
         install,
@@ -1334,6 +1342,7 @@ where
         prompts,
         validate_runtime_candidate,
         install_model,
+        prove_setup_candidate,
         install_menu,
         service_is_active,
         restart_service,
@@ -1343,12 +1352,13 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-fn guided_all_with_services_and_validator<FI, FM, FA, FR, CH, CJ, FV>(
+fn guided_all_with_services_and_validator<FI, FP, FM, FA, FR, CH, CJ, FV>(
     config_path: &Path,
     paths: &AppPaths,
     prompts: &mut impl GuidedPrompts,
     validate_runtime: FV,
     install_model: FI,
+    prove_model: FP,
     install_menu: FM,
     service_is_active: FA,
     restart_service: FR,
@@ -1362,6 +1372,7 @@ where
         Option<&Path>,
         ProgressFormat,
     ) -> Result<PathBuf>,
+    FP: FnOnce(&Config, &AppPaths) -> Result<()>,
     FM: FnOnce(&AppPaths) -> Result<PathBuf>,
     FA: FnOnce(&AppPaths) -> bool,
     FR: FnOnce(bool) -> Result<bool>,
@@ -1386,8 +1397,11 @@ where
         println!("Setup cancelled.");
         return Ok(());
     };
-    let archive = prompts.model_archive(paths, spec)?;
-    if !spec.downloadable && archive.is_none() && app_setup::model::verify(paths, spec).is_err() {
+    let source_directory = prompts.model_source_directory(paths, spec)?;
+    if !spec.downloadable
+        && source_directory.is_none()
+        && app_setup::model::verify(paths, spec).is_err()
+    {
         println!("Setup cancelled; no changes were made.");
         return Ok(());
     }
@@ -1401,10 +1415,11 @@ where
         candidate,
         config_path,
         paths,
-        archive.as_deref(),
+        source_directory.as_deref(),
         ProgressFormat::Human,
         service_was_active,
         install_model,
+        prove_model,
         install_menu,
         restart_service,
         check_human,
@@ -1441,7 +1456,7 @@ where
             let status = if model.id == active_model && installed {
                 "● active"
             } else if model.id == active_model && !model.downloadable {
-                "● active · user-supplied archive required"
+                "● active · local assets required"
             } else if model.id == active_model {
                 "● active · download required"
             } else if installed {
@@ -1458,12 +1473,12 @@ where
                 model.family,
                 model.license,
                 model.license_status,
-                model.archive_size as f64 / 1_048_576.0
+                model.total_size() as f64 / 1_048_576.0
             );
             let detail = if installed || model.downloadable {
                 detail
             } else {
-                format!("{detail} · select to provide a licensed local archive")
+                format!("{detail} · select to provide an exact local asset directory")
             };
             wizard::MenuItem::available(format!("{status}  {}", model.id), detail)
         })
@@ -1473,11 +1488,6 @@ where
         .position(|model| model.id == active_model)
         .unwrap_or(0);
     Ok(select(&items, preferred)?.map(|index| &crate::catalog::models()[index]))
-}
-
-#[cfg(test)]
-fn save_runtime_selection(config_path: &Path, selection: &RuntimeSelection) -> Result<()> {
-    save_runtime_selection_impl_with(config_path, selection, None, |_, _| Ok(()))
 }
 
 #[cfg(test)]
@@ -1518,46 +1528,67 @@ fn runtime_selection_candidate(
     selection: &RuntimeSelection,
     runtime_directory: Option<&Path>,
 ) -> Result<Config> {
+    if selection.runtime != Runtime::Default {
+        bail!(
+            "{} is not yet available in the native-provider setup; use the integrated audio.cpp CPU provider",
+            runtime_name(selection.runtime)
+        );
+    }
     let mut config = current.clone();
-    let runtime_changed = config.backend.runtime != selection.runtime;
+    config.backend.kind = "audiocpp".into();
     config.backend.runtime = selection.runtime;
     config.backend.device = selection.device.clone();
-    if runtime_changed {
-        config.backend.provider_library.clear();
-        config.backend.options.clear();
-    }
-    if selection.runtime != Runtime::Cuda {
-        config.backend.device_id = 0;
-    }
+    config.backend.device_id = 0;
+    config.backend.onnxruntime_library.clear();
+    config.backend.provider_library.clear();
+    config
+        .backend
+        .options
+        .insert("audiocpp.asr_family".into(), "moonshine_asr".into());
     config.backend.validate_shape()?;
     if let Some(directory) = runtime_directory {
         configure_runtime_directory(&mut config, directory)?;
     }
-    if let Some(spec) = crate::catalog::model(&config.model.name) {
-        spec.apply_runtime_compatibility(&mut config);
-    }
-    // Keep packaged CPU paths relocatable. Persist exact paths for external stacks.
-    let locations = runtime_paths::discover(&config.backend, config_path);
-    let packaged = [&locations.onnxruntime_library].iter().all(|library| {
-        library.as_ref().is_some_and(|library| {
-            locations
-                .package_library_dirs
-                .iter()
-                .any(|directory| library.starts_with(directory))
-        })
-    });
-    if runtime_directory.is_some()
-        || selection.runtime != Runtime::Default
-        || !config.backend.library_dirs.is_empty()
-        || !packaged
-    {
-        config.backend = crate::runtime_inventory::resolve(&config.backend, config_path);
-    }
+    let _ = config_path;
     Ok(config)
 }
 
 fn validate_runtime_candidate(config: &Config, config_path: &Path) -> Result<()> {
-    validate_runtime_candidate_with(config, config_path, crate::runtime_inventory::probe)
+    validate_runtime_candidate_with(config, config_path, native_runtime_probe)
+}
+
+fn native_runtime_probe(
+    backend: &crate::backend::BackendConfig,
+    config_path: &Path,
+) -> crate::runtime_inventory::Probe {
+    let config = Config {
+        backend: backend.clone(),
+        ..Default::default()
+    };
+    let mut paths = AppPaths::discover();
+    paths.config_file = config_path.to_owned();
+    match crate::engine::audiocpp::probe_provider(&config, &paths) {
+        Ok((library, version)) => crate::runtime_inventory::Probe {
+            loadable: true,
+            device_accessible: true,
+            ready: true,
+            evidence: crate::runtime_inventory::Evidence {
+                versions: vec![format!("{version} · {}", library.display())],
+                provider_registration: true,
+                available_devices: vec!["cpu".into()],
+                selected_device: Some(
+                    backend
+                        .canonical_device()
+                        .unwrap_or_else(|_| backend.device.clone()),
+                ),
+            },
+            errors: Vec::new(),
+        },
+        Err(error) => crate::runtime_inventory::Probe {
+            errors: vec![format!("{error:#}")],
+            ..Default::default()
+        },
+    }
 }
 
 fn validate_runtime_candidate_with(
@@ -1600,7 +1631,7 @@ fn configure_runtime_directory(config: &mut Config, directory: &Path) -> Result<
         directory.join("runtime/lib/intel64"),
         directory.join("runtime/lib/intel64/Release"),
     ];
-    let find = |prefix: &str| -> Result<PathBuf> {
+    let find = |names: &[&str]| -> Result<PathBuf> {
         let mut matches = candidates
             .iter()
             .filter_map(|candidate| std::fs::read_dir(candidate).ok())
@@ -1612,42 +1643,31 @@ fn configure_runtime_directory(config: &mut Config, directory: &Path) -> Result<
                 (entry
                     .file_type()
                     .is_ok_and(|kind| kind.is_file() || kind.is_symlink())
-                    && (name == prefix || name.starts_with(&format!("{prefix}."))))
+                    && names
+                        .iter()
+                        .any(|prefix| name == *prefix || name.starts_with(&format!("{prefix}."))))
                 .then(|| entry.path())
             })
             .collect::<Vec<_>>();
         matches.sort();
-        matches
-            .into_iter()
-            .next()
-            .with_context(|| format!("{} does not contain {prefix}", directory.display()))
-    };
-    let discovered_core = find("libonnxruntime.so").ok();
-    let provider_library = match config.backend.runtime {
-        Runtime::Default => PathBuf::new(),
-        Runtime::Openvino => find("libonnxruntime_providers_openvino_plugin.so")
-            .or_else(|_| find("libonnxruntime_providers_openvino.so"))?,
-        Runtime::Cuda => find("libonnxruntime_providers_cuda.so")?,
-    };
-    if config.backend.runtime == Runtime::Default {
-        config.backend.onnxruntime_library = discovered_core.with_context(|| {
+        matches.into_iter().next().with_context(|| {
             format!(
-                "{} does not contain an ONNX Runtime core library",
-                directory.display()
+                "{} does not contain {}",
+                directory.display(),
+                names.join(" or ")
             )
-        })?;
-    } else if let Some(core) = discovered_core {
-        config.backend.onnxruntime_library = core;
+        })
+    };
+    if config.backend.runtime != Runtime::Default {
+        bail!("only the audio.cpp CPU provider is available in this setup checkpoint");
     }
-    let selected_parents = [
-        (!config.backend.onnxruntime_library.as_os_str().is_empty())
-            .then_some(config.backend.onnxruntime_library.as_path()),
-        (!provider_library.as_os_str().is_empty()).then_some(provider_library.as_path()),
-    ]
-    .into_iter()
-    .flatten()
-    .filter_map(Path::parent)
-    .map(Path::to_owned)
+    let provider = find(&["libaudiocpp.so.0.1.0", "libaudiocpp.so.0", "libaudiocpp.so"])?;
+    let selected_parents = std::iter::once(
+        provider
+            .parent()
+            .context("audio.cpp provider library has no parent")?
+            .to_owned(),
+    )
     .chain(candidates.into_iter().filter(|candidate| {
         std::fs::read_dir(candidate).is_ok_and(|entries| {
             entries
@@ -1662,7 +1682,9 @@ fn configure_runtime_directory(config: &mut Config, directory: &Path) -> Result<
         directories
     });
     config.backend.library_dirs = selected_parents;
-    config.backend.provider_library = provider_library;
+    config.backend.library = provider;
+    config.backend.onnxruntime_library.clear();
+    config.backend.provider_library.clear();
     Ok(())
 }
 
@@ -1675,7 +1697,7 @@ fn runtime_name(runtime: Runtime) -> &'static str {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn install_everything<FV, FI, FM, FR, CH, CJ>(
+fn install_everything<FV, FI, FP, FM, FR, CH, CJ>(
     spec: &crate::catalog::ModelSpec,
     config_path: &Path,
     paths: &AppPaths,
@@ -1684,6 +1706,7 @@ fn install_everything<FV, FI, FM, FR, CH, CJ>(
     service_was_active: bool,
     validate_runtime: FV,
     install_model: FI,
+    prove_model: FP,
     install_menu: FM,
     restart_service: FR,
     check_human: CH,
@@ -1697,6 +1720,7 @@ where
         Option<&Path>,
         ProgressFormat,
     ) -> Result<PathBuf>,
+    FP: FnOnce(&Config, &AppPaths) -> Result<()>,
     FM: FnOnce(&AppPaths) -> Result<PathBuf>,
     FR: FnOnce(bool) -> Result<bool>,
     CH: FnOnce(&Path, &AppPaths) -> Result<()>,
@@ -1713,6 +1737,7 @@ where
         progress_format,
         service_was_active,
         install_model,
+        prove_model,
         install_menu,
         restart_service,
         check_human,
@@ -1721,7 +1746,7 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-fn install_everything_with_config<FI, FM, FR, CH, CJ>(
+fn install_everything_with_config<FI, FP, FM, FR, CH, CJ>(
     spec: &crate::catalog::ModelSpec,
     config: Config,
     config_path: &Path,
@@ -1730,6 +1755,7 @@ fn install_everything_with_config<FI, FM, FR, CH, CJ>(
     progress_format: ProgressFormat,
     service_was_active: bool,
     install_model: FI,
+    prove_model: FP,
     install_menu: FM,
     restart_service: FR,
     check_human: CH,
@@ -1742,6 +1768,7 @@ where
         Option<&Path>,
         ProgressFormat,
     ) -> Result<PathBuf>,
+    FP: FnOnce(&Config, &AppPaths) -> Result<()>,
     FM: FnOnce(&AppPaths) -> Result<PathBuf>,
     FR: FnOnce(bool) -> Result<bool>,
     CH: FnOnce(&Path, &AppPaths) -> Result<()>,
@@ -1756,6 +1783,7 @@ where
         progress_format,
         service_was_active,
         install_model,
+        prove_model,
         app_setup::cache::prepare,
         install_menu,
         restart_service,
@@ -1765,7 +1793,7 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-fn install_everything_with_config_and_cache<FI, FP, FM, FR, CH, CJ>(
+fn install_everything_with_config_and_cache<FI, FP, FC, FM, FR, CH, CJ>(
     spec: &crate::catalog::ModelSpec,
     mut config: Config,
     config_path: &Path,
@@ -1774,7 +1802,8 @@ fn install_everything_with_config_and_cache<FI, FP, FM, FR, CH, CJ>(
     progress_format: ProgressFormat,
     service_was_active: bool,
     install_model: FI,
-    prepare_cache: FP,
+    prove_model: FP,
+    prepare_cache: FC,
     install_menu: FM,
     restart_service: FR,
     check_human: CH,
@@ -1787,7 +1816,8 @@ where
         Option<&Path>,
         ProgressFormat,
     ) -> Result<PathBuf>,
-    FP: FnOnce(
+    FP: FnOnce(&Config, &AppPaths) -> Result<()>,
+    FC: FnOnce(
         &Config,
         &Path,
         &AppPaths,
@@ -1802,6 +1832,7 @@ where
     let result = (|| {
         let directory = install_model(paths, spec, archive, progress_format)?;
         spec.activate(&mut config);
+        prove_model(&config, paths)?;
         prepare_cache(&config, config_path, paths, progress_format)?;
         config.save(config_path)?;
         let launcher = install_menu(paths)?;
@@ -1860,6 +1891,38 @@ fn restore_config_snapshot(path: &Path, bytes: Option<&[u8]>) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn prove_setup_candidate(config: &Config, paths: &AppPaths) -> Result<()> {
+    let directory = paths.cache_dir.join("setup-proof");
+    fs::create_dir_all(&directory)?;
+    let audio = directory.join(format!("silence-{}.wav", std::process::id()));
+    let proof = (|| -> Result<()> {
+        let mut writer = hound::WavWriter::create(
+            &audio,
+            hound::WavSpec {
+                channels: 1,
+                sample_rate: 16_000,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+        )?;
+        for _ in 0..16_000 {
+            writer.write_sample(0_i16)?;
+        }
+        writer.finalize()?;
+        let detector = Detector::load(config, paths)
+            .context("initialize the selected audio.cpp provider and both model assets")?;
+        let detections = detector
+            .detect_file(&audio)
+            .context("run file-only setup proof through Silero and Moonshine")?;
+        if !detections.is_empty() {
+            bail!("silent setup proof unexpectedly produced a wake-word detection");
+        }
+        Ok(())
+    })();
+    let _ = fs::remove_file(&audio);
+    proof
 }
 
 fn verify_selected_model<F>(id: &str, paths: &AppPaths, verify: F) -> Result<()>
@@ -2211,7 +2274,7 @@ fn benchmark_report(
 
 fn runtime_placement(runtime: Runtime) -> (bool, &'static str) {
     match runtime {
-        Runtime::Default => (true, "ONNX Runtime CPU session initialized"),
+        Runtime::Default => (true, "native CPU session initialized"),
         Runtime::Openvino => (
             true,
             "CPU fallback was disabled while every model graph initialized on the selected OpenVINO device",
@@ -3038,24 +3101,22 @@ fn request_id() -> String {
 fn stopped_status(config: &Config, paths: &AppPaths) -> serde_json::Value {
     json!({"status_version":1,"app":"omawake","daemon":{"running":false,"state":"stopped"},
         "backend":{"kind":config.backend.kind,"requested":{"runtime":config.backend.runtime,"device":config.backend.device},"effective":null,"supported_capabilities":supported_capabilities(),"fallback_policy":config.backend.fallback,"fallback_used":false,"placement_verified":false,"evidence":[]},
-        "model":{"family":"zipformer-kws","path":config.model_directory(paths),"loaded":false},"last_error":null,"details":{}})
+        "model":{"family":"silero-vad+moonshine-asr","path":config.model_directory(paths),"loaded":false},"last_error":null,"details":{}})
 }
 
 fn schema(config: &Config, config_path: &Path, paths: &AppPaths) -> serde_json::Value {
     json!({"schema_version":1,"app":"omawake","app_version":env!("CARGO_PKG_VERSION"),"daemon_version":env!("CARGO_PKG_VERSION"),"config_path":config_path,
         "keys":[
-            {"key":"backend.kind","type":"enum","section":"Backend","label":"Backend","description":"Inference engine","value":config.backend.kind,"file_value":null,"supported":true,"restart_required":true,"choices":["omawake-onnx","audiocpp","whispercpp"]},
-            {"key":"backend.runtime","type":"enum","section":"Backend","label":"Runtime","description":"ONNX Runtime provider","value":config.backend.runtime,"file_value":null,"supported":true,"restart_required":true,"choices":[{"value":"default","available":true,"capability":"cpu"},{"value":"openvino","available":supported_capabilities().contains(&"openvino"),"capability":"openvino"},{"value":"cuda","available":supported_capabilities().contains(&"cuda"),"capability":"cuda"}]},
+            {"key":"backend.kind","type":"enum","section":"Backend","label":"Backend","description":"Complete native inference provider","value":config.backend.kind,"file_value":null,"supported":true,"restart_required":true,"choices":["audiocpp"]},
+            {"key":"backend.runtime","type":"enum","section":"Backend","label":"Runtime","description":"Qualified provider runtime","value":config.backend.runtime,"file_value":null,"supported":true,"restart_required":true,"choices":[{"value":"default","available":true,"capability":"cpu"},{"value":"openvino","available":false,"capability":"openvino"},{"value":"cuda","available":false,"capability":"cuda"}]},
             {"key":"backend.device","type":"string","section":"Backend","label":"Device","description":"Runtime-specific device","value":config.backend.device,"file_value":null,"supported":true,"restart_required":true},
             {"key":"backend.library","type":"path","section":"Backend","label":"Provider library","description":"Exact shared library for the selected native backend","value":config.backend.library,"file_value":null,"supported":true,"restart_required":true},
-            {"key":"backend.library_dirs","type":"path-list","section":"Backend","label":"Native library directories","description":"App-owned vendor runtime search paths","value":config.backend.library_dirs,"file_value":null,"supported":true,"restart_required":true},
-            {"key":"backend.onnxruntime_library","type":"path","section":"Backend","label":"ONNX Runtime library","description":"Exact app-owned ONNX Runtime shared library","value":config.backend.onnxruntime_library,"file_value":null,"supported":true,"restart_required":true},
-            {"key":"backend.provider_library","type":"path","section":"Backend","label":"Provider library","description":"Exact OpenVINO or CUDA execution-provider plugin","value":config.backend.provider_library,"file_value":null,"supported":true,"restart_required":true},
+            {"key":"backend.library_dirs","type":"path-list","section":"Backend","label":"Native library directories","description":"Complete provider library search paths","value":config.backend.library_dirs,"file_value":null,"supported":true,"restart_required":true},
             {"key":"model.directory","type":"path","section":"Model","label":"Directory","description":"Model asset directory","value":config.model_directory(paths),"file_value":config.model.directory,"supported":true,"restart_required":true},
-            {"key":"model.verifier","type":"string","section":"Model","label":"Verifier model","description":"Whisper verifier filename inside the model directory","value":config.model.verifier,"file_value":null,"supported":true,"restart_required":true},
+            {"key":"model.verifier","type":"string","section":"Model","label":"Verifier model","description":"Phrase verifier filename inside the model directory","value":config.model.verifier,"file_value":null,"supported":true,"restart_required":true},
             {"key":"model.vad","type":"string","section":"Model","label":"VAD model","description":"Silero VAD filename inside the model directory","value":config.model.vad,"file_value":null,"supported":true,"restart_required":true}],
         "collections":[{"key":"wake_words","id_key":"id","label":"Wake words","items":config.wake_words}],
-        "constraints":[{"kind":"matrix","keys":["backend.runtime","backend.device"],"rows":[{"backend.runtime":"default","backend.device":["auto","cpu"]},{"backend.runtime":"cuda","backend.device":["auto","gpu"]},{"backend.runtime":"openvino","backend.device":["auto","npu","gpu","cpu"]}]}]})
+        "constraints":[{"kind":"matrix","keys":["backend.runtime","backend.device"],"rows":[{"backend.runtime":"default","backend.device":["cpu"]}]}]})
 }
 
 #[cfg(test)]

@@ -70,11 +70,12 @@ pub fn checks(path: &Path, paths: &AppPaths) -> Vec<Check> {
         path,
         paths,
         &|config, paths| {
-            let probe = crate::runtime_inventory::probe(&config.backend, &paths.config_file);
-            if !probe.ready {
-                bail!("{}", probe.errors.join("; "));
-            }
-            Ok("runtime/device probe passed; model inference is not verified by this check".into())
+            let detector = crate::engine::Detector::load(config, paths)?;
+            Ok(format!(
+                "{} initialized in {:.1} ms; audio.cpp is integrated through its public C ABI",
+                detector.backend_kind,
+                detector.load_time.as_secs_f64() * 1000.0
+            ))
         },
         command_exists("systemctl"),
         &systemd::is_active,
@@ -298,47 +299,46 @@ pub fn print_checks_event(path: &Path, paths: &AppPaths) -> Result<()> {
 }
 
 pub fn print_runtime(config: &Config, config_path: &Path, json: bool) -> Result<()> {
-    let libraries = crate::runtime_paths::report(&config.backend, config_path);
-    let inventory = crate::runtime_inventory::inventory(&config.backend, config_path);
+    let mut candidate = config.clone();
+    candidate.backend.kind = "audiocpp".into();
+    candidate.backend.runtime = crate::backend::Runtime::Default;
+    candidate.backend.device = "cpu".into();
+    candidate.backend.onnxruntime_library.clear();
+    candidate.backend.provider_library.clear();
+    let mut probe_paths = AppPaths::discover();
+    probe_paths.config_file = config_path.to_owned();
+    let provider = crate::engine::audiocpp::probe_provider(&candidate, &probe_paths);
+    let (ready, library, version, error) = match provider {
+        Ok((library, version)) => (true, Some(library), Some(version), None),
+        Err(error) => (false, None, None, Some(format!("{error:#}"))),
+    };
     let value = serde_json::json!({
         "backends": catalog::backends(),
-        "supported_capabilities": crate::backend::supported_capabilities(),
+        "integration": "Omawake dynamically loads audio.cpp's public C ABI; it never invokes the audio.cpp CLI. The hidden worker is an Omawake re-exec for isolation and warm sessions.",
         "runtime_device_matrix": {
-            "default": ["auto", "cpu"],
-            "cuda": ["auto", "gpu"],
-            "openvino": ["auto", "cpu", "gpu", "npu"]
+            "default": ["cpu"],
+            "cuda": [],
+            "openvino": []
         },
         "models": catalog::models(),
-        "libraries": libraries,
-        "inventory": inventory,
+        "provider": {
+            "kind": "audiocpp",
+            "ready": ready,
+            "library": library,
+            "version": version,
+            "error": error,
+        },
+        "future_providers": [
+            {"kind":"openvino","status":"qualification pending","installed_by_setup":false},
+            {"kind":"audiocpp-cuda-vulkan","status":"qualification pending","installed_by_setup":false}
+        ],
         "loader_environment": std::env::var_os("LD_LIBRARY_PATH")
             .map(|value| value.to_string_lossy().into_owned()),
     });
     if json {
         println!("{}", serde_json::to_string_pretty(&value)?);
     } else {
-        for state in &inventory {
-            println!(
-                "{} / {}: supported={} discovered={} configured={} loadable={} device_accessible={} ready={} source={}",
-                state.runtime,
-                state.device,
-                state.supported,
-                state.discovered,
-                state.configured,
-                state.probe.loadable,
-                state.probe.device_accessible,
-                state.probe.ready,
-                state.source
-            );
-            for error in &state.probe.errors {
-                println!("  error: {error}");
-            }
-            if !state.probe.ready {
-                for action in &state.remediation {
-                    println!("  fix: {action}");
-                }
-            }
-        }
+        println!("Integration: direct audio.cpp public C ABI library; no audio.cpp CLI process");
         println!("Backends:");
         for backend in catalog::backends() {
             println!(
@@ -349,91 +349,35 @@ pub fn print_runtime(config: &Config, config_path: &Path, json: bool) -> Result<
             );
         }
         println!(
-            "Runtime loader capabilities: {}",
-            crate::backend::supported_capabilities().join(", ")
+            "Provider: {}",
+            if ready {
+                "ready"
+            } else {
+                "not found or incompatible"
+            }
         );
-        println!("Runtime library discovery:");
-        println!(
-            "  configured: {}",
-            format_paths(&libraries.configured_library_dirs)
-        );
-        println!(
-            "  environment ({}): {}",
-            crate::runtime_paths::LIBRARY_PATH_ENV,
-            format_paths(&libraries.environment_library_dirs)
-        );
-        println!(
-            "  package: {}",
-            format_paths(&libraries.package_library_dirs)
-        );
-        println!(
-            "  effective: {}",
-            format_paths(&libraries.effective_library_dirs)
-        );
-        println!(
-            "  missing: {}",
-            format_paths(&libraries.missing_library_dirs)
-        );
-        println!(
-            "  ONNX Runtime: {}",
-            libraries
-                .onnxruntime_library
-                .as_deref()
-                .map_or_else(|| "(not found)".into(), |path| path.display().to_string())
-        );
-        println!(
-            "  provider: {}",
-            libraries.provider_library.as_deref().map_or_else(
-                || "(not selected)".into(),
-                |path| path.display().to_string()
-            )
-        );
+        if let Some(path) = library {
+            println!("  library: {}", path.display());
+        }
+        if let Some(version) = version {
+            println!("  version: {version}");
+        }
+        if let Some(error) = error {
+            println!("  error: {error}");
+            println!(
+                "  fix: install the Omawake release package or choose a complete libaudiocpp build directory"
+            );
+        }
         println!("Runtime/device choices:");
+        println!("  default   cpu                       integrated audio.cpp provider");
+        println!("  openvino  Intel CPU, GPU, NPU       qualification pending; unavailable");
+        println!("  cuda      NVIDIA GPU                qualification pending; unavailable");
         println!(
-            "  default   auto, cpu                 {}",
-            if libraries.runtime_loadable["default"] {
-                "runtime ready"
-            } else {
-                "runtime not found"
-            }
-        );
-        println!(
-            "  openvino  auto, cpu, gpu, npu       {}",
-            if libraries.runtime_loadable["openvino"] {
-                "external runtime ready"
-            } else {
-                "external runtime not found"
-            }
-        );
-        println!(
-            "  cuda      auto, gpu                 {}",
-            if libraries.runtime_loadable["cuda"] {
-                "external runtime ready"
-            } else {
-                "external runtime not found"
-            }
-        );
-        println!(
-            "Configure backend.runtime and backend.device independently; unsupported combinations fail unless fallback = \"cpu\"."
+            "Setup discovers or accepts complete provider builds; it never installs a system runtime."
         );
         println!("Browse catalog models and license status with `omawake setup model --list`.");
-        for remediation in &libraries.remediation {
-            println!("  fix: {remediation}");
-        }
     }
     Ok(())
-}
-
-fn format_paths(paths: &[std::path::PathBuf]) -> String {
-    if paths.is_empty() {
-        "(none)".into()
-    } else {
-        paths
-            .iter()
-            .map(|path| path.display().to_string())
-            .collect::<Vec<_>>()
-            .join(":")
-    }
 }
 
 fn command_exists(name: &str) -> bool {

@@ -363,7 +363,10 @@ fn child_with(
     }
     let spec = crate::catalog::model(&config.model.name)
         .with_context(|| format!("model {} has no catalog probe audio", config.model.name))?;
-    let audio = config.model_directory(paths).join(spec.probe_audio);
+    let probe_audio = spec
+        .probe_audio
+        .context("selected catalog model has no OpenVINO cache probe audio")?;
+    let audio = config.model_directory(paths).join(probe_audio);
     if !audio.is_file() {
         bail!("model cache probe audio is missing: {}", audio.display());
     }
@@ -424,8 +427,10 @@ fn cache_device(config: &Config) -> Result<String> {
 }
 
 fn catalog_probe_audio(config: &Config, paths: &AppPaths) -> Option<PathBuf> {
-    crate::catalog::model(&config.model.name)
-        .map(|spec| config.model_directory(paths).join(spec.probe_audio))
+    crate::catalog::model(&config.model.name).and_then(|spec| {
+        spec.probe_audio
+            .map(|probe| config.model_directory(paths).join(probe))
+    })
 }
 
 fn emit_deferred(format: ProgressFormat, config: &Config) -> Result<()> {

@@ -78,20 +78,12 @@ fn runtime_preparation_defers_until_the_catalog_probe_audio_is_installed() {
     .unwrap();
     assert!(deferred.is_none());
 
-    let spec = crate::catalog::model(&config.model.name).unwrap();
-    let probe_audio = config.model_directory(&paths).join(spec.probe_audio);
-    fs::create_dir_all(probe_audio.parent().unwrap()).unwrap();
-    fs::write(probe_audio, b"wav").unwrap();
-    let prepared = prepare_for_runtime_with(
-        &config,
-        &paths.config_file,
-        &paths,
-        ProgressFormat::Json,
-        |_, _, paths| Ok(report(paths, "gpu", true)),
-    )
-    .unwrap()
-    .unwrap();
-    assert!(prepared.prepared);
+    assert!(
+        crate::catalog::model(&config.model.name)
+            .unwrap()
+            .probe_audio
+            .is_none()
+    );
 }
 
 #[test]
@@ -155,44 +147,7 @@ fn child_requires_managed_accelerator_catalog_audio_and_real_cache_output() {
     config.model.name = crate::catalog::models()[0].id.into();
     assert!(child_with(&config, &paths, |_, _, _| Ok(())).is_err());
 
-    let spec = crate::catalog::models().first().unwrap();
-    let model = config.model_directory(&paths);
-    fs::create_dir_all(model.join("test_wavs")).unwrap();
-    fs::write(model.join(spec.probe_audio), b"wav").unwrap();
-    assert!(
-        child_with(&config, &paths, |_, _, audio| {
-            assert!(audio.ends_with(spec.probe_audio));
-            bail!("NPU rejected model")
-        })
-        .is_err()
-    );
-    assert!(child_with(&config, &paths, |_, _, _| Ok(())).is_err());
-
-    let ready = child_with(&config, &paths, |candidate, received_paths, audio| {
-        assert_eq!(candidate.backend.fallback, Fallback::Error);
-        assert_eq!(received_paths, &paths);
-        assert_eq!(audio, model.join(spec.probe_audio));
-        let cache = crate::engine::openvino_cache_directory(candidate, received_paths)?;
-        fs::create_dir_all(&cache)?;
-        fs::write(cache.join("model.blob"), b"compiled")?;
-        Ok(())
-    })
-    .unwrap();
-    assert!(ready.prepared);
-    assert_eq!(ready.artifacts, 1);
-    assert!(ready.elapsed_milliseconds.is_some());
-
-    config.backend.device = "gpu".into();
-    let gpu = child_with(&config, &paths, |candidate, received_paths, audio| {
-        assert_eq!(audio, model.join(spec.probe_audio));
-        let cache = crate::engine::openvino_cache_directory(candidate, received_paths)?;
-        fs::create_dir_all(&cache)?;
-        fs::write(cache.join("model.blob"), b"gpu-compiled")?;
-        Ok(())
-    })
-    .unwrap();
-    assert!(gpu.prepared);
-    assert_eq!(gpu.bytes, 12);
+    assert!(crate::catalog::models()[0].probe_audio.is_none());
 }
 
 #[test]

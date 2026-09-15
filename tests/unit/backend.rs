@@ -4,7 +4,7 @@ use super::*;
 fn defaults_to_cpu_runtime() {
     let config = BackendConfig::default();
     assert_eq!(config.runtime, Runtime::Default);
-    assert_eq!(config.canonical_device().unwrap(), "auto");
+    assert_eq!(config.canonical_device().unwrap(), "cpu");
     assert!(config.validate_shape().is_ok());
 }
 
@@ -40,5 +40,5 @@ fn validates_runtime_device_matrix() {
 
 #[test]
 fn reports_all_supported_runtimes() {
-    assert_eq!(supported_capabilities(), &["cpu", "openvino", "cuda"]);
+    assert_eq!(supported_capabilities(), &["cpu"]);
 }

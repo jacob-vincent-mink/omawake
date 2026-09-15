@@ -701,12 +701,14 @@ mod tests {
     #[test]
     fn runtime_plan_preserves_configured_graphs_and_selects_npu_beam_shape() {
         let mut config = Config::default();
-        let spec = crate::catalog::models()[0];
+        config.model.encoder = "encoder.onnx".into();
+        config.model.decoder = "decoder.onnx".into();
+        config.model.joiner = "joiner.onnx".into();
 
         let cpu = inference_plan(&config, Runtime::Default).unwrap();
-        assert_eq!(cpu.encoder, spec.encoder);
-        assert_eq!(cpu.decoder, spec.decoder);
-        assert_eq!(cpu.joiner, spec.joiner);
+        assert_eq!(cpu.encoder, config.model.encoder);
+        assert_eq!(cpu.decoder, config.model.decoder);
+        assert_eq!(cpu.joiner, config.model.joiner);
         assert_eq!(cpu.beam_width, 4);
         assert_eq!(cpu.fixed_batch, None);
 
@@ -714,26 +716,24 @@ mod tests {
         for device in ["auto", "cpu"] {
             config.backend.device = device.into();
             let plan = inference_plan(&config, Runtime::Openvino).unwrap();
-            assert_eq!(plan.encoder, spec.encoder);
+            assert_eq!(plan.encoder, config.model.encoder);
             assert_eq!(plan.beam_width, 4);
             assert_eq!(plan.fixed_batch, None);
         }
 
         config.backend.device = "gpu".into();
-        spec.apply_runtime_compatibility(&mut config);
         let gpu = inference_plan(&config, Runtime::Openvino).unwrap();
-        assert_eq!(gpu.encoder, spec.openvino_accelerator_encoder);
-        assert_eq!(gpu.decoder, spec.openvino_accelerator_decoder);
-        assert_eq!(gpu.joiner, spec.openvino_accelerator_joiner);
+        assert_eq!(gpu.encoder, config.model.encoder);
+        assert_eq!(gpu.decoder, config.model.decoder);
+        assert_eq!(gpu.joiner, config.model.joiner);
         assert_eq!(gpu.beam_width, 4);
         assert_eq!(gpu.fixed_batch, None);
 
         config.backend.device = "npu".into();
-        spec.apply_runtime_compatibility(&mut config);
         let npu = inference_plan(&config, Runtime::Openvino).unwrap();
-        assert_eq!(npu.encoder, spec.openvino_accelerator_encoder);
-        assert_eq!(npu.decoder, spec.openvino_accelerator_decoder);
-        assert_eq!(npu.joiner, spec.openvino_accelerator_joiner);
+        assert_eq!(npu.encoder, config.model.encoder);
+        assert_eq!(npu.decoder, config.model.decoder);
+        assert_eq!(npu.joiner, config.model.joiner);
         assert_eq!(npu.beam_width, NPU_MIN_BEAM_WIDTH);
         assert_eq!(npu.fixed_batch, Some(NPU_MIN_BEAM_WIDTH));
 
@@ -746,17 +746,16 @@ mod tests {
     #[test]
     fn runtime_plan_never_silently_rewrites_explicit_graphs() {
         let mut config = Config::default();
-        let spec = crate::catalog::models()[0];
         config.backend.runtime = Runtime::Openvino;
         config.backend.device = "npu".into();
-        config.model.encoder = spec.openvino_accelerator_encoder.into();
-        config.model.decoder = spec.openvino_accelerator_decoder.into();
-        config.model.joiner = spec.openvino_accelerator_joiner.into();
+        config.model.encoder = "accelerated-encoder.onnx".into();
+        config.model.decoder = "accelerated-decoder.onnx".into();
+        config.model.joiner = "accelerated-joiner.onnx".into();
 
         let fallback = inference_plan(&config, Runtime::Default).unwrap();
-        assert_eq!(fallback.encoder, spec.openvino_accelerator_encoder);
-        assert_eq!(fallback.decoder, spec.openvino_accelerator_decoder);
-        assert_eq!(fallback.joiner, spec.openvino_accelerator_joiner);
+        assert_eq!(fallback.encoder, "accelerated-encoder.onnx");
+        assert_eq!(fallback.decoder, "accelerated-decoder.onnx");
+        assert_eq!(fallback.joiner, "accelerated-joiner.onnx");
         assert_eq!(fallback.fixed_batch, None);
 
         config.model.name = "custom".into();

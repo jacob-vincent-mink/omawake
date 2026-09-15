@@ -345,10 +345,7 @@ fn successful_explicit_setup_repairs_invalid_config_and_failure_restores_it() {
     let applied = run_with_path(&root, &["setup", "systemd", "--no-start"], &bin);
     assert!(applied.status.success(), "{}", stderr(&applied));
     assert!(stderr(&applied).contains("successful setup apply will replace it"));
-    assert_eq!(
-        Config::load(&config_path).unwrap().backend.kind,
-        "omawake-onnx"
-    );
+    assert_eq!(Config::load(&config_path).unwrap().backend.kind, "audiocpp");
     assert!(
         !fs::read_to_string(config_path)
             .unwrap()
@@ -361,7 +358,7 @@ fn config_commands_cover_supported_keys_and_errors() {
     let root = sandbox();
     assert_eq!(
         stdout(&run(&root, &["config", "get", "backend.kind"])).trim(),
-        "omawake-onnx"
+        "audiocpp"
     );
     assert!(run(&root, &["config", "get", "--json"]).status.success());
     assert!(run(&root, &["config", "schema"]).status.success());
@@ -450,24 +447,18 @@ fn runtime_discovery_reports_invalid_paths_without_reexec_and_engine_use_rejects
     assert!(discovery.status.success(), "{}", stderr(&discovery));
     let value: serde_json::Value = serde_json::from_slice(&discovery.stdout).unwrap();
     let expected = root.join("config/omawake/missing-provider-libraries");
-    assert_eq!(
-        value["libraries"]["configured_library_dirs"][0],
-        expected.display().to_string()
-    );
-    assert_eq!(
-        value["libraries"]["missing_library_dirs"][0],
-        expected.display().to_string()
-    );
+    assert_eq!(value["provider"]["kind"], "audiocpp");
+    assert_eq!(value["provider"]["ready"], false);
     assert!(
-        !value["libraries"]["remediation"]
-            .as_array()
+        value["provider"]["error"]
+            .as_str()
             .unwrap()
-            .is_empty()
+            .contains(&expected.display().to_string())
     );
 
     let engine = run(&root, &["benchmark", "/missing.wav"]);
     assert!(!engine.status.success());
-    assert!(stderr(&engine).contains("native library directories must be absolute existing"));
+    assert!(stderr(&engine).contains(&expected.display().to_string()));
 }
 
 #[test]

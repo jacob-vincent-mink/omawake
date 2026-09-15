@@ -350,32 +350,34 @@ pub fn choose_runtime_directory(current: &[PathBuf]) -> Result<Option<PathBuf>> 
     })
 }
 
-pub fn choose_model_archive(model: &str) -> Result<Option<PathBuf>> {
+pub fn choose_model_source_directory(model: &str) -> Result<Option<PathBuf>> {
     let mut input = io::stdin().lock();
-    choose_model_archive_with(&mut TerminalPrompter, model, || {
+    choose_model_source_directory_with(&mut TerminalPrompter, model, || {
         let mut line = String::new();
-        print!("Licensed model archive: ");
+        print!("Model source directory: ");
         io::stdout().flush()?;
         input.read_line(&mut line)?;
         Ok(line)
     })
 }
 
-fn choose_model_archive_with(
+fn choose_model_source_directory_with(
     prompter: &mut impl Prompter,
     model: &str,
     mut read_line: impl FnMut() -> Result<String>,
 ) -> Result<Option<PathBuf>> {
     let items = [
         MenuItem::available(
-            "Choose licensed archive",
-            format!("Provide a local archive for {model}; Omawake verifies its pinned hash"),
+            "Choose local asset directory",
+            format!(
+                "Provide all files for {model}; Omawake verifies every pinned size and SHA-256"
+            ),
         ),
         MenuItem::available("Back", "Return without installing a model."),
     ];
     if prompter.choose(
-        "Model archive",
-        "This model cannot be downloaded until its license terms are verified.",
+        "Model source directory",
+        "Use exact local assets when catalog download is unavailable.",
         &items,
         0,
     )? != Some(0)
@@ -383,14 +385,14 @@ fn choose_model_archive_with(
         return Ok(None);
     }
     let raw = read_line()?;
-    let archive = Path::new(raw.trim());
-    if !archive.is_absolute() || !archive.is_file() {
+    let directory = Path::new(raw.trim());
+    if !directory.is_absolute() || !directory.is_dir() {
         bail!(
-            "model archive must be an absolute existing file: {}",
-            archive.display()
+            "model source must be an absolute existing directory: {}",
+            directory.display()
         );
     }
-    Ok(Some(archive.to_owned()))
+    Ok(Some(directory.to_owned()))
 }
 
 fn choose_runtime_directory_with(
@@ -414,7 +416,7 @@ fn choose_runtime_directory_with(
         MenuItem::available("Use current discovery", configured),
         MenuItem::available(
             "Choose runtime directory",
-            "Select Omawake's bundled ONNX Runtime and optional provider plugin",
+            "Select a complete libaudiocpp provider build and its dependency libraries",
         ),
     ];
     if prompter.choose(
@@ -447,7 +449,7 @@ fn choose_runtime_with(
     let items = runtime_items(loadable);
     let preferred = runtime_index(current_runtime);
     let help = format!(
-        "All runtimes remain selectable so you can configure an external stack after choosing.\r\n{library_context}"
+        "Select a complete, supported provider. Setup discovers libraries but never installs system runtimes.\r\n{library_context}"
     );
     let Some(index) = prompter.choose("Inference runtime", &help, &items, preferred)? else {
         return Ok(None);
@@ -476,32 +478,24 @@ fn choose_runtime_with(
 fn runtime_items(loadable: &BTreeMap<&str, bool>) -> [MenuItem; 3] {
     [
         if loadable.get("default").copied().unwrap_or(false) {
-            MenuItem::available("Default", "Bundled ONNX Runtime · CPU")
-        } else {
             MenuItem::available(
-                "Default",
-                "Runtime not detected · release archives include it, or choose a library directory",
-            )
-        },
-        if loadable.get("openvino").copied().unwrap_or(false) {
-            MenuItem::available(
-                "OpenVINO",
-                "External OpenVINO provider detected · Intel CPU, GPU, or NPU",
+                "audio.cpp · CPU",
+                "Integrated public C ABI provider detected",
             )
         } else {
             MenuItem::available(
-                "OpenVINO",
-                "External OpenVINO provider not detected · select to configure its library directory",
+                "audio.cpp · CPU",
+                "Provider not detected · release packages include it, or choose a complete build directory",
             )
         },
-        if loadable.get("cuda").copied().unwrap_or(false) {
-            MenuItem::available("CUDA", "External CUDA provider detected · NVIDIA GPU")
-        } else {
-            MenuItem::available(
-                "CUDA",
-                "External CUDA provider not detected · select to configure its library directory",
-            )
-        },
+        MenuItem::unavailable(
+            "OpenVINO · Intel CPU/GPU/NPU",
+            "A complete native provider is still being qualified; setup will not install or save a partial stack",
+        ),
+        MenuItem::unavailable(
+            "audio.cpp · CUDA/Vulkan",
+            "Complete external accelerated provider builds will appear here after qualification",
+        ),
     ]
 }
 
@@ -619,7 +613,7 @@ fn device_items(runtime: Runtime) -> Vec<MenuItem> {
 
 fn device_values(runtime: Runtime) -> &'static [(&'static str, &'static str)] {
     match runtime {
-        Runtime::Default => &[("auto", "Use the available CPU"), ("cpu", "CPU execution")],
+        Runtime::Default => &[("cpu", "CPU execution")],
         Runtime::Openvino => &[
             ("auto", "Let OpenVINO choose"),
             ("npu", "Intel NPU"),

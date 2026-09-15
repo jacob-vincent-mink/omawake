@@ -86,15 +86,15 @@ pub struct ModelConfig {
 impl Default for ModelConfig {
     fn default() -> Self {
         Self {
-            name: "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01".into(),
+            name: crate::catalog::DEFAULT_MODEL_ID.into(),
             directory: String::new(),
-            verifier: "ggml-tiny.en.bin".into(),
-            vad: "ggml-silero-v6.2.0.bin".into(),
-            encoder: "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx".into(),
-            decoder: "decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx".into(),
-            joiner: "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx".into(),
-            tokens: "tokens.txt".into(),
-            bpe_model: "bpe.model".into(),
+            verifier: "moonshine-streaming-tiny-q8_0.gguf".into(),
+            vad: "silero_vad_16k.safetensors".into(),
+            encoder: String::new(),
+            decoder: String::new(),
+            joiner: String::new(),
+            tokens: String::new(),
+            bpe_model: String::new(),
             sample_rate: 16_000,
             keywords_score: 1.5,
             keywords_threshold: 0.25,

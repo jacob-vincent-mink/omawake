@@ -37,6 +37,37 @@ const SILERO_VAD_BYTES: u64 = 1_239_748;
 // Author-published MIT artifact: snakers4/silero-vad@7e30209a3e901f9842f81b225f3e93d8199902b1.
 const SILERO_VAD_SHA256: &str = "c59271c284ae9c8335d795d60e0bfdb71aaaceec578d9bd9ffc1b8153c319ea1";
 
+pub(crate) fn probe_provider(config: &Config, paths: &AppPaths) -> Result<(PathBuf, String)> {
+    if config.backend.kind != "audiocpp" {
+        bail!("audio.cpp probe requires backend.kind = audiocpp");
+    }
+    if config.backend.runtime != Runtime::Default {
+        bail!("audio.cpp CPU provider requires backend.runtime = default");
+    }
+    if !matches!(
+        config.backend.device.trim().to_ascii_lowercase().as_str(),
+        "auto" | "cpu"
+    ) {
+        bail!("audio.cpp CPU provider requires backend.device = auto or cpu");
+    }
+    if !(1..=64).contains(&config.backend.threads) {
+        bail!("backend threads must be between 1 and 64");
+    }
+    let configured_dirs = resolve_configured_library_dirs(config, paths)?;
+    let library = resolve_library(config, paths, &configured_dirs)?;
+    let api = AudioCppApi::load(&library)?;
+    let version = unsafe { (api.build_version)() };
+    let version = if version.is_null() {
+        "audio.cpp ABI 0.1.0 (cpu)".into()
+    } else {
+        format!(
+            "audio.cpp {} (ABI 0.1.0, cpu)",
+            unsafe { CStr::from_ptr(version) }.to_string_lossy()
+        )
+    };
+    Ok((library, version))
+}
+
 struct AsrProfile {
     family: &'static str,
     file_name: &'static str,

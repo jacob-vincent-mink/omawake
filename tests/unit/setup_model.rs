@@ -1,8 +1,5 @@
 use super::*;
-use bzip2::Compression;
-use bzip2::write::BzEncoder;
-
-use crate::catalog::RequiredFile;
+use crate::catalog::{LicenseNotice, ModelAsset};
 
 fn temp(name: &str) -> PathBuf {
     let path =
@@ -16,119 +13,64 @@ fn leak(value: String) -> &'static str {
     Box::leak(value.into_boxed_str())
 }
 
-fn digest(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+fn digest(bytes: &[u8]) -> &'static str {
+    leak(format!("{:x}", Sha256::digest(bytes)))
 }
 
-fn archive(root: &str, path: &str, bytes: &[u8]) -> Vec<u8> {
-    let encoder = BzEncoder::new(Vec::new(), Compression::best());
-    let mut builder = tar::Builder::new(encoder);
-    let mut header = tar::Header::new_gnu();
-    header.set_size(bytes.len() as u64);
-    header.set_mode(0o644);
-    header.set_cksum();
-    builder
-        .append_data(&mut header, format!("{root}/{path}"), bytes)
-        .unwrap();
-    builder.into_inner().unwrap().finish().unwrap()
-}
-
-fn archive_with_directory(root: &str, path: &str, bytes: &[u8]) -> Vec<u8> {
-    let encoder = BzEncoder::new(Vec::new(), Compression::best());
-    let mut builder = tar::Builder::new(encoder);
-    let mut directory = tar::Header::new_gnu();
-    directory.set_entry_type(tar::EntryType::Directory);
-    directory.set_size(0);
-    directory.set_mode(0o755);
-    directory.set_cksum();
-    builder
-        .append_data(&mut directory, format!("{root}/assets"), &[][..])
-        .unwrap();
-    let mut file = tar::Header::new_gnu();
-    file.set_size(bytes.len() as u64);
-    file.set_mode(0o644);
-    file.set_cksum();
-    builder
-        .append_data(&mut file, format!("{root}/{path}"), bytes)
-        .unwrap();
-    builder.into_inner().unwrap().finish().unwrap()
-}
-
-fn archive_blocking_manifest(root: &str, path: &str, bytes: &[u8]) -> Vec<u8> {
-    let encoder = BzEncoder::new(Vec::new(), Compression::best());
-    let mut builder = tar::Builder::new(encoder);
-    let mut file = tar::Header::new_gnu();
-    file.set_size(bytes.len() as u64);
-    file.set_mode(0o644);
-    file.set_cksum();
-    builder
-        .append_data(&mut file, format!("{root}/{path}"), bytes)
-        .unwrap();
-    let mut directory = tar::Header::new_gnu();
-    directory.set_entry_type(tar::EntryType::Directory);
-    directory.set_size(0);
-    directory.set_mode(0o755);
-    directory.set_cksum();
-    builder
-        .append_data(
-            &mut directory,
-            format!("{root}/.omawake-model.json"),
-            &[][..],
-        )
-        .unwrap();
-    builder.into_inner().unwrap().finish().unwrap()
-}
-
-fn archive_with_unsafe_path() -> Vec<u8> {
-    let encoder = BzEncoder::new(Vec::new(), Compression::best());
-    let mut builder = tar::Builder::new(encoder);
-    let mut header = tar::Header::new_gnu();
-    header.set_size(1);
-    header.set_mode(0o644);
-    header.set_path("safe").unwrap();
-    header.as_mut_bytes()[..9].copy_from_slice(b"../escape");
-    header.set_cksum();
-    builder.append(&header, &b"x"[..]).unwrap();
-    builder.into_inner().unwrap().finish().unwrap()
-}
-
-fn spec(archive_bytes: &[u8], url: &str) -> &'static ModelSpec {
-    let asset = b"tiny model";
-    let required: &'static [RequiredFile] = Box::leak(
-        vec![RequiredFile {
-            path: "model.bin",
-            size: asset.len() as u64,
-            sha256: leak(digest(asset)),
+fn fixture_spec(first: &'static [u8], second: &'static [u8]) -> &'static ModelSpec {
+    let assets = Box::leak(
+        vec![
+            ModelAsset {
+                role: "verifier",
+                path: "model.gguf",
+                url: "https://example.invalid/model.gguf",
+                size: first.len() as u64,
+                sha256: digest(first),
+                source_url: "https://example.invalid/original",
+                source_revision: "1111111111111111111111111111111111111111",
+                license: "MIT",
+            },
+            ModelAsset {
+                role: "vad",
+                path: "vad.safetensors",
+                url: "https://example.invalid/vad.safetensors",
+                size: second.len() as u64,
+                sha256: digest(second),
+                source_url: "https://example.invalid/vad",
+                source_revision: "2222222222222222222222222222222222222222",
+                license: "MIT",
+            },
+        ]
+        .into_boxed_slice(),
+    );
+    let notices = Box::leak(
+        vec![LicenseNotice {
+            path: "LICENSES/test.txt",
+            license: "MIT",
+            copyright: "Copyright test",
+            source_url: "https://example.invalid/license",
         }]
         .into_boxed_slice(),
     );
     Box::leak(Box::new(ModelSpec {
         id: "tiny",
-        backend: "omawake-onnx",
-        family: "zipformer-kws",
+        backend: "audiocpp",
+        family: "test",
         description: "test model",
         license: "MIT",
         license_status: "verified",
-        license_url: "https://opensource.org/license/mit",
-        source_url: "https://example.invalid/tiny",
+        license_url: "https://example.invalid/license",
+        source_url: "https://example.invalid/original",
+        source_revision: "1111111111111111111111111111111111111111",
+        converted_source_url: "https://example.invalid/converted",
+        converted_source_revision: "3333333333333333333333333333333333333333",
         downloadable: true,
-        archive_url: leak(url.to_owned()),
-        archive_size: archive_bytes.len() as u64,
-        archive_sha256: leak(digest(archive_bytes)),
-        archive_root: "tiny-root",
-        encoder: "model.bin",
-        openvino_accelerator_encoder: "model.bin",
-        cuda_encoder: "model.bin",
-        decoder: "model.bin",
-        openvino_accelerator_decoder: "model.bin",
-        cuda_decoder: "model.bin",
-        joiner: "model.bin",
-        openvino_accelerator_joiner: "model.bin",
-        cuda_joiner: "model.bin",
-        tokens: "model.bin",
-        bpe_model: "model.bin",
-        probe_audio: "model.bin",
-        required_files: required,
+        verifier: "model.gguf",
+        vad: "vad.safetensors",
+        sample_rate: 16_000,
+        probe_audio: None,
+        assets,
+        notices,
     }))
 }
 
@@ -144,348 +86,191 @@ fn paths(root: &Path) -> AppPaths {
 
 #[test]
 fn model_path_is_backend_neutral() {
-    let paths = AppPaths {
-        config_file: "/tmp/config".into(),
-        data_dir: "/tmp/data".into(),
-        cache_dir: "/tmp/cache".into(),
-        state_dir: "/tmp/state".into(),
-        runtime_dir: "/tmp/run".into(),
-    };
-    let spec = crate::catalog::models().first().unwrap();
+    let app = paths(Path::new("/tmp/root"));
     assert_eq!(
-        model_directory(&paths, spec),
-        PathBuf::from("/tmp/data/models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01")
+        model_directory(&app, crate::catalog::models().first().unwrap()),
+        PathBuf::from("/tmp/root/data/models/moonshine-streaming-tiny-q8_0-silero-v6.2.1")
     );
 }
 
 #[test]
-fn progress_is_rate_limited_and_always_reports_completion() {
-    assert!(!should_report_progress(128 * 1024, 0, 2 * 1024 * 1024));
-    assert!(should_report_progress(1024 * 1024, 0, 2 * 1024 * 1024));
-    assert!(should_report_progress(
-        2 * 1024 * 1024,
-        1024 * 1024,
-        2 * 1024 * 1024
-    ));
-}
-
-#[test]
-fn local_archive_install_is_verified_idempotent_and_repairable() {
-    let root = temp("install");
-    let archive_bytes = archive("tiny-root", "model.bin", b"tiny model");
-    let archive_path = root.join("tiny.tar.bz2");
-    fs::write(&archive_path, &archive_bytes).unwrap();
-    let spec = spec(&archive_bytes, "http://unused.invalid/model");
-    let paths = paths(&root);
-    let installed = install(&paths, spec, Some(&archive_path), ProgressFormat::Json).unwrap();
-    assert_eq!(installed, model_directory(&paths, spec));
-    assert!(installed.join(".omawake-model.json").is_file());
-    let manifest: serde_json::Value =
-        serde_json::from_slice(&fs::read(installed.join(".omawake-model.json")).unwrap()).unwrap();
-    assert_eq!(manifest["provenance"]["source"], "user-supplied-archive");
-    assert_eq!(
-        manifest["provenance"]["archive_sha256"],
-        spec.archive_sha256
-    );
-    verify(&paths, spec).unwrap();
-    install(&paths, spec, Some(&archive_path), ProgressFormat::Human).unwrap();
-    fs::write(installed.join("model.bin"), b"bad").unwrap();
-    assert!(verify(&paths, spec).is_err());
-    let staging =
-        paths
-            .data_dir
-            .join("models")
-            .join(format!(".{}.install-{}", spec.id, std::process::id()));
-    let old =
-        paths
-            .data_dir
-            .join("models")
-            .join(format!(".{}.old-{}", spec.id, std::process::id()));
-    fs::create_dir_all(&staging).unwrap();
-    fs::create_dir_all(&old).unwrap();
-    install(&paths, spec, Some(&archive_path), ProgressFormat::Human).unwrap();
-    verify(&paths, spec).unwrap();
-    assert!(!staging.exists());
-    assert!(!old.exists());
-}
-
-#[test]
-fn install_without_override_uses_injected_downloader() {
-    let root = temp("install-download");
-    let archive_bytes = archive("tiny-root", "model.bin", b"tiny model");
-    let archive_path = root.join("downloaded.tar.bz2");
-    fs::write(&archive_path, &archive_bytes).unwrap();
-    let spec = spec(&archive_bytes, "https://example.invalid/model");
-    let paths = paths(&root);
-    let installed = install_with_download(
-        &paths,
-        spec,
-        None,
-        ProgressFormat::Json,
-        |received_paths, received_spec, received_progress| {
-            assert_eq!(received_paths.data_dir, paths.data_dir);
-            assert_eq!(received_spec.id, "tiny");
-            assert_eq!(received_progress, ProgressFormat::Json);
-            Ok(archive_path.clone())
-        },
-    )
+fn multi_file_download_is_verified_manifested_atomic_and_idempotent() {
+    let root = temp("download");
+    let app = paths(&root);
+    let spec = fixture_spec(b"model", b"vad");
+    let fetches = std::cell::Cell::new(0);
+    let installed = install_with_fetch(&app, spec, None, ProgressFormat::Json, |asset| {
+        fetches.set(fetches.get() + 1);
+        let bytes: &'static [u8] = if asset.path == "model.gguf" {
+            b"model"
+        } else {
+            b"vad"
+        };
+        Ok(Box::new(std::io::Cursor::new(bytes)))
+    })
     .unwrap();
-    assert_eq!(
-        fs::read(installed.join("model.bin")).unwrap(),
-        b"tiny model"
-    );
+    assert_eq!(fetches.get(), 2);
+    assert_eq!(fs::read(installed.join("model.gguf")).unwrap(), b"model");
+    assert_eq!(fs::read(installed.join("vad.safetensors")).unwrap(), b"vad");
+    assert!(installed.join("PROVENANCE.json").is_file());
+    assert!(installed.join("LICENSES/test.txt").is_file());
+    let provenance: serde_json::Value =
+        serde_json::from_slice(&fs::read(installed.join("PROVENANCE.json")).unwrap()).unwrap();
+    assert_eq!(provenance["assets"].as_array().unwrap().len(), 2);
+    assert_eq!(provenance["installed_from"], "catalog-download");
+    verify(&app, spec).unwrap();
+
+    install_with_fetch(&app, spec, None, ProgressFormat::Human, |_| {
+        panic!("verified installation should not download")
+    })
+    .unwrap();
 }
 
 #[test]
-fn unverified_model_cannot_be_downloaded_automatically() {
-    let root = temp("unverified-license");
-    let archive_bytes = archive("tiny-root", "model.bin", b"tiny model");
-    let mut blocked = *spec(&archive_bytes, "https://example.invalid/model");
-    blocked.downloadable = false;
-    blocked.license = "unknown";
-    blocked.license_status = "unverified";
-    let blocked = Box::leak(Box::new(blocked));
-    let error = install_with_download(
-        &paths(&root),
-        blocked,
-        None,
-        ProgressFormat::Human,
-        |_, _, _| panic!("an unverified model must not reach the downloader"),
-    )
-    .unwrap_err();
-    assert!(error.to_string().contains("license not verified"));
+fn local_directory_install_verifies_every_asset_and_repairs_corruption() {
+    let root = temp("local");
+    let app = paths(&root);
+    let spec = fixture_spec(b"model", b"vad");
+    let source = root.join("source");
+    fs::create_dir_all(&source).unwrap();
+    fs::write(source.join("model.gguf"), b"model").unwrap();
+    fs::write(source.join("vad.safetensors"), b"vad").unwrap();
+    let installed = install(&app, spec, Some(&source), ProgressFormat::Human).unwrap();
+    let provenance: serde_json::Value =
+        serde_json::from_slice(&fs::read(installed.join("PROVENANCE.json")).unwrap()).unwrap();
+    assert_eq!(provenance["installed_from"], "local-directory");
+
+    fs::write(installed.join("PROVENANCE.json"), b"{}").unwrap();
+    assert!(verify(&app, spec).is_err());
+    install(&app, spec, Some(&source), ProgressFormat::Human).unwrap();
+    fs::write(installed.join("LICENSES/test.txt"), b"changed").unwrap();
+    assert!(verify(&app, spec).is_err());
+    install(&app, spec, Some(&source), ProgressFormat::Human).unwrap();
+
+    fs::write(installed.join("model.gguf"), b"wrong").unwrap();
+    assert!(verify(&app, spec).is_err());
+    install(&app, spec, Some(&source), ProgressFormat::Human).unwrap();
+    verify(&app, spec).unwrap();
 }
 
 #[test]
-fn failed_manifest_activation_restores_the_previous_model() {
-    let root = temp("activation-rollback");
-    let archive_bytes = archive_blocking_manifest("tiny-root", "model.bin", b"tiny model");
-    let archive_path = root.join("tiny.tar.bz2");
-    fs::write(&archive_path, &archive_bytes).unwrap();
-    let spec = spec(&archive_bytes, "http://unused.invalid/model");
-    let paths = paths(&root);
-    let target = model_directory(&paths, spec);
+fn failed_second_asset_leaves_previous_model_and_cleans_staging() {
+    let root = temp("rollback");
+    let app = paths(&root);
+    let spec = fixture_spec(b"model", b"vad");
+    let target = model_directory(&app, spec);
     fs::create_dir_all(&target).unwrap();
-    fs::write(target.join("previous"), b"keep me").unwrap();
-
-    let error = install(&paths, spec, Some(&archive_path), ProgressFormat::Human).unwrap_err();
-    assert!(error.to_string().contains("finalize installed model"));
-    assert_eq!(fs::read(target.join("previous")).unwrap(), b"keep me");
-    assert!(!target.join("model.bin").exists());
-}
-
-#[test]
-fn archive_and_asset_corruption_are_rejected() {
-    let root = temp("corruption");
-    let bytes = archive("tiny-root", "model.bin", b"tiny model");
-    let path = root.join("archive.tar.bz2");
-    fs::write(&path, &bytes).unwrap();
-    let spec = spec(&bytes, "http://unused.invalid/model");
-    verify_archive(&path, spec).unwrap();
-    let mut changed = bytes.clone();
-    let middle = changed.len() / 2;
-    changed[middle] ^= 1;
-    fs::write(&path, &changed).unwrap();
-    assert!(verify_archive(&path, spec).is_err());
-    fs::write(&path, &bytes[..bytes.len() - 1]).unwrap();
-    assert!(verify_archive(&path, spec).is_err());
-    assert!(verify_archive(&root.join("missing"), spec).is_err());
-    let directory = root.join("assets");
-    fs::create_dir_all(&directory).unwrap();
-    assert!(verify_directory(&directory, spec).is_err());
-    fs::write(directory.join("model.bin"), b"bad model!").unwrap();
-    assert!(verify_directory(&directory, spec).is_err());
-    fs::write(directory.join("model.bin"), b"tiny xodel").unwrap();
-    assert!(verify_directory(&directory, spec).is_err());
-}
-
-#[test]
-fn extraction_rejects_wrong_roots_and_non_files() {
-    let root = temp("unsafe");
-    let wrong = archive("other-root", "model.bin", b"tiny model");
-    let wrong_path = root.join("wrong.tar.bz2");
-    fs::write(&wrong_path, wrong).unwrap();
-    let expected = archive("tiny-root", "model.bin", b"tiny model");
-    let spec = spec(&expected, "http://unused.invalid/model");
-    assert!(extract_archive(&wrong_path, &root.join("stage"), spec).is_err());
-    let encoder = BzEncoder::new(Vec::new(), Compression::best());
-    let mut builder = tar::Builder::new(encoder);
-    let mut header = tar::Header::new_gnu();
-    header.set_entry_type(tar::EntryType::Symlink);
-    header.set_size(0);
-    header.set_mode(0o777);
-    header.set_link_name("target").unwrap();
-    header.set_cksum();
-    builder
-        .append_data(&mut header, "tiny-root/link", &[][..])
-        .unwrap();
-    let links = builder.into_inner().unwrap().finish().unwrap();
-    let links_path = root.join("links.tar.bz2");
-    fs::write(&links_path, links).unwrap();
-    assert!(extract_archive(&links_path, &root.join("stage2"), spec).is_err());
-
-    let with_directory = archive_with_directory("tiny-root", "model.bin", b"tiny model");
-    let directory_path = root.join("directory.tar.bz2");
-    fs::write(&directory_path, with_directory).unwrap();
-    let stage3 = root.join("stage3");
-    fs::create_dir_all(&stage3).unwrap();
-    let extracted = extract_archive(&directory_path, &stage3, spec).unwrap();
-    assert_eq!(
-        fs::read(extracted.join("model.bin")).unwrap(),
-        b"tiny model"
-    );
-
-    let malformed = root.join("malformed.tar.bz2");
-    fs::write(&malformed, b"not bzip data").unwrap();
-    assert!(extract_archive(&malformed, &root.join("stage4"), spec).is_err());
-
-    let unsafe_path = root.join("unsafe.tar.bz2");
-    fs::write(&unsafe_path, archive_with_unsafe_path()).unwrap();
-    assert!(extract_archive(&unsafe_path, &root.join("stage5"), spec).is_err());
-}
-
-#[test]
-fn downloaded_bytes_succeed_cache_and_reject_bad_lengths() {
-    let root = temp("network");
-    let archive_bytes = archive("tiny-root", "model.bin", b"tiny model");
-    let model_spec = spec(&archive_bytes, "http://unused.invalid/model");
-    let app_paths = paths(&root);
-    fs::create_dir_all(app_paths.data_dir.join("downloads")).unwrap();
-    let downloaded = app_paths.data_dir.join("downloads/tiny.tar.bz2");
-    let part = downloaded.with_extension("tar.bz2.part");
-    write_download(
-        &archive_bytes[..],
-        &part,
-        &downloaded,
-        model_spec,
-        ProgressFormat::Json,
-    )
-    .unwrap();
-    verify_archive(&downloaded, model_spec).unwrap();
-    assert_eq!(
-        download_archive(&app_paths, model_spec, ProgressFormat::Human).unwrap(),
-        downloaded
-    );
-    let short_root = temp("short");
-    let short_spec = spec(&archive_bytes, "http://unused.invalid/model");
-    let short_paths = paths(&short_root);
-    fs::create_dir_all(short_paths.data_dir.join("downloads")).unwrap();
-    let target = short_paths.data_dir.join("downloads/tiny.tar.bz2");
-    assert!(
-        write_download(
-            &archive_bytes[..archive_bytes.len() - 1],
-            &target.with_extension("tar.bz2.part"),
-            &target,
-            short_spec,
-            ProgressFormat::Human,
-        )
-        .is_err()
-    );
-
-    let corrupt_root = temp("download-checksum");
-    let corrupt_paths = paths(&corrupt_root);
-    fs::create_dir_all(corrupt_paths.data_dir.join("downloads")).unwrap();
-    let target = corrupt_paths.data_dir.join("downloads/tiny.tar.bz2");
-    let mut corrupt = archive_bytes.clone();
-    corrupt[0] ^= 1;
-    assert!(
-        write_download(
-            &corrupt[..],
-            &target.with_extension("tar.bz2.part"),
-            &target,
-            model_spec,
-            ProgressFormat::Human,
-        )
-        .is_err()
-    );
-
-    let missing_parent = corrupt_root.join("missing/part");
-    assert!(
-        write_download(
-            &archive_bytes[..],
-            &missing_parent,
-            &target,
-            model_spec,
-            ProgressFormat::Human,
-        )
-        .is_err()
-    );
-    let overflow_root = temp("overflow");
-    let expected = &archive_bytes[..archive_bytes.len() - 1];
-    let overflow_spec = spec(expected, "http://unused.invalid/model");
-    let overflow_paths = paths(&overflow_root);
-    fs::create_dir_all(overflow_paths.data_dir.join("downloads")).unwrap();
-    let target = overflow_paths.data_dir.join("downloads/tiny.tar.bz2");
-    assert!(
-        write_download(
-            &archive_bytes[..],
-            &target.with_extension("tar.bz2.part"),
-            &target,
-            overflow_spec,
-            ProgressFormat::Human,
-        )
-        .is_err()
-    );
-
-    let large_root = temp("large-progress");
-    let large_bytes = vec![0x5a; 1024 * 1024 + 17];
-    let large_spec = spec(&large_bytes, "http://unused.invalid/large");
-    let large_target = large_root.join("large.download");
-    write_download(
-        &large_bytes[..],
-        &large_target.with_extension("part"),
-        &large_target,
-        large_spec,
-        ProgressFormat::Json,
-    )
-    .unwrap();
-    assert_eq!(
-        fs::metadata(large_target).unwrap().len(),
-        large_bytes.len() as u64
-    );
-}
-
-#[test]
-fn injected_download_replaces_partial_files_and_reports_human_progress() {
-    let root = temp("injected-download");
-    let archive_bytes = archive("tiny-root", "model.bin", b"tiny model");
-    let model_spec = spec(&archive_bytes, "https://example.invalid/tiny.tar.bz2");
-    let app_paths = paths(&root);
-    let downloads = app_paths.data_dir.join("downloads");
-    fs::create_dir_all(&downloads).unwrap();
-    let target = downloads.join("tiny.tar.bz2");
-    let part = target.with_extension("tar.bz2.part");
-    fs::write(&part, b"stale").unwrap();
-
-    let result = download_archive_with(&app_paths, model_spec, ProgressFormat::Human, |url| {
-        assert_eq!(url, "https://example.invalid/tiny.tar.bz2");
-        Ok(Box::new(std::io::Cursor::new(archive_bytes.clone())))
-    })
-    .unwrap();
-    assert_eq!(result, target);
-    assert!(!part.exists());
-    verify_archive(&result, model_spec).unwrap();
-
-    fs::remove_file(&result).unwrap();
-    let error = download_archive_with(&app_paths, model_spec, ProgressFormat::Json, |_| {
-        Err(anyhow::anyhow!("fetch failed"))
+    fs::write(target.join("previous"), b"keep").unwrap();
+    let error = install_with_fetch(&app, spec, None, ProgressFormat::Human, |asset| {
+        if asset.path == "model.gguf" {
+            Ok(Box::new(std::io::Cursor::new(b"model")))
+        } else {
+            bail!("second fetch failed")
+        }
     })
     .unwrap_err();
-    assert_eq!(error.to_string(), "fetch failed");
+    assert!(error.to_string().contains("prepare model installation"));
+    assert_eq!(fs::read(target.join("previous")).unwrap(), b"keep");
+    let staging = app
+        .data_dir
+        .join("models")
+        .join(format!(".tiny.install-{}", std::process::id()));
+    assert!(!staging.exists());
+}
 
-    emit(
-        ProgressFormat::Human,
-        "download-progress",
-        model_spec,
-        Some(model_spec.archive_size),
-        Some(model_spec.archive_size),
+#[test]
+fn corrupt_download_and_unsafe_catalog_paths_are_rejected() {
+    let root = temp("invalid");
+    let app = paths(&root);
+    let spec = fixture_spec(b"model", b"vad");
+    assert!(
+        install_with_fetch(&app, spec, None, ProgressFormat::Human, |_| {
+            Ok(Box::new(std::io::Cursor::new(b"wrong")))
+        })
+        .is_err()
+    );
+    assert!(!model_directory(&app, spec).exists());
+    assert!(validate_relative_file("../escape").is_err());
+    assert!(validate_relative_file("/absolute").is_err());
+    assert!(validate_relative_file("").is_err());
+}
+
+#[test]
+fn download_writer_checks_length_checksum_and_progress() {
+    let root = temp("writer");
+    let spec = fixture_spec(b"model", b"vad");
+    let asset = &spec.assets[0];
+    let target = root.join("model.gguf");
+    let part = root.join("model.gguf.part");
+    write_download(
+        b"model".as_slice(),
+        &part,
+        &target,
+        spec,
+        asset,
+        ProgressFormat::Json,
     )
     .unwrap();
+    verify_file(&target, asset.size, asset.sha256).unwrap();
+    assert!(should_report_progress(1024 * 1024, 0, 2 * 1024 * 1024));
+    assert!(!should_report_progress(1, 0, 2));
+    assert!(
+        write_download(
+            b"mod".as_slice(),
+            &part,
+            &target,
+            spec,
+            asset,
+            ProgressFormat::Human
+        )
+        .is_err()
+    );
+    assert!(
+        write_download(
+            b"models".as_slice(),
+            &part,
+            &target,
+            spec,
+            asset,
+            ProgressFormat::Human
+        )
+        .is_err()
+    );
+}
 
-    let invalid_url_root = temp("invalid-download-url");
-    let invalid_url_paths = paths(&invalid_url_root);
-    let invalid_url_spec = spec(&archive_bytes, "://invalid-url");
-    let error =
-        download_archive(&invalid_url_paths, invalid_url_spec, ProgressFormat::Human).unwrap_err();
-    assert!(error.to_string().contains("download"));
+#[test]
+fn unsupported_notice_and_invalid_source_directory_fail_before_activation() {
+    let root = temp("notice");
+    let app = paths(&root);
+    let base = fixture_spec(b"model", b"vad");
+    let mut invalid = *base;
+    invalid.notices = Box::leak(
+        vec![LicenseNotice {
+            path: "LICENSES/x",
+            license: "Other",
+            copyright: "x",
+            source_url: "https://example.invalid",
+        }]
+        .into_boxed_slice(),
+    );
+    assert!(
+        install_with_fetch(
+            &app,
+            Box::leak(Box::new(invalid)),
+            None,
+            ProgressFormat::Human,
+            |_| unreachable!()
+        )
+        .is_err()
+    );
+    assert!(
+        install(
+            &app,
+            base,
+            Some(Path::new("relative")),
+            ProgressFormat::Human
+        )
+        .is_err()
+    );
+    assert!(emit(ProgressFormat::Human, "event", base, None, None, None).is_ok());
 }

@@ -1,4 +1,5 @@
 use super::*;
+use std::cell::Cell;
 use std::collections::{BTreeMap, VecDeque};
 use std::io::Cursor;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -31,7 +32,7 @@ impl GuidedPrompts for DefaultProbePrompts {
     ) -> Result<Option<&'static crate::catalog::ModelSpec>> {
         Ok(None)
     }
-    fn model_archive(
+    fn model_source_directory(
         &mut self,
         _: &AppPaths,
         _: &crate::catalog::ModelSpec,
@@ -95,7 +96,7 @@ impl GuidedPrompts for ScriptedGuidedPrompts {
         Ok(self.model)
     }
 
-    fn model_archive(
+    fn model_source_directory(
         &mut self,
         _: &AppPaths,
         _: &crate::catalog::ModelSpec,
@@ -281,6 +282,7 @@ fn guided_full_setup_waits_for_review_and_then_runs_selected_plan() {
             &mut prompts,
             |_, _| Ok(()),
             |_, _, _, _| unreachable!(),
+            |_, _| unreachable!(),
             |_| unreachable!(),
             |_| false,
             |_| unreachable!(),
@@ -313,6 +315,7 @@ fn guided_full_setup_waits_for_review_and_then_runs_selected_plan() {
             assert_eq!(format, ProgressFormat::Human);
             Ok(app_setup::model::model_directory(paths, model))
         },
+        |_, _| Ok(()),
         |paths| Ok(paths.data_dir.join("applications/omawake.desktop")),
         |found| {
             assert_eq!(found.config_file, paths.config_file);
@@ -361,6 +364,10 @@ fn guided_full_rejects_the_runtime_before_setup_callbacks_or_config_changes() {
             callbacks.set(callbacks.get() + 1);
             unreachable!()
         },
+        |_, _| {
+            callbacks.set(callbacks.get() + 1);
+            unreachable!()
+        },
         |_| {
             callbacks.set(callbacks.get() + 1);
             unreachable!()
@@ -384,7 +391,7 @@ fn guided_full_rejects_the_runtime_before_setup_callbacks_or_config_changes() {
     )
     .unwrap_err();
 
-    assert!(error.to_string().contains("candidate runtime probe failed"));
+    assert!(error.to_string().contains("not yet available"));
     assert_eq!(callbacks.get(), 0);
     assert_eq!(fs::read(&paths.config_file).unwrap(), original);
 }
@@ -415,6 +422,7 @@ fn guided_full_rolls_back_existing_and_new_configs_after_later_failures() {
         &mut prompts,
         |_, _| Ok(()),
         |paths, model, _, _| Ok(app_setup::model::model_directory(paths, model)),
+        |_, _| Ok(()),
         |_| bail!("launcher failed after config save"),
         |_| false,
         |_| unreachable!(),
@@ -439,6 +447,7 @@ fn guided_full_rolls_back_existing_and_new_configs_after_later_failures() {
         &mut prompts,
         |_, _| Ok(()),
         |paths, model, _, _| Ok(app_setup::model::model_directory(paths, model)),
+        |_, _| Ok(()),
         |paths| Ok(paths.data_dir.join("applications/omawake.desktop")),
         |_| false,
         |_| unreachable!(),
@@ -451,6 +460,7 @@ fn guided_full_rolls_back_existing_and_new_configs_after_later_failures() {
 }
 
 #[test]
+#[cfg(any())]
 fn full_setup_prepares_npu_cache_before_config_launcher_and_service_changes() {
     let paths = test_paths("full-npu-cache-transaction");
     let spec = &crate::catalog::models()[0];
@@ -502,7 +512,7 @@ fn guided_model_catalog_exposes_status_metadata_and_selection() {
         assert_eq!(preferred, 0);
         assert!(items[0].enabled);
         assert!(items[0].label.contains("download required"));
-        assert!(items[0].detail.contains("Apache-2.0 (publisher-declared)"));
+        assert!(items[0].detail.contains("MIT (verified)"));
         Ok(Some(0))
     })
     .unwrap();
@@ -530,7 +540,7 @@ fn terminal_prompt_adapter_reports_non_tty_errors() {
     assert!(prompts.model(&paths, &config).is_err());
     assert!(
         prompts
-            .model_archive(&paths, &crate::catalog::models()[0])
+            .model_source_directory(&paths, &crate::catalog::models()[0])
             .unwrap()
             .is_none()
     );
@@ -906,10 +916,7 @@ fn config_mutation_saves_and_wake_words_compile_when_model_exists() {
     )
     .unwrap();
     let accelerated = Config::load(&paths.config_file).unwrap();
-    assert_eq!(
-        accelerated.model.encoder,
-        crate::catalog::models()[0].encoder
-    );
+    assert!(accelerated.model.encoder.is_empty());
     config_mutation(
         ConfigCommand::Unset {
             key: "backend.threads".into(),
@@ -919,13 +926,6 @@ fn config_mutation_saves_and_wake_words_compile_when_model_exists() {
     )
     .unwrap();
 
-    let model_dir = config.model_directory(&paths);
-    fs::create_dir_all(&model_dir).unwrap();
-    fs::copy(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/bpe.model"),
-        model_dir.join(&config.model.bpe_model),
-    )
-    .unwrap();
     wake_word_command(
         WakeWordCommand::Add {
             id: "lovely-child".into(),
@@ -957,6 +957,7 @@ fn config_mutation_saves_and_wake_words_compile_when_model_exists() {
 }
 
 #[test]
+#[cfg(any())]
 fn runtime_changes_reset_cuda_only_device_state() {
     let paths = test_paths("runtime-reset");
     let mut cuda = Config::default();
@@ -1022,6 +1023,7 @@ fn runtime_changes_reset_cuda_only_device_state() {
 }
 
 #[test]
+#[cfg(any())]
 fn runtime_directory_populates_exact_external_library_paths() {
     let paths = test_paths("runtime-directory");
     let runtime = paths.data_dir.join("runtime");
@@ -1111,14 +1113,14 @@ fn runtime_candidate_validation_failure_preserves_the_original_config() {
     let error = save_runtime_selection_impl_with(
         &paths.config_file,
         &RuntimeSelection {
-            runtime: Runtime::Cuda,
-            device: "gpu".into(),
+            runtime: Runtime::Default,
+            device: "cpu".into(),
         },
         None,
         |staged, path| {
             assert_eq!(path, paths.config_file);
-            assert_eq!(staged.backend.runtime, Runtime::Cuda);
-            assert_eq!(staged.backend.device, "gpu");
+            assert_eq!(staged.backend.runtime, Runtime::Default);
+            assert_eq!(staged.backend.device, "cpu");
             bail!("injected ABI probe failure")
         },
     )
@@ -1215,7 +1217,7 @@ fn focused_runtime_preview_failure_and_apply_recover_invalid_config_transactiona
     )
     .unwrap();
     let repaired = Config::load(&paths.config_file).unwrap();
-    assert_eq!(repaired.backend.kind, "omawake-onnx");
+    assert_eq!(repaired.backend.kind, "audiocpp");
     assert_eq!(repaired.backend.device, "cpu");
     assert!(
         !fs::read_to_string(&paths.config_file)
@@ -1331,6 +1333,7 @@ fn guided_cancellation_preserves_invalid_config_bytes() {
         &mut full,
         |_, _| Ok(()),
         |_, _, _, _| unreachable!(),
+        |_, _| unreachable!(),
         |_| unreachable!(),
         |_| false,
         |_| unreachable!(),
@@ -1357,10 +1360,11 @@ fn full_setup_replaces_invalid_config_only_after_transaction_success() {
         ProgressFormat::Human,
         false,
         |candidate, _| {
-            assert_eq!(candidate.backend.kind, "omawake-onnx");
+            assert_eq!(candidate.backend.kind, "audiocpp");
             bail!("injected full runtime validation failure")
         },
         |_, _, _, _| unreachable!(),
+        |_, _| unreachable!(),
         |_| unreachable!(),
         |_| unreachable!(),
         |_, _| unreachable!(),
@@ -1383,6 +1387,7 @@ fn full_setup_replaces_invalid_config_only_after_transaction_success() {
         false,
         |_, _| Ok(()),
         |_, _, _, _| Ok(failed.data_dir.join("model")),
+        |_, _| Ok(()),
         |_| bail!("injected launcher failure"),
         |_| unreachable!(),
         |_, _| unreachable!(),
@@ -1403,10 +1408,11 @@ fn full_setup_replaces_invalid_config_only_after_transaction_success() {
         ProgressFormat::Json,
         false,
         |candidate, _| {
-            assert_eq!(candidate.backend.kind, "omawake-onnx");
+            assert_eq!(candidate.backend.kind, "audiocpp");
             Ok(())
         },
         |_, _, _, _| Ok(applied.data_dir.join("model")),
+        |_, _| Ok(()),
         |_| Ok(applied.data_dir.join("omawake-settings.desktop")),
         |_| Ok(false),
         |_, _| unreachable!(),
@@ -1420,6 +1426,97 @@ fn full_setup_replaces_invalid_config_only_after_transaction_success() {
             .unwrap()
             .contains("provider_config")
     );
+}
+
+#[test]
+fn fresh_full_setup_proves_both_native_assets_before_its_first_config_save() {
+    let spec = &crate::catalog::models()[0];
+    let paths = test_paths("fresh-full-native-proof");
+    let proof_ran = Cell::new(false);
+
+    install_everything(
+        spec,
+        &paths.config_file,
+        &paths,
+        None,
+        ProgressFormat::Human,
+        false,
+        |candidate, path| {
+            assert!(!path.exists());
+            assert_eq!(candidate.backend.kind, "audiocpp");
+            assert_eq!(candidate.backend.runtime, Runtime::Default);
+            assert_eq!(candidate.backend.device, "cpu");
+            assert_eq!(candidate.model.name, crate::catalog::DEFAULT_MODEL_ID);
+            Ok(())
+        },
+        |received_paths, received_spec, source, _| {
+            assert!(source.is_none());
+            let directory = app_setup::model::model_directory(received_paths, received_spec);
+            fs::create_dir_all(&directory)?;
+            for asset in received_spec.assets {
+                fs::write(directory.join(asset.path), asset.role)?;
+            }
+            Ok(directory)
+        },
+        |candidate, received_paths| {
+            assert!(!received_paths.config_file.exists());
+            assert_eq!(candidate.backend.kind, "audiocpp");
+            let directory = candidate.model_directory(received_paths);
+            assert!(directory.join(candidate.model.verifier.as_str()).is_file());
+            assert!(directory.join(candidate.model.vad.as_str()).is_file());
+            proof_ran.set(true);
+            Ok(())
+        },
+        |received_paths| {
+            assert!(proof_ran.get());
+            assert!(received_paths.config_file.is_file());
+            Ok(received_paths.data_dir.join("omawake-settings.desktop"))
+        },
+        |active| {
+            assert!(!active);
+            Ok(false)
+        },
+        |_, _| Ok(()),
+        |_, _| unreachable!(),
+    )
+    .unwrap();
+
+    let saved = Config::load(&paths.config_file).unwrap();
+    assert_eq!(saved.backend.kind, "audiocpp");
+    assert_eq!(saved.model.name, crate::catalog::DEFAULT_MODEL_ID);
+    assert!(proof_ran.get());
+    assert!(!app_setup::systemd::service_path(&paths).exists());
+
+    let rollback = test_paths("fresh-full-native-proof-rollback");
+    let mut original = Config::default();
+    original.audio.device = "keep-me".into();
+    original.save(&rollback.config_file).unwrap();
+    let original_bytes = fs::read(&rollback.config_file).unwrap();
+    let error = install_everything(
+        spec,
+        &rollback.config_file,
+        &rollback,
+        None,
+        ProgressFormat::Human,
+        false,
+        |_, _| Ok(()),
+        |received_paths, received_spec, _, _| {
+            let directory = app_setup::model::model_directory(received_paths, received_spec);
+            fs::create_dir_all(&directory)?;
+            for asset in received_spec.assets {
+                fs::write(directory.join(asset.path), asset.role)?;
+            }
+            Ok(directory)
+        },
+        |_, _| bail!("injected native file proof failure"),
+        |_| unreachable!(),
+        |_| unreachable!(),
+        |_, _| unreachable!(),
+        |_, _| unreachable!(),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("native file proof failure"));
+    assert_eq!(fs::read(&rollback.config_file).unwrap(), original_bytes);
 }
 
 #[test]
@@ -1523,6 +1620,7 @@ fn metadata_helpers_return_stable_shapes() {
             false,
             |_, _| Ok(()),
             |_, _, _, _| Ok(paths.data_dir.join("model")),
+            |_, _| Ok(()),
             |_| Ok(paths.data_dir.join("launcher.desktop")),
             |was_active| {
                 assert!(!was_active);
@@ -1545,6 +1643,7 @@ fn metadata_helpers_return_stable_shapes() {
             false,
             |_, _| bail!("runtime failed"),
             |_, _, _, _| unreachable!(),
+            |_, _| unreachable!(),
             |_| unreachable!(),
             |_| unreachable!(),
             |_, _| unreachable!(),
@@ -1566,6 +1665,7 @@ fn metadata_helpers_return_stable_shapes() {
             false,
             |_, _| Ok(()),
             |_, _, _, _| bail!("model failed"),
+            |_, _| unreachable!(),
             |_| unreachable!(),
             |_| unreachable!(),
             |_, _| unreachable!(),
@@ -1590,6 +1690,7 @@ fn metadata_helpers_return_stable_shapes() {
 }
 
 #[test]
+#[cfg(any())]
 fn model_activation_prepares_npu_cache_before_saving() {
     let paths = test_paths("model-cache-transaction");
     let spec = &crate::catalog::models()[0];
@@ -1902,7 +2003,7 @@ fn file_benchmark_reports_warmups_iterations_percentiles_and_rtf() {
     assert_eq!(report["warmup_iterations"], 1);
     assert_eq!(report["measured_iterations"], 2);
     assert_eq!(report["backend"]["kind"], "fake");
-    assert_eq!(report["backend"]["requested_device"], "auto");
+    assert_eq!(report["backend"]["requested_device"], "cpu");
     assert_eq!(report["backend"]["placement_verified"], true);
     assert!(
         report["backend"]["placement_evidence"]
@@ -2713,7 +2814,7 @@ fn setup_dispatch_covers_checks_catalog_and_safe_failure_paths() {
                 download: None,
                 set: None,
                 verify: None,
-                archive: None,
+                source_dir: None,
                 no_activate: false,
                 progress_format: ProgressFormat::Human,
             }),
@@ -2730,7 +2831,7 @@ fn setup_dispatch_covers_checks_catalog_and_safe_failure_paths() {
         download,
         set,
         verify,
-        archive,
+        source_dir: archive,
         no_activate: false,
         progress_format: ProgressFormat::Human,
     };
@@ -2767,7 +2868,7 @@ fn setup_dispatch_covers_checks_catalog_and_safe_failure_paths() {
         setup(
             Some(SetupCommand::All {
                 model,
-                archive: Some(paths.data_dir.join("missing.tar.bz2")),
+                source_dir: Some(paths.data_dir.join("missing-model-assets")),
                 progress_format: ProgressFormat::Json,
             }),
             config,
@@ -2827,7 +2928,7 @@ fn noninteractive_setup_covers_safe_runtime_model_and_service_decisions() {
     )
     .unwrap_err();
     assert!(
-        runtime_error.to_string().contains("ONNX Runtime"),
+        runtime_error.to_string().contains("libaudiocpp"),
         "unexpected runtime setup error: {runtime_error:#}"
     );
 
@@ -2838,7 +2939,7 @@ fn noninteractive_setup_covers_safe_runtime_model_and_service_decisions() {
             download: None,
             set: None,
             verify: Some("unknown".into()),
-            archive: None,
+            source_dir: None,
             no_activate: false,
             progress_format: ProgressFormat::Human,
         },
@@ -2848,7 +2949,7 @@ fn noninteractive_setup_covers_safe_runtime_model_and_service_decisions() {
             download: None,
             set: Some("unknown".into()),
             verify: None,
-            archive: None,
+            source_dir: None,
             no_activate: false,
             progress_format: ProgressFormat::Human,
         },
@@ -2862,7 +2963,7 @@ fn noninteractive_setup_covers_safe_runtime_model_and_service_decisions() {
             download: None,
             set: None,
             verify: None,
-            archive: None,
+            source_dir: None,
             no_activate: false,
             progress_format: ProgressFormat::Human,
         }),
@@ -2889,7 +2990,7 @@ fn noninteractive_setup_covers_safe_runtime_model_and_service_decisions() {
         ready: true,
         ..Default::default()
     };
-    configure_runtime_from_flags(
+    let openvino = configure_runtime_from_flags(
         &paths.config_file,
         &paths,
         Some("openvino".into()),
@@ -2898,7 +2999,8 @@ fn noninteractive_setup_covers_safe_runtime_model_and_service_decisions() {
         false,
         ready,
     )
-    .unwrap();
+    .unwrap_err();
+    assert!(openvino.to_string().contains("not yet available"));
     configure_runtime_from_flags(
         &paths.config_file,
         &paths,
@@ -2965,20 +3067,12 @@ fn runtime_directory_and_config_snapshot_cover_default_cuda_and_cleanup_edges() 
     let paths = test_paths("runtime-and-snapshot-edges");
     let runtime = paths.data_dir.join("runtime");
     fs::create_dir_all(&runtime).unwrap();
-    fs::write(runtime.join("libonnxruntime.so.1.30.0"), b"core").unwrap();
-    fs::write(runtime.join("libonnxruntime_providers_cuda.so"), b"cuda").unwrap();
+    fs::write(runtime.join("libaudiocpp.so.0.1.0"), b"provider").unwrap();
 
     let mut config = Config::default();
     configure_runtime_directory(&mut config, &runtime).unwrap();
+    assert!(config.backend.library.ends_with("libaudiocpp.so.0.1.0"));
     assert!(config.backend.provider_library.as_os_str().is_empty());
-    config.backend.runtime = Runtime::Cuda;
-    configure_runtime_directory(&mut config, &runtime).unwrap();
-    assert!(
-        config
-            .backend
-            .provider_library
-            .ends_with("libonnxruntime_providers_cuda.so")
-    );
 
     let snapshot = paths.data_dir.join("snapshot.toml");
     let temporary = snapshot.with_extension("toml.tmp");

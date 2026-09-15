@@ -192,15 +192,16 @@ fn guided_setup_metadata_covers_modes_runtimes_devices_and_review() {
 
     let cpu_only = runtime_items(&cpu_loadable);
     assert!(cpu_only[0].enabled);
-    assert!(cpu_only[1].enabled);
-    assert!(cpu_only[2].enabled);
+    assert!(!cpu_only[1].enabled);
+    assert!(!cpu_only[2].enabled);
     let all_loadable = BTreeMap::from([("default", true), ("openvino", true), ("cuda", true)]);
     let all = runtime_items(&all_loadable);
-    assert!(all.iter().all(|item| item.enabled));
-    assert!(all[1].detail.contains("provider detected"));
+    assert!(all[0].enabled);
+    assert!(!all[1].enabled && !all[2].enabled);
+    assert!(all[1].detail.contains("qualified"));
     let compiled_only = runtime_items(&BTreeMap::from([("default", true)]));
-    assert!(compiled_only[1].enabled);
-    assert!(compiled_only[1].detail.contains("not detected"));
+    assert!(!compiled_only[1].enabled);
+    assert!(compiled_only[1].detail.contains("qualified"));
 
     for (index, runtime) in [Runtime::Default, Runtime::Openvino, Runtime::Cuda]
         .into_iter()
@@ -269,12 +270,12 @@ fn runtime_directory_prompt_keeps_or_validates_an_absolute_directory() {
 }
 
 #[test]
-fn model_archive_prompt_supports_back_and_validates_an_absolute_file() {
+fn model_source_prompt_supports_back_and_validates_an_absolute_directory() {
     let root = std::env::temp_dir().join(format!("omawake-wizard-model-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
-    let archive = root.join("model.tar.bz2");
-    std::fs::write(&archive, b"fixture").unwrap();
+    let source = root.join("model-assets");
+    std::fs::create_dir_all(&source).unwrap();
 
     for choice in [Some(1), None] {
         let mut back = ScriptedPrompter {
@@ -282,7 +283,7 @@ fn model_archive_prompt_supports_back_and_validates_an_absolute_file() {
             preferred: vec![],
         };
         assert_eq!(
-            choose_model_archive_with(&mut back, "wake-model", || unreachable!()).unwrap(),
+            choose_model_source_directory_with(&mut back, "wake-model", || unreachable!()).unwrap(),
             None
         );
     }
@@ -292,11 +293,11 @@ fn model_archive_prompt_supports_back_and_validates_an_absolute_file() {
         preferred: vec![],
     };
     assert_eq!(
-        choose_model_archive_with(&mut choose, "wake-model", || {
-            Ok(format!("{}\n", archive.display()))
+        choose_model_source_directory_with(&mut choose, "wake-model", || {
+            Ok(format!("{}\n", source.display()))
         })
         .unwrap(),
-        Some(archive.clone())
+        Some(source.clone())
     );
 
     let mut relative = ScriptedPrompter {
@@ -304,7 +305,7 @@ fn model_archive_prompt_supports_back_and_validates_an_absolute_file() {
         preferred: vec![],
     };
     assert!(
-        choose_model_archive_with(&mut relative, "wake-model", || Ok("relative.tar\n".into()))
+        choose_model_source_directory_with(&mut relative, "wake-model", || Ok("relative\n".into()))
             .is_err()
     );
 
@@ -313,7 +314,7 @@ fn model_archive_prompt_supports_back_and_validates_an_absolute_file() {
         preferred: vec![],
     };
     assert!(
-        choose_model_archive_with(&mut missing, "wake-model", || {
+        choose_model_source_directory_with(&mut missing, "wake-model", || {
             Ok(format!("{}\n", root.join("missing.tar").display()))
         })
         .is_err()

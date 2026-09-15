@@ -4,21 +4,20 @@
 
 # Omawake
 
-Omawake is a local wake-word daemon written in Rust. It captures audio with
-CPAL, runs a streaming ONNX keyword model, and maps stable wake-word IDs to
-direct argument-vector actions. Recorded and live audio use the same detector,
-including sample-rate conversion and streaming state.
+Omawake is a local wake-phrase daemon written in Rust. Silero VAD gates a
+bounded audio buffer, Moonshine Streaming Tiny transcribes each completed
+utterance, and Omawake maps whole-phrase matches to direct argument-vector
+actions. Recorded and live audio use the same detector.
 
-The keyword pipeline is owned by Omawake. It implements the model's published
-Kaldi feature contract, Zipformer transducer state handling, modified
-Aho-Corasick context graph, and keyword beam search directly in Rust. Only ONNX
-Runtime is loaded dynamically; there is no sherpa library, patch, or ABI.
+The default provider is [audio.cpp](https://github.com/0xShug0/audio.cpp).
+Omawake dynamically loads its public C ABI as a library; it never invokes the
+audio.cpp CLI. The hidden `__audiocpp-worker` command is Omawake re-executing
+its own binary for crash isolation and warm sessions.
 
-## Install
+## Install and guided setup
 
-Linux x86-64 and aarch64 releases require glibc 2.35 or newer and include the
-official ONNX Runtime 1.30.0 CPU library.
-Verify and unpack a release, then run setup:
+Linux x86-64 and aarch64 releases require glibc 2.35 or newer. Verify and
+unpack a release, then start the guided terminal setup:
 
 ```bash
 sha256sum --check --ignore-missing SHA256SUMS.txt
@@ -27,27 +26,53 @@ cd omawake-0.0.1-rc.2-linux-x86_64
 ./omawake setup
 ```
 
-The model is installed separately. The current catalog entry retains its
-publisher filename,
-`sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01`, but Omawake does not use
-the sherpa runtime. The model card identifies the weights as Apache-2.0. Setup
-verifies the pinned archive and each extracted asset.
+Use the arrow keys and Enter to choose a provider and model, review the plan,
+and apply it. The default release provider is audio.cpp on CPU. Setup downloads
+and verifies these two pinned MIT-licensed assets as one model profile:
+
+- Moonshine Streaming Tiny Q8_0, 60,407,904 bytes
+- Silero VAD 6.2.1, 1,239,748 bytes
+
+The install is atomic: both assets, their checksums, provenance manifest, and
+license notices must verify before the new model directory becomes active.
+Setup then initializes the provider and both models with a silent file-only
+proof before saving the config.
+
+Setup installs the optional desktop settings launcher. It does **not** install
+or start a systemd service. Run on demand with `omawake daemon`, or explicitly
+install the user service later with `omawake setup systemd`.
+
+These focused commands expose the same choices without the full guided flow:
 
 ```bash
-./omawake setup check
+omawake setup runtime
+omawake setup model --list
+omawake setup check
 ```
 
-Setup downloads the pinned archive from its publisher by default. An existing
-copy can be supplied without the guided flow:
+For an offline install, put both exact catalog filenames in one directory:
 
 ```bash
-./omawake setup all --archive /path/to/model.tar.bz2
+omawake setup all --source-dir /absolute/path/to/assets
 ```
+
+`setup runtime` discovers and probes a complete `libaudiocpp` provider. Point
+to a provider directory explicitly when testing a source build:
+
+```bash
+omawake setup runtime \
+  --runtime default --device cpu --dir /absolute/path/to/provider --apply
+```
+
+Ordinary setup does not install system runtimes. OpenVINO and other accelerated
+providers only become selectable after a complete provider has been qualified;
+the setup screen reports unavailable choices and their status rather than
+saving an unusable configuration.
 
 ## Use
 
-The following examples assume `omawake` is on `PATH`. Prefix the commands with
-`./` when running directly from the unpacked release directory.
+The following examples assume `omawake` is on `PATH`. Prefix commands with
+`./` when running directly from an unpacked release directory.
 
 ```bash
 omawake test --audio test.wav --json
@@ -59,22 +84,6 @@ omawake resume
 omawake stop
 ```
 
-Use `evaluate` for reproducible accuracy and false-activation measurements over
-a labeled WAV corpus:
-
-```sh
-omawake evaluate path/to/manifest.json --threshold 0.20,0.25,0.30 > report.json
-```
-
-The manifest keeps audio paths relative to its own directory, pins every file by
-SHA-256, and may label whole clips or timestamped wake-word events. Expected
-keyword IDs must be enabled in the selected config. Omawake loads a fresh
-detector and runs every clip once for each threshold, then reports precision,
-recall, F1, negative-audio false activations per hour, runtime identity, timing,
-and deterministic prediction fingerprints. See the versioned
-[manifest schema](schemas/evaluation-manifest-v1.schema.json) and
-[report schema](schemas/evaluation-report-v1.schema.json).
-
 The recognizer remains loaded while the daemon releases the microphone before
 an action and reopens it after the configured cooldown. Actions do not pass
 through a shell.
@@ -84,46 +93,46 @@ omawake wake-word add --id computer --phrase Computer -- notify-send "Wake word 
 omawake wake-word remove computer
 ```
 
-## Runtime selection
-
-`backend.runtime` accepts `default`, `openvino`, and `cuda`.
-
-| Runtime | Devices |
-|---|---|
-| `default` | `auto`, `cpu` |
-| `openvino` | `auto`, `cpu`, `gpu`, `npu` |
-| `cuda` | `auto`, `gpu` |
-
-The release-owned ORT core is found next to the executable under `lib/`.
-OpenVINO and CUDA use official V2 execution-provider plugins registered through
-ORT's plugin API. Provider packages contain the provider DSO and vendor
-dependencies, not another ORT core. Select a prepared package directory with:
+Use `evaluate` for reproducible accuracy and false-activation measurements over
+a labeled WAV corpus:
 
 ```bash
-omawake setup runtime --runtime openvino --device cpu --dir /opt/omawake-openvino --apply
-omawake setup runtime --runtime openvino --device gpu --dir /opt/omawake-openvino --apply
-omawake setup runtime --runtime openvino --device npu --dir /opt/omawake-openvino --apply
-omawake setup runtime --runtime cuda --device gpu --dir /opt/omawake-cuda --apply
+omawake evaluate path/to/manifest.json > report.json
 ```
 
-Omawake selects the registered device explicitly. OpenVINO GPU and NPU use the
-accuracy-preserving float graph set. NPU also specializes the encoder batch to
-one and the decoder/joiner batch to at least eight. Every accelerator output
-consumed by Rust is bound to host memory. OpenVINO compiled models are cached
-under `${XDG_CACHE_HOME:-$HOME/.cache}/omawake/openvino/<device>/compiled`.
+The manifest keeps audio paths relative to its own directory, pins every file
+by SHA-256, and may label whole clips or timestamped wake-word events. Expected
+phrase IDs must be enabled in the selected config. See the versioned
+[manifest schema](schemas/evaluation-manifest-v1.schema.json) and
+[report schema](schemas/evaluation-report-v1.schema.json).
 
-`omawake setup runtime --json` reports the discovered ORT core, optional
-provider, exposed devices, and probe errors. `fallback = "cpu"` permits an
-accelerator initialization failure to fall back to CPU and records that choice
-in status and benchmark JSON.
+## Default provider and models
 
-See [ACCELERATOR_SETUP.md](ACCELERATOR_SETUP.md) and [RUNTIME.md](RUNTIME.md)
-for package layout details.
+The initial qualified profile is
+`moonshine-streaming-tiny-q8_0-silero-v6.2.1`. The default configuration is
+`backend.kind = "audiocpp"`, `runtime = "default"`, and `device = "cpu"`.
+The release provider holds reusable native Silero and Moonshine sessions behind
+audio.cpp's versioned public C ABI. Omawake owns buffering, endpoint handling,
+phrase matching, cooldowns, and actions in Rust.
 
-The current [GB10 CUDA report](benchmarks/cuda-gb10-ort130-2026-09-15.md) and
-[Dell XPS OpenVINO report](benchmarks/openvino-dell-xps-ort130-2026-09-15.md)
-record file-only detection parity, runtime placement, and cold/hot timings.
-Earlier accelerator reports are retained as historical evidence.
+Moonshine is a speech verifier rather than a fixed keyword classifier, so the
+English profile needs no per-phrase training for text phrases within its
+language coverage. Phrase matching is case-insensitive,
+punctuation-insensitive, Unicode-normalized, and requires whole words.
+
+The catalog pins:
+
+- the original Moonshine model revision
+  `f8e9dfd8c562c257c151a907b7b7f2fe8ff8511a`;
+- the converted GGUF repository revision
+  `6d5436fc85f7a20c2e9f4e472b7f3a532f686444`;
+- the exact upstream Silero file at revision
+  `7e30209a3e901f9842f81b225f3e93d8199902b1`.
+
+Installed `PROVENANCE.json`, `.omawake-model.json`, and `LICENSES/` files keep
+the original and converted sources distinct. See
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and the
+[native-provider architecture note](docs/architecture/NATIVE-PROVIDERS.md).
 
 ## Build
 
@@ -132,35 +141,17 @@ cargo build --release --locked
 cargo test --locked
 ```
 
-Building needs stable Rust, `pkg-config`, and ALSA development headers. The
-binary has no link-time dependency on ONNX Runtime. A source build needs an ORT
-1.30.0 library through `backend.onnxruntime_library`, `OMAWAKE_ONNXRUNTIME_LIBRARY`,
-`OMAWAKE_LIBRARY_PATH`, or one of the package-relative library directories.
+Building Omawake needs stable Rust, `pkg-config`, and ALSA development headers.
+The Rust executable has no link-time dependency on audio.cpp. A runnable source
+build also needs a compatible `libaudiocpp` ABI 0.1 provider. The release build
+script pins the audio.cpp source revision and produces the CPU provider that is
+packaged with Omawake:
 
-## Model and algorithm provenance
+```bash
+scripts/build-default-audiocpp-provider.sh \
+  /path/to/audio.cpp /path/to/build-directory
+```
 
-The supported GigaSpeech Zipformer model was trained with the icefall keyword
-spotting recipe introduced by [icefall PR #1428](https://github.com/k2-fsa/icefall/pull/1428).
-The [publisher's ModelScope card](https://www.modelscope.cn/models/pkufool/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/summary)
-declares the model weights to be Apache-2.0. Omawake records that declaration as
-`publisher-declared`, because the upstream sherpa model index and GitHub release
-do not carry a separate model-specific license notice.
-
-The archive also contains two probe recordings derived from the CC BY 4.0
-[LibriSpeech test-clean corpus](https://www.openslr.org/12/). The publisher
-converted and renamed utterance `1089-134686-0002` to `test_wavs/0.wav` and
-utterance `1221-135766-0001` to `test_wavs/1.wav`. Their license and attribution
-remain separate from the model weights; see
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
-Omawake's decoder is an independent Rust implementation of the algorithm
-published in that work: the pinned
-[`keywords_search`](https://github.com/k2-fsa/icefall/blob/aac7df064a6d1529f3bf4acccc6c550bd260b7b3/egs/librispeech/ASR/pruned_transducer_stateless2/beam_search.py#L962)
-behavior and
-[`ContextGraph`](https://github.com/k2-fsa/icefall/blob/aac7df064a6d1529f3bf4acccc6c550bd260b7b3/icefall/context_graph.py)
-automaton specification. It does not copy or compile sherpa implementation
-source.
-
-Omawake and ONNX Runtime are MIT licensed. Icefall is Apache-2.0. The model
-weights carry a publisher-declared Apache-2.0 designation, while the probe audio
-remains CC BY 4.0.
+Omawake is MIT licensed. audio.cpp is Apache-2.0. Moonshine Streaming Tiny and
+Silero VAD are MIT licensed; their required notices are written beside every
+installed model profile.

@@ -253,6 +253,7 @@ fn injected_loader_exercises_complete_model_preparation_and_cpu_fallback() {
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let mut config = Config::default();
     config.model.directory = fixtures.to_string_lossy().into_owned();
+    config.model.bpe_model = "bpe.model".into();
     let detector = Detector::load_with(&config, &paths, |_, directory, runtime, keywords| {
         assert_eq!(directory, fixtures);
         assert_eq!(runtime, Runtime::Default);
