@@ -63,7 +63,6 @@ jobs:
           test "$(git -C "${source}" rev-parse HEAD)" = "${AUDIOCPP_COMMIT}"
           echo "AUDIOCPP_SOURCE=${source}" >> "${GITHUB_ENV}"
           echo "AUDIOCPP_PROVIDER=${provider}" >> "${GITHUB_ENV}"
-          echo "OMAWAKE_AUDIOCPP_LIBRARY=${provider}" >> "${GITHUB_ENV}"
 
       - name: Test and build the runtime-neutral executable
         run: |
