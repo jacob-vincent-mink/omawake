@@ -381,6 +381,23 @@ fn resolve_library(
     )
 }
 
+pub(in crate::engine) fn resolve_bundled_library(
+    paths: &AppPaths,
+    configured_dirs: &[PathBuf],
+) -> Result<PathBuf> {
+    let executable = env::current_exe().context("resolve Omawake executable")?;
+    let environment = env::var_os("OMAWAKE_AUDIOCPP_LIBRARY").map(PathBuf::from);
+    let mut config = Config::default();
+    config.backend.library.clear();
+    resolve_library_with(
+        &config,
+        paths,
+        configured_dirs,
+        environment.as_deref(),
+        &executable,
+    )
+}
+
 fn resolve_library_with(
     config: &Config,
     paths: &AppPaths,

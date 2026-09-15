@@ -73,6 +73,17 @@ enum TopCommand {
         threads: i32,
         asr_family: String,
     },
+    #[command(name = "__openvino-genai-worker", hide = true)]
+    OpenVinoGenAiWorker {
+        genai_library: PathBuf,
+        core_library: PathBuf,
+        audiocpp_library: PathBuf,
+        model_directory: PathBuf,
+        vad_model: PathBuf,
+        cache_directory: PathBuf,
+        device: String,
+        vad_threads: u16,
+    },
     Test {
         #[arg(long, conflicts_with = "seconds")]
         audio: Option<PathBuf>,
@@ -270,6 +281,32 @@ pub fn entry() -> ExitCode {
 
 fn run_entry(cli: Cli) -> Result<()> {
     let paths = AppPaths::discover();
+    if let TopCommand::OpenVinoGenAiWorker {
+        genai_library,
+        core_library,
+        audiocpp_library,
+        model_directory,
+        vad_model,
+        cache_directory,
+        device,
+        vad_threads,
+    } = &cli.command
+    {
+        return crate::engine::openvino_genai::worker_main(
+            crate::engine::openvino_genai::ProviderSpec {
+                genai_library: genai_library.clone(),
+                core_library: core_library.clone(),
+                audiocpp_library: audiocpp_library.clone(),
+                library_dirs: Vec::new(),
+                model_directory: model_directory.clone(),
+                vad_model: vad_model.clone(),
+                cache_directory: cache_directory.clone(),
+                placement_log: cache_directory.join("placement.log"),
+                device: device.clone(),
+                vad_threads: *vad_threads,
+            },
+        );
+    }
     if let TopCommand::AudioCppWorker {
         library,
         verifier,
@@ -600,6 +637,7 @@ where
         | TopCommand::ModelCachePrepare { .. }
         | TopCommand::NativeJson { .. }
         | TopCommand::AudioCppWorker { .. }
+        | TopCommand::OpenVinoGenAiWorker { .. }
         | TopCommand::WhisperWorker { .. }
         | TopCommand::Setup { .. } => unreachable!(),
         TopCommand::Config { command } => config_mutation(command, config, &config_path),

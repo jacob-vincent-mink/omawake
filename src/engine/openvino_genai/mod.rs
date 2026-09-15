@@ -1,0 +1,1668 @@
+//! OpenVINO GenAI Whisper verifier loaded through Intel's public C API.
+//!
+//! The native libraries live only in a supervised Omawake worker.  The main
+//! process exchanges bounded PCM frames and structured responses with that
+//! worker, so a vendor-runtime failure cannot take down the daemon.
+
+mod protocol;
+mod ring;
+
+use std::cell::{Cell, RefCell};
+use std::env;
+use std::ffi::{CStr, CString, c_char, c_int, c_void};
+use std::fs::{self, File, OpenOptions};
+use std::io;
+use std::os::fd::OwnedFd;
+use std::os::unix::fs::PermissionsExt;
+use std::os::unix::net::UnixStream;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use anyhow::{Context, Result, bail};
+use libloading::Library;
+use sha2::{Digest, Sha256};
+
+use self::protocol::{FRAME_SAMPLES, PlacementEvidence, Request, Response, Transcript};
+use self::ring::{Activity, ActivityBuffer, Utterance};
+use super::audio::{AudioResampler, read_wave};
+use super::{Detection, WakeWordBackend, WakeWordStream, detect_samples};
+use crate::backend::Runtime;
+use crate::config::{Config, WakeWord};
+use crate::paths::AppPaths;
+use crate::phrase::{PhraseMatcher, normalize_tokens};
+
+const WORKER_STARTUP_TIMEOUT: Duration = Duration::from_secs(180);
+const WORKER_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+const WORKER_STOP_TIMEOUT: Duration = Duration::from_secs(2);
+const AUDIOCPP_ABI_0_1_0: u32 = 1 << 8;
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct VerifierProfile {
+    pub id: &'static str,
+    pub languages: &'static [&'static str],
+    pub multilingual: bool,
+}
+
+pub(crate) const WHISPER_BASE_EN_PROFILE: VerifierProfile = VerifierProfile {
+    id: "whisper-base.en-int8-ov",
+    languages: &["en"],
+    multilingual: false,
+};
+
+/// Exact external runtime and model selected by setup.
+#[derive(Clone, Debug)]
+pub(crate) struct ProviderSpec {
+    pub genai_library: PathBuf,
+    pub core_library: PathBuf,
+    pub audiocpp_library: PathBuf,
+    pub library_dirs: Vec<PathBuf>,
+    pub model_directory: PathBuf,
+    pub vad_model: PathBuf,
+    pub cache_directory: PathBuf,
+    pub placement_log: PathBuf,
+    pub device: String,
+    pub vad_threads: u16,
+}
+
+impl ProviderSpec {
+    pub(crate) fn from_config(config: &Config, paths: &AppPaths) -> Result<Self> {
+        if config.backend.kind != "openvino-genai" || config.backend.runtime != Runtime::Openvino {
+            bail!("OpenVINO GenAI requires backend.kind = openvino-genai and runtime = openvino");
+        }
+        if config.model.sample_rate != 16_000 {
+            bail!("OpenVINO GenAI Whisper requires model.sample_rate = 16000");
+        }
+        let device = canonical_device(&config.backend.device)?.to_owned();
+        let base = paths.config_file.parent().unwrap_or(Path::new("."));
+        let mut library_dirs = Vec::new();
+        for configured in &config.backend.library_dirs {
+            let candidate = if configured.is_absolute() {
+                configured.clone()
+            } else {
+                base.join(configured)
+            };
+            let directory = canonical_directory(&candidate, "backend.library_dirs entry")?;
+            if !library_dirs.contains(&directory) {
+                library_dirs.push(directory);
+            }
+        }
+        let genai_library = if config.backend.library.as_os_str().is_empty() {
+            find_library(&library_dirs, &["libopenvino_genai_c.so"]).context(
+                "libopenvino_genai_c was not found in the selected OpenVINO installation",
+            )?
+        } else {
+            let candidate = if config.backend.library.is_absolute() {
+                config.backend.library.clone()
+            } else {
+                base.join(&config.backend.library)
+            };
+            canonical_file(&candidate, "configured OpenVINO GenAI C library")?
+        };
+        if let Some(parent) = genai_library.parent().map(Path::to_path_buf)
+            && !library_dirs.contains(&parent)
+        {
+            library_dirs.insert(0, parent);
+        }
+        let core_library = env::var_os("OMAWAKE_OPENVINO_LIBRARY")
+            .map(PathBuf::from)
+            .map(|path| canonical_file(&path, "OMAWAKE_OPENVINO_LIBRARY"))
+            .transpose()?
+            .or_else(|| find_library(&library_dirs, &["libopenvino_c.so"]))
+            .context("libopenvino_c was not found in the selected OpenVINO installation")?;
+        let plugin = match device.as_str() {
+            "CPU" => "libopenvino_intel_cpu_plugin.so",
+            "GPU" => "libopenvino_intel_gpu_plugin.so",
+            "NPU" => "libopenvino_intel_npu_plugin.so",
+            _ => unreachable!(),
+        };
+        find_library(&library_dirs, &[plugin]).with_context(|| {
+            format!("selected OpenVINO installation has no {device} device plugin ({plugin})")
+        })?;
+        if device == "NPU" {
+            for required in [
+                "libopenvino_intel_npu_compiler_loader.so",
+                "libopenvino_intel_npu_compiler.so",
+            ] {
+                find_library(&library_dirs, &[required]).with_context(|| {
+                    format!("selected OpenVINO NPU installation is incomplete: missing {required}")
+                })?;
+            }
+        }
+        let audiocpp_library = super::audiocpp::resolve_bundled_library(paths, &library_dirs)?;
+        let model_directory = config.model_directory(paths);
+        let vad_model = if Path::new(&config.model.vad).is_absolute() {
+            PathBuf::from(&config.model.vad)
+        } else {
+            model_directory.join(&config.model.vad)
+        };
+        let cache_directory = super::openvino_cache_directory(config, paths)?;
+        Ok(Self {
+            genai_library,
+            core_library,
+            audiocpp_library,
+            library_dirs,
+            model_directory,
+            vad_model,
+            placement_log: cache_directory.join("placement.log"),
+            cache_directory,
+            device,
+            vad_threads: config.backend.threads,
+        })
+    }
+
+    pub(crate) fn validate(mut self) -> Result<Self> {
+        self.genai_library = canonical_file(&self.genai_library, "OpenVINO GenAI C library")?;
+        self.core_library = canonical_file(&self.core_library, "OpenVINO Runtime C library")?;
+        self.audiocpp_library = canonical_file(&self.audiocpp_library, "audio.cpp C library")?;
+        self.model_directory =
+            canonical_directory(&self.model_directory, "OpenVINO Whisper model")?;
+        self.vad_model = canonical_file(&self.vad_model, "Silero VAD model")?;
+        verify_vad(&self.vad_model)?;
+        verify_model_manifest(&self.model_directory)?;
+        if !(1..=64).contains(&self.vad_threads) {
+            bail!("VAD threads must be between 1 and 64");
+        }
+        self.device = canonical_device(&self.device)?.into();
+        let mut directories = Vec::new();
+        for directory in &self.library_dirs {
+            let directory = canonical_directory(directory, "runtime library directory")?;
+            if !directories.contains(&directory) {
+                directories.push(directory);
+            }
+        }
+        for library in [
+            &self.genai_library,
+            &self.core_library,
+            &self.audiocpp_library,
+        ] {
+            let parent = library
+                .parent()
+                .context("native library has no parent directory")?;
+            let parent = parent.to_path_buf();
+            if !directories.contains(&parent) {
+                directories.insert(0, parent);
+            }
+        }
+        self.library_dirs = directories;
+        secure_directory(&self.cache_directory, "OpenVINO cache")?;
+        if let Some(parent) = self.placement_log.parent() {
+            secure_directory(parent, "OpenVINO placement log directory")?;
+        }
+        Ok(self)
+    }
+
+    fn static_pipeline(&self) -> bool {
+        self.device == "NPU"
+    }
+}
+
+fn find_library(directories: &[PathBuf], names: &[&str]) -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    for directory in directories {
+        let Ok(entries) = fs::read_dir(directory) else {
+            continue;
+        };
+        for entry in entries.filter_map(Result::ok) {
+            let file_name = entry.file_name();
+            let file_name = file_name.to_string_lossy();
+            if names
+                .iter()
+                .any(|name| file_name == *name || file_name.starts_with(&format!("{name}.")))
+                && entry
+                    .file_type()
+                    .is_ok_and(|kind| kind.is_file() || kind.is_symlink())
+            {
+                candidates.push(entry.path());
+            }
+        }
+    }
+    candidates.sort();
+    candidates
+        .into_iter()
+        .next()
+        .and_then(|path| path.canonicalize().ok())
+}
+
+fn canonical_device(device: &str) -> Result<&'static str> {
+    match device.trim().to_ascii_uppercase().as_str() {
+        "CPU" => Ok("CPU"),
+        "GPU" => Ok("GPU"),
+        "NPU" => Ok("NPU"),
+        _ => bail!("OpenVINO GenAI device must be CPU, GPU, or NPU"),
+    }
+}
+
+fn canonical_file(path: &Path, label: &str) -> Result<PathBuf> {
+    let path = path
+        .canonicalize()
+        .with_context(|| format!("resolve {label} {}", path.display()))?;
+    if !path.is_file() {
+        bail!("{label} is not a regular file: {}", path.display());
+    }
+    Ok(path)
+}
+
+fn canonical_directory(path: &Path, label: &str) -> Result<PathBuf> {
+    let path = path
+        .canonicalize()
+        .with_context(|| format!("resolve {label} {}", path.display()))?;
+    if !path.is_dir() {
+        bail!("{label} is not a directory: {}", path.display());
+    }
+    Ok(path)
+}
+
+fn secure_directory(path: &Path, label: &str) -> Result<()> {
+    fs::create_dir_all(path).with_context(|| format!("create {label} {}", path.display()))?;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+        .with_context(|| format!("secure {label} {}", path.display()))
+}
+
+fn verify_model_manifest(directory: &Path) -> Result<()> {
+    let spec = crate::catalog::model(crate::catalog::OPENVINO_MODEL_ID)
+        .context("OpenVINO Whisper profile is missing from the Omawake catalog")?;
+    for expected in spec.assets {
+        verify_file(
+            &directory.join(expected.path),
+            expected.size,
+            expected.sha256,
+            &format!("OpenVINO verifier artifact {}", expected.path),
+        )?;
+    }
+    Ok(())
+}
+
+fn verify_vad(path: &Path) -> Result<()> {
+    let asset = crate::catalog::model(crate::catalog::OPENVINO_MODEL_ID)
+        .and_then(|spec| {
+            spec.assets
+                .iter()
+                .find(|asset| asset.path == "silero_vad_16k.safetensors")
+        })
+        .context("Silero VAD profile is missing from the Omawake catalog")?;
+    if path.file_name().and_then(|name| name.to_str()) != Some(asset.path) {
+        bail!("Silero VAD must use the pinned {} artifact", asset.path);
+    }
+    verify_file(path, asset.size, asset.sha256, "Silero VAD")
+}
+
+fn verify_file(path: &Path, expected_bytes: u64, expected_sha256: &str, label: &str) -> Result<()> {
+    let actual_bytes = fs::metadata(path)
+        .with_context(|| format!("inspect {label} {}", path.display()))?
+        .len();
+    if actual_bytes != expected_bytes {
+        bail!(
+            "{label} has {actual_bytes} bytes, expected {expected_bytes}: {}",
+            path.display()
+        );
+    }
+    let mut file = File::open(path).with_context(|| format!("open {label} {}", path.display()))?;
+    let mut hasher = Sha256::new();
+    io::copy(&mut file, &mut hasher).with_context(|| format!("hash {label} {}", path.display()))?;
+    let actual = format!("{:x}", hasher.finalize());
+    if actual != expected_sha256 {
+        bail!(
+            "{label} checksum mismatch: expected {expected_sha256}, found {actual}: {}",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
+pub(crate) struct OpenVinoGenAiBackend {
+    worker: RefCell<Worker>,
+    matcher: PhraseMatcher,
+    next_stream_id: Cell<u64>,
+    evidence: PlacementEvidence,
+}
+
+struct OpenVinoGenAiStream<'a> {
+    backend: &'a OpenVinoGenAiBackend,
+    state: RefCell<ClientStream>,
+}
+
+struct ClientStream {
+    id: u64,
+    started: bool,
+    finished: bool,
+    resampler: AudioResampler,
+    pending: Vec<f32>,
+}
+
+impl OpenVinoGenAiBackend {
+    pub(crate) fn open(spec: ProviderSpec, wake_words: &[WakeWord]) -> Result<Self> {
+        let spec = spec.validate()?;
+        let matcher = PhraseMatcher::compile(wake_words)?;
+        let worker = Worker::spawn(spec)?;
+        let evidence = worker.evidence.clone();
+        Ok(Self {
+            worker: RefCell::new(worker),
+            matcher,
+            next_stream_id: Cell::new(1),
+            evidence,
+        })
+    }
+
+    pub(crate) fn evidence(&self) -> &PlacementEvidence {
+        &self.evidence
+    }
+
+    fn detections(&self, transcripts: Vec<Transcript>) -> Vec<Detection> {
+        transcripts
+            .into_iter()
+            .flat_map(|transcript| {
+                let tokens = normalize_tokens(&transcript.text);
+                self.matcher
+                    .matches(&transcript.text)
+                    .into_iter()
+                    .map(move |matched| Detection {
+                        id: matched.id,
+                        tokens: tokens[matched.start_token..matched.end_token].to_vec(),
+                        timestamps: Vec::new(),
+                        start_time: transcript.start_sample as f32 / 16_000.0,
+                    })
+            })
+            .collect()
+    }
+}
+
+/// Construct the real pipeline and return device/cache evidence without saving config.
+pub(crate) fn prepare(spec: ProviderSpec) -> Result<PlacementEvidence> {
+    let mut worker = Worker::spawn(spec.validate()?)?;
+    let evidence = worker.evidence.clone();
+    worker.shutdown();
+    Ok(evidence)
+}
+
+impl WakeWordBackend for OpenVinoGenAiBackend {
+    fn kind(&self) -> &'static str {
+        "openvino-genai"
+    }
+
+    fn stream(&self) -> Box<dyn WakeWordStream + '_> {
+        let id = self.next_stream_id.get();
+        self.next_stream_id.set(id.wrapping_add(1).max(1));
+        Box::new(OpenVinoGenAiStream {
+            backend: self,
+            state: RefCell::new(ClientStream {
+                id,
+                started: false,
+                finished: false,
+                resampler: AudioResampler::new(),
+                pending: Vec::new(),
+            }),
+        })
+    }
+
+    fn detect_file(&self, path: &Path) -> Result<Vec<Detection>> {
+        let (sample_rate, samples) = read_wave(path)?;
+        let stream = self.stream();
+        detect_samples(stream.as_ref(), sample_rate, &samples)
+    }
+}
+
+impl OpenVinoGenAiStream<'_> {
+    fn ensure_started(&self, state: &mut ClientStream) -> Result<()> {
+        if !state.started {
+            self.backend
+                .worker
+                .try_borrow_mut()
+                .map_err(|_| anyhow::anyhow!("another OpenVINO stream is using the worker"))?
+                .start(state.id)?;
+            state.started = true;
+        }
+        Ok(())
+    }
+
+    fn submit_ready(&self, state: &mut ClientStream) -> Result<Vec<Detection>> {
+        let mut transcripts = Vec::new();
+        while state.pending.len() >= FRAME_SAMPLES {
+            let frame: Vec<_> = state.pending.drain(..FRAME_SAMPLES).collect();
+            transcripts.extend(
+                self.backend
+                    .worker
+                    .try_borrow_mut()
+                    .map_err(|_| anyhow::anyhow!("another OpenVINO stream is using the worker"))?
+                    .audio(state.id, &frame)?,
+            );
+        }
+        Ok(self.backend.detections(transcripts))
+    }
+}
+
+impl WakeWordStream for OpenVinoGenAiStream<'_> {
+    fn accept(&self, sample_rate: i32, samples: &[f32]) -> Result<Vec<Detection>> {
+        if samples.iter().any(|sample| !sample.is_finite()) {
+            bail!("audio contains a non-finite sample");
+        }
+        let mut state = self
+            .state
+            .try_borrow_mut()
+            .map_err(|_| anyhow::anyhow!("detector stream is already in use"))?;
+        if state.finished {
+            bail!("audio was supplied after the stream finished");
+        }
+        self.ensure_started(&mut state)?;
+        let normalized = state.resampler.accept(sample_rate, samples)?;
+        state.pending.extend(normalized);
+        self.submit_ready(&mut state)
+    }
+
+    fn finish(&self) -> Result<Vec<Detection>> {
+        let mut state = self
+            .state
+            .try_borrow_mut()
+            .map_err(|_| anyhow::anyhow!("detector stream is already in use"))?;
+        if state.finished {
+            return Ok(Vec::new());
+        }
+        self.ensure_started(&mut state)?;
+        let tail = state.resampler.finish()?;
+        state.pending.extend(tail);
+        let mut detections = self.submit_ready(&mut state)?;
+        if !state.pending.is_empty() {
+            state.pending.resize(FRAME_SAMPLES, 0.0);
+            detections.extend(self.submit_ready(&mut state)?);
+        }
+        let transcripts = self
+            .backend
+            .worker
+            .try_borrow_mut()
+            .map_err(|_| anyhow::anyhow!("another OpenVINO stream is using the worker"))?
+            .finish(state.id)?;
+        detections.extend(self.backend.detections(transcripts));
+        state.finished = true;
+        Ok(detections)
+    }
+}
+
+impl Drop for OpenVinoGenAiStream<'_> {
+    fn drop(&mut self) {
+        let state = self.state.get_mut();
+        if state.started
+            && !state.finished
+            && let Ok(mut worker) = self.backend.worker.try_borrow_mut()
+        {
+            let _ = worker.cancel(state.id);
+        }
+    }
+}
+
+struct WorkerProcess {
+    child: Child,
+    stream: UnixStream,
+}
+
+impl WorkerProcess {
+    fn launch(spec: &ProviderSpec) -> Result<(Self, PlacementEvidence)> {
+        let (stream, child_stream) = UnixStream::pair().context("create OpenVINO worker IPC")?;
+        stream.set_read_timeout(Some(WORKER_STARTUP_TIMEOUT))?;
+        stream.set_write_timeout(Some(WORKER_STARTUP_TIMEOUT))?;
+        let child_input: OwnedFd = child_stream
+            .try_clone()
+            .context("clone OpenVINO worker IPC")?
+            .into();
+        let child_output: OwnedFd = child_stream.into();
+        let executable = env::current_exe().context("resolve Omawake executable")?;
+        let log = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&spec.placement_log)
+            .with_context(|| format!("open placement log {}", spec.placement_log.display()))?;
+        let mut command = Command::new(executable);
+        command
+            .arg("__openvino-genai-worker")
+            .arg(&spec.genai_library)
+            .arg(&spec.core_library)
+            .arg(&spec.audiocpp_library)
+            .arg(&spec.model_directory)
+            .arg(&spec.vad_model)
+            .arg(&spec.cache_directory)
+            .arg(&spec.device)
+            .arg(spec.vad_threads.to_string())
+            .stdin(Stdio::from(child_input))
+            .stdout(Stdio::from(child_output))
+            .stderr(Stdio::from(log));
+        prepend_library_directories(&mut command, &spec.library_dirs)?;
+        let child = command
+            .spawn()
+            .context("spawn isolated OpenVINO GenAI worker")?;
+        let mut process = Self { child, stream };
+        let handshake =
+            protocol::read_response(&mut process.stream).context("read OpenVINO worker handshake");
+        match handshake {
+            Ok(Response::Ready { evidence }) => {
+                process
+                    .stream
+                    .set_read_timeout(Some(WORKER_REQUEST_TIMEOUT))?;
+                process
+                    .stream
+                    .set_write_timeout(Some(WORKER_REQUEST_TIMEOUT))?;
+                Ok((process, evidence))
+            }
+            Ok(Response::Error { message, .. }) => {
+                process.stop(false);
+                bail!(message)
+            }
+            Ok(response) => {
+                process.stop(false);
+                bail!("unexpected OpenVINO worker handshake: {response:?}")
+            }
+            Err(error) => {
+                process.stop(false);
+                Err(error)
+            }
+        }
+    }
+
+    fn stop(&mut self, graceful: bool) {
+        if graceful {
+            let _ = self.stream.set_write_timeout(Some(Duration::from_secs(1)));
+            let _ = protocol::write_request(&mut self.stream, &Request::Shutdown, &[]);
+        }
+        let _ = self.stream.shutdown(std::net::Shutdown::Both);
+        if !wait_for_exit(&mut self.child, WORKER_STOP_TIMEOUT) {
+            let _ = self.child.kill();
+            let _ = wait_for_exit(&mut self.child, WORKER_STOP_TIMEOUT);
+        }
+    }
+}
+
+fn wait_for_exit(child: &mut Child, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return true,
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
+            Ok(None) | Err(_) => return false,
+        }
+    }
+}
+
+struct Worker {
+    spec: ProviderSpec,
+    process: Option<WorkerProcess>,
+    active_id: Option<u64>,
+    evidence: PlacementEvidence,
+}
+
+impl Worker {
+    fn spawn(spec: ProviderSpec) -> Result<Self> {
+        let (process, evidence) = WorkerProcess::launch(&spec)?;
+        Ok(Self {
+            spec,
+            process: Some(process),
+            active_id: None,
+            evidence,
+        })
+    }
+
+    fn ensure_process(&mut self) -> Result<()> {
+        if self.process.is_none() {
+            let (process, evidence) = WorkerProcess::launch(&self.spec)?;
+            self.process = Some(process);
+            self.evidence = evidence;
+        }
+        Ok(())
+    }
+
+    fn disconnect(&mut self) {
+        if let Some(mut process) = self.process.take() {
+            process.stop(false);
+        }
+        self.active_id = None;
+    }
+
+    fn exchange(&mut self, request: &Request, pcm: &[f32]) -> Result<Response> {
+        self.ensure_process()?;
+        let result = (|| {
+            let process = self
+                .process
+                .as_mut()
+                .context("OpenVINO worker is unavailable")?;
+            protocol::write_request(&mut process.stream, request, pcm)
+                .context("write OpenVINO worker request")?;
+            protocol::read_response(&mut process.stream).context("read OpenVINO worker response")
+        })();
+        if result.is_err() {
+            self.disconnect();
+        }
+        result
+    }
+
+    fn start(&mut self, id: u64) -> Result<()> {
+        if let Some(active) = self.active_id {
+            bail!("OpenVINO worker is already serving stream {active}");
+        }
+        let request = Request::Start { id };
+        let response = match self.exchange(&request, &[]) {
+            Ok(response) => response,
+            Err(first_error) => self.exchange(&request, &[]).with_context(|| {
+                format!("restart OpenVINO worker after startup IPC failure: {first_error:#}")
+            })?,
+        };
+        match response {
+            Response::Ack { id: response } if response == id => {
+                self.active_id = Some(id);
+                Ok(())
+            }
+            Response::Error { message, .. } => bail!(message),
+            response => bail!("unexpected OpenVINO start response: {response:?}"),
+        }
+    }
+
+    fn audio(&mut self, id: u64, pcm: &[f32]) -> Result<Vec<Transcript>> {
+        if self.active_id != Some(id) {
+            bail!("OpenVINO worker is not serving stream {id}");
+        }
+        match self.exchange(
+            &Request::Audio {
+                id,
+                samples: pcm.len(),
+            },
+            pcm,
+        )? {
+            Response::Result {
+                id: response,
+                transcripts,
+            } if response == id => Ok(transcripts),
+            Response::Error { message, .. } => bail!(message),
+            response => bail!("unexpected OpenVINO audio response: {response:?}"),
+        }
+    }
+
+    fn finish(&mut self, id: u64) -> Result<Vec<Transcript>> {
+        if self.active_id != Some(id) {
+            bail!("OpenVINO worker is not serving stream {id}");
+        }
+        let response = self.exchange(&Request::Finish { id }, &[])?;
+        self.active_id = None;
+        match response {
+            Response::Result {
+                id: response,
+                transcripts,
+            } if response == id => Ok(transcripts),
+            Response::Error { message, .. } => bail!(message),
+            response => bail!("unexpected OpenVINO finish response: {response:?}"),
+        }
+    }
+
+    fn cancel(&mut self, id: u64) -> Result<()> {
+        let response = self.exchange(&Request::Cancel { id }, &[])?;
+        self.active_id = None;
+        match response {
+            Response::Ack { id: response } if response == id => Ok(()),
+            Response::Error { message, .. } => bail!(message),
+            response => bail!("unexpected OpenVINO cancel response: {response:?}"),
+        }
+    }
+
+    fn shutdown(&mut self) {
+        if let Some(mut process) = self.process.take() {
+            process.stop(true);
+        }
+        self.active_id = None;
+    }
+}
+
+impl Drop for Worker {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+fn prepend_library_directories(command: &mut Command, directories: &[PathBuf]) -> Result<()> {
+    let mut paths = directories.to_vec();
+    if let Some(existing) = env::var_os("LD_LIBRARY_PATH") {
+        for directory in env::split_paths(&existing) {
+            if !paths.contains(&directory) {
+                paths.push(directory);
+            }
+        }
+    }
+    let joined = env::join_paths(paths).context("construct OpenVINO worker library path")?;
+    command.env("LD_LIBRARY_PATH", joined);
+    Ok(())
+}
+
+fn harden_worker_process() -> Result<()> {
+    let limit = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    let limit_status = unsafe { libc::setrlimit(libc::RLIMIT_CORE, &limit) };
+    let limit_error = (limit_status != 0).then(io::Error::last_os_error);
+    let dump_status = unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) };
+    let dump_error = (dump_status != 0).then(io::Error::last_os_error);
+    if limit_status == 0 || dump_status == 0 {
+        return Ok(());
+    }
+    bail!(
+        "could not disable worker core dumps: setrlimit: {}; prctl: {}",
+        limit_error.expect("failed setrlimit has an OS error"),
+        dump_error.expect("failed prctl has an OS error")
+    )
+}
+
+type Status = c_int;
+
+unsafe fn symbol<T: Copy>(library: &Library, name: &[u8]) -> Result<T> {
+    Ok(*unsafe { library.get::<T>(name) }.with_context(|| {
+        format!(
+            "resolve native symbol {}",
+            String::from_utf8_lossy(&name[..name.len() - 1])
+        )
+    })?)
+}
+
+#[repr(C)]
+struct OvVersion {
+    build_number: *const c_char,
+    description: *const c_char,
+}
+
+#[repr(C)]
+struct OvAvailableDevices {
+    devices: *mut *mut c_char,
+    size: usize,
+}
+
+struct CoreApi {
+    _library: Library,
+    get_version: unsafe extern "C" fn(*mut OvVersion) -> Status,
+    version_free: unsafe extern "C" fn(*mut OvVersion),
+    core_create: unsafe extern "C" fn(*mut *mut c_void) -> Status,
+    core_free: unsafe extern "C" fn(*mut c_void),
+    available_devices: unsafe extern "C" fn(*const c_void, *mut OvAvailableDevices) -> Status,
+    available_devices_free: unsafe extern "C" fn(*mut OvAvailableDevices),
+    get_property: unsafe extern "C" fn(
+        *const c_void,
+        *const c_char,
+        *const c_char,
+        *mut *mut c_char,
+    ) -> Status,
+    free_string: unsafe extern "C" fn(*const c_char),
+    error_info: unsafe extern "C" fn(Status) -> *const c_char,
+    last_error: unsafe extern "C" fn() -> *const c_char,
+}
+
+impl CoreApi {
+    fn load(path: &Path) -> Result<Self> {
+        let library = unsafe { Library::new(path) }
+            .with_context(|| format!("load OpenVINO Runtime C library {}", path.display()))?;
+        Ok(Self {
+            get_version: unsafe { symbol(&library, b"ov_get_openvino_version\0")? },
+            version_free: unsafe { symbol(&library, b"ov_version_free\0")? },
+            core_create: unsafe { symbol(&library, b"ov_core_create\0")? },
+            core_free: unsafe { symbol(&library, b"ov_core_free\0")? },
+            available_devices: unsafe { symbol(&library, b"ov_core_get_available_devices\0")? },
+            available_devices_free: unsafe { symbol(&library, b"ov_available_devices_free\0")? },
+            get_property: unsafe { symbol(&library, b"ov_core_get_property\0")? },
+            free_string: unsafe { symbol(&library, b"ov_free\0")? },
+            error_info: unsafe { symbol(&library, b"ov_get_error_info\0")? },
+            last_error: unsafe { symbol(&library, b"ov_get_last_err_msg\0")? },
+            _library: library,
+        })
+    }
+
+    fn check(&self, operation: &str, status: Status) -> Result<()> {
+        if status == 0 {
+            return Ok(());
+        }
+        let name = unsafe { optional_c_string((self.error_info)(status)) };
+        let detail = unsafe { optional_c_string((self.last_error)()) };
+        bail!("{operation}: {name}: {detail} (status {status})")
+    }
+
+    fn inspect(&self, requested: &str) -> Result<DeviceEvidence> {
+        let mut version = OvVersion {
+            build_number: std::ptr::null(),
+            description: std::ptr::null(),
+        };
+        self.check("query OpenVINO version", unsafe {
+            (self.get_version)(&mut version)
+        })?;
+        let runtime_build = unsafe { optional_c_string(version.build_number) };
+        let runtime_description = unsafe { optional_c_string(version.description) };
+        unsafe { (self.version_free)(&mut version) };
+
+        let mut core = std::ptr::null_mut();
+        self.check("create OpenVINO Core", unsafe {
+            (self.core_create)(&mut core)
+        })?;
+        let result = (|| {
+            let mut devices = OvAvailableDevices {
+                devices: std::ptr::null_mut(),
+                size: 0,
+            };
+            self.check("query OpenVINO devices", unsafe {
+                (self.available_devices)(core, &mut devices)
+            })?;
+            let names = if devices.devices.is_null() {
+                Vec::new()
+            } else {
+                (0..devices.size)
+                    .map(|index| unsafe { optional_c_string(*devices.devices.add(index)) })
+                    .collect::<Vec<_>>()
+            };
+            unsafe { (self.available_devices_free)(&mut devices) };
+            let available_device = names
+                .iter()
+                .find(|name| name.as_str() == requested)
+                .or_else(|| {
+                    names
+                        .iter()
+                        .find(|name| name.starts_with(&format!("{requested}.")))
+                })
+                .cloned()
+                .with_context(|| {
+                    format!(
+                        "OpenVINO device {requested} is unavailable; found {}",
+                        names.join(", ")
+                    )
+                })?;
+            Ok(DeviceEvidence {
+                runtime_build,
+                runtime_description,
+                full_device_name: self.property(core, &available_device, "FULL_DEVICE_NAME")?,
+                device_architecture: self.property(
+                    core,
+                    &available_device,
+                    "DEVICE_ARCHITECTURE",
+                )?,
+                driver_version: self.property_optional(core, &available_device, "DRIVER_VERSION"),
+                available_device,
+            })
+        })();
+        unsafe { (self.core_free)(core) };
+        result
+    }
+
+    fn property(&self, core: *const c_void, device: &str, key: &str) -> Result<String> {
+        let device = CString::new(device)?;
+        let key = CString::new(key)?;
+        let mut value = std::ptr::null_mut();
+        self.check(
+            &format!("query OpenVINO property {}", key.to_string_lossy()),
+            unsafe { (self.get_property)(core, device.as_ptr(), key.as_ptr(), &mut value) },
+        )?;
+        if value.is_null() {
+            bail!("OpenVINO returned a null property value");
+        }
+        let output = unsafe { optional_c_string(value) };
+        unsafe { (self.free_string)(value) };
+        Ok(output)
+    }
+
+    fn property_optional(&self, core: *const c_void, device: &str, key: &str) -> String {
+        self.property(core, device, key).unwrap_or_default()
+    }
+}
+
+struct DeviceEvidence {
+    runtime_build: String,
+    runtime_description: String,
+    available_device: String,
+    full_device_name: String,
+    device_architecture: String,
+    driver_version: String,
+}
+
+unsafe fn optional_c_string(value: *const c_char) -> String {
+    if value.is_null() {
+        String::new()
+    } else {
+        unsafe { CStr::from_ptr(value) }
+            .to_string_lossy()
+            .into_owned()
+    }
+}
+
+type PipelineCreate =
+    unsafe extern "C" fn(*const c_char, *const c_char, usize, *mut *mut c_void, ...) -> Status;
+
+struct GenAiApi {
+    _library: Library,
+    pipeline_create: PipelineCreate,
+    pipeline_free: unsafe extern "C" fn(*mut c_void),
+    generate: unsafe extern "C" fn(
+        *mut c_void,
+        *const f32,
+        usize,
+        *const c_void,
+        *mut *mut c_void,
+    ) -> Status,
+    result_string: unsafe extern "C" fn(*const c_void, *mut c_char, *mut usize) -> Status,
+    result_free: unsafe extern "C" fn(*mut c_void),
+}
+
+impl GenAiApi {
+    fn load(path: &Path) -> Result<Self> {
+        let library = unsafe { Library::new(path) }
+            .with_context(|| format!("load OpenVINO GenAI C library {}", path.display()))?;
+        Ok(Self {
+            pipeline_create: unsafe { symbol(&library, b"ov_genai_whisper_pipeline_create\0")? },
+            pipeline_free: unsafe { symbol(&library, b"ov_genai_whisper_pipeline_free\0")? },
+            generate: unsafe { symbol(&library, b"ov_genai_whisper_pipeline_generate\0")? },
+            result_string: unsafe {
+                symbol(&library, b"ov_genai_whisper_decoded_results_get_string\0")?
+            },
+            result_free: unsafe { symbol(&library, b"ov_genai_whisper_decoded_results_free\0")? },
+            _library: library,
+        })
+    }
+}
+
+#[repr(C)]
+struct AudioCppModelConfig {
+    family_hint: *const c_char,
+    config_id: *const c_char,
+    weight_id: *const c_char,
+    model_spec_override: *const c_char,
+}
+
+#[repr(C)]
+struct AudioCppBackendConfig {
+    backend: *const c_char,
+    device: c_int,
+    threads: c_int,
+}
+
+struct VadApi {
+    _library: Library,
+    last_error: unsafe extern "C" fn() -> *const c_char,
+    registry_create: unsafe extern "C" fn(*const c_char, *mut *mut c_void) -> Status,
+    registry_free: unsafe extern "C" fn(*mut c_void),
+    model_load: unsafe extern "C" fn(
+        *mut c_void,
+        *const c_char,
+        *const AudioCppModelConfig,
+        *const c_void,
+        *mut *mut c_void,
+    ) -> Status,
+    model_free: unsafe extern "C" fn(*mut c_void),
+    session_create: unsafe extern "C" fn(
+        *const c_void,
+        *const c_char,
+        *const c_char,
+        *const AudioCppBackendConfig,
+        *const c_void,
+        *mut *mut c_void,
+    ) -> Status,
+    session_free: unsafe extern "C" fn(*mut c_void),
+    stream_start: unsafe extern "C" fn(*mut c_void, *const c_void) -> Status,
+    stream_push: unsafe extern "C" fn(
+        *mut c_void,
+        *const f32,
+        usize,
+        c_int,
+        c_int,
+        i64,
+        *mut *mut c_void,
+    ) -> Status,
+    stream_reset: unsafe extern "C" fn(*mut c_void) -> Status,
+    event_free: unsafe extern "C" fn(*mut c_void),
+    event_as_result: unsafe extern "C" fn(*const c_void) -> *const c_void,
+    event_voice_activity_count: unsafe extern "C" fn(*const c_void) -> usize,
+    event_voice_activity:
+        unsafe extern "C" fn(*const c_void, usize, *mut c_int, *mut i64, *mut f32) -> Status,
+    result_segment_count: unsafe extern "C" fn(*const c_void) -> usize,
+    result_segment: unsafe extern "C" fn(
+        *const c_void,
+        usize,
+        *mut i64,
+        *mut i64,
+        *mut f32,
+        *mut *const c_char,
+    ) -> Status,
+}
+
+impl VadApi {
+    fn load(path: &Path) -> Result<Self> {
+        let library = unsafe { Library::new(path) }
+            .with_context(|| format!("load audio.cpp C library {}", path.display()))?;
+        let abi_version: unsafe extern "C" fn() -> u32 =
+            unsafe { symbol(&library, b"audiocpp_abi_version\0")? };
+        let found = unsafe { abi_version() };
+        if found != AUDIOCPP_ABI_0_1_0 {
+            bail!("audio.cpp C ABI mismatch: expected 0.1.0 ({AUDIOCPP_ABI_0_1_0}), found {found}");
+        }
+        Ok(Self {
+            last_error: unsafe { symbol(&library, b"audiocpp_last_error\0")? },
+            registry_create: unsafe { symbol(&library, b"audiocpp_registry_create\0")? },
+            registry_free: unsafe { symbol(&library, b"audiocpp_registry_free\0")? },
+            model_load: unsafe { symbol(&library, b"audiocpp_model_load\0")? },
+            model_free: unsafe { symbol(&library, b"audiocpp_model_free\0")? },
+            session_create: unsafe { symbol(&library, b"audiocpp_session_create\0")? },
+            session_free: unsafe { symbol(&library, b"audiocpp_session_free\0")? },
+            stream_start: unsafe { symbol(&library, b"audiocpp_stream_start\0")? },
+            stream_push: unsafe { symbol(&library, b"audiocpp_stream_push\0")? },
+            stream_reset: unsafe { symbol(&library, b"audiocpp_stream_reset\0")? },
+            event_free: unsafe { symbol(&library, b"audiocpp_event_free\0")? },
+            event_as_result: unsafe { symbol(&library, b"audiocpp_event_as_result\0")? },
+            event_voice_activity_count: unsafe {
+                symbol(&library, b"audiocpp_event_voice_activity_count\0")?
+            },
+            event_voice_activity: unsafe { symbol(&library, b"audiocpp_event_voice_activity\0")? },
+            result_segment_count: unsafe { symbol(&library, b"audiocpp_result_segment_count\0")? },
+            result_segment: unsafe { symbol(&library, b"audiocpp_result_segment\0")? },
+            _library: library,
+        })
+    }
+
+    fn check(&self, operation: &str, status: Status) -> Result<()> {
+        if status == 0 {
+            return Ok(());
+        }
+        let detail = unsafe { optional_c_string((self.last_error)()) };
+        bail!("{operation}: {detail} (status {status})")
+    }
+}
+
+struct AudioCppVad {
+    api: VadApi,
+    registry: *mut c_void,
+    model: *mut c_void,
+    session: *mut c_void,
+    cursor: i64,
+}
+
+impl AudioCppVad {
+    fn open(library: &Path, model: &Path, threads: i32) -> Result<Self> {
+        let api = VadApi::load(library)?;
+        let mut vad = Self {
+            api,
+            registry: std::ptr::null_mut(),
+            model: std::ptr::null_mut(),
+            session: std::ptr::null_mut(),
+            cursor: 0,
+        };
+        vad.api.check("create audio.cpp registry", unsafe {
+            (vad.api.registry_create)(std::ptr::null(), &mut vad.registry)
+        })?;
+        let path = path_to_c_string(model)?;
+        let family = CString::new("silero_vad")?;
+        let config = AudioCppModelConfig {
+            family_hint: family.as_ptr(),
+            config_id: std::ptr::null(),
+            weight_id: std::ptr::null(),
+            model_spec_override: std::ptr::null(),
+        };
+        vad.api.check("load Silero VAD", unsafe {
+            (vad.api.model_load)(
+                vad.registry,
+                path.as_ptr(),
+                &config,
+                std::ptr::null(),
+                &mut vad.model,
+            )
+        })?;
+        let task = CString::new("vad")?;
+        let mode = CString::new("streaming")?;
+        let backend_name = CString::new("cpu")?;
+        let backend = AudioCppBackendConfig {
+            backend: backend_name.as_ptr(),
+            device: 0,
+            threads,
+        };
+        vad.api.check("create Silero VAD session", unsafe {
+            (vad.api.session_create)(
+                vad.model,
+                task.as_ptr(),
+                mode.as_ptr(),
+                &backend,
+                std::ptr::null(),
+                &mut vad.session,
+            )
+        })?;
+        vad.api.check("start Silero VAD stream", unsafe {
+            (vad.api.stream_start)(vad.session, std::ptr::null())
+        })?;
+        Ok(vad)
+    }
+
+    fn restart(&mut self) -> Result<()> {
+        self.cursor = 0;
+        self.api.check("reset Silero VAD stream", unsafe {
+            (self.api.stream_reset)(self.session)
+        })?;
+        self.api.check("start Silero VAD stream", unsafe {
+            (self.api.stream_start)(self.session, std::ptr::null())
+        })
+    }
+
+    fn activity(&mut self, samples: &[f32]) -> Result<Activity> {
+        if samples.len() != FRAME_SAMPLES {
+            bail!("Silero VAD requires exactly {FRAME_SAMPLES} samples per frame");
+        }
+        let frame_end = self
+            .cursor
+            .checked_add(FRAME_SAMPLES as i64)
+            .context("VAD sample cursor overflow")?;
+        let mut event = std::ptr::null_mut();
+        self.api.check("run Silero VAD frame", unsafe {
+            (self.api.stream_push)(
+                self.session,
+                samples.as_ptr(),
+                samples.len(),
+                16_000,
+                1,
+                self.cursor,
+                &mut event,
+            )
+        })?;
+        self.cursor = frame_end;
+        if event.is_null() {
+            return Ok(Activity::default());
+        }
+        let result = (|| {
+            let mut activity = Activity::default();
+            let count = unsafe { (self.api.event_voice_activity_count)(event) };
+            for index in 0..count {
+                let mut kind = -1;
+                let mut sample = 0_i64;
+                let mut probability = 0.0;
+                self.api.check("read Silero VAD event", unsafe {
+                    (self.api.event_voice_activity)(
+                        event,
+                        index,
+                        &mut kind,
+                        &mut sample,
+                        &mut probability,
+                    )
+                })?;
+                if !probability.is_finite()
+                    || !(0.0..=1.0).contains(&probability)
+                    || sample < 0
+                    || sample > frame_end
+                {
+                    bail!("Silero VAD returned an invalid activity event");
+                }
+                let before_end =
+                    usize::try_from(frame_end - sample).context("VAD timestamp is too large")?;
+                match kind {
+                    0 => activity.start_before_frame_end = Some(before_end),
+                    1 => activity.end_before_frame_end = Some(before_end),
+                    2 => {
+                        let view = unsafe { (self.api.event_as_result)(event) };
+                        if view.is_null() || unsafe { (self.api.result_segment_count)(view) } == 0 {
+                            bail!("Silero segment event omitted its bounds");
+                        }
+                        let mut start = 0_i64;
+                        let mut end = 0_i64;
+                        self.api.check("read Silero segment bounds", unsafe {
+                            (self.api.result_segment)(
+                                view,
+                                0,
+                                &mut start,
+                                &mut end,
+                                std::ptr::null_mut(),
+                                std::ptr::null_mut(),
+                            )
+                        })?;
+                        if start < 0 || end < start || end > frame_end {
+                            bail!("Silero segment bounds are invalid");
+                        }
+                        activity.start_before_frame_end = Some(usize::try_from(frame_end - start)?);
+                        activity.end_before_frame_end = Some(usize::try_from(frame_end - end)?);
+                    }
+                    _ => bail!("Silero VAD returned unknown activity kind {kind}"),
+                }
+            }
+            Ok(activity)
+        })();
+        unsafe { (self.api.event_free)(event) };
+        result
+    }
+}
+
+impl Drop for AudioCppVad {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.session.is_null() {
+                (self.api.session_free)(self.session);
+            }
+            if !self.model.is_null() {
+                (self.api.model_free)(self.model);
+            }
+            if !self.registry.is_null() {
+                (self.api.registry_free)(self.registry);
+            }
+        }
+    }
+}
+
+struct OpenVinoProvider {
+    core: CoreApi,
+    genai: GenAiApi,
+    pipeline: *mut c_void,
+    vad: AudioCppVad,
+    evidence: PlacementEvidence,
+}
+
+impl OpenVinoProvider {
+    fn open(spec: &ProviderSpec) -> Result<Self> {
+        let core = CoreApi::load(&spec.core_library)?;
+        let device = core.inspect(&spec.device)?;
+        let genai = GenAiApi::load(&spec.genai_library)?;
+        let model = path_to_c_string(&spec.model_directory)?;
+        let requested = CString::new(spec.device.as_str())?;
+        let cache_key = CString::new("CACHE_DIR")?;
+        let cache_value = path_to_c_string(&spec.cache_directory)?;
+        let static_key = CString::new("STATIC_PIPELINE")?;
+        let true_value = CString::new("true")?;
+        let mut pipeline = std::ptr::null_mut();
+        let status = unsafe {
+            if spec.static_pipeline() {
+                (genai.pipeline_create)(
+                    model.as_ptr(),
+                    requested.as_ptr(),
+                    4,
+                    &mut pipeline,
+                    cache_key.as_ptr(),
+                    cache_value.as_ptr(),
+                    static_key.as_ptr(),
+                    true_value.as_ptr(),
+                )
+            } else {
+                (genai.pipeline_create)(
+                    model.as_ptr(),
+                    requested.as_ptr(),
+                    2,
+                    &mut pipeline,
+                    cache_key.as_ptr(),
+                    cache_value.as_ptr(),
+                )
+            }
+        };
+        core.check("create OpenVINO GenAI Whisper pipeline", status)?;
+        if pipeline.is_null() {
+            bail!("OpenVINO GenAI returned a null Whisper pipeline");
+        }
+        let (cache_files, cache_bytes) = cache_artifacts(&spec.cache_directory)?;
+        if spec.device != "CPU" && cache_files == 0 {
+            unsafe { (genai.pipeline_free)(pipeline) };
+            bail!(
+                "OpenVINO {} pipeline compiled without creating cache artifacts",
+                spec.device
+            );
+        }
+        let vad = match AudioCppVad::open(
+            &spec.audiocpp_library,
+            &spec.vad_model,
+            i32::from(spec.vad_threads),
+        ) {
+            Ok(vad) => vad,
+            Err(error) => {
+                unsafe { (genai.pipeline_free)(pipeline) };
+                return Err(error);
+            }
+        };
+        let evidence = PlacementEvidence {
+            profile_id: WHISPER_BASE_EN_PROFILE.id.into(),
+            languages: WHISPER_BASE_EN_PROFILE
+                .languages
+                .iter()
+                .map(|value| (*value).into())
+                .collect(),
+            multilingual: WHISPER_BASE_EN_PROFILE.multilingual,
+            runtime_build: device.runtime_build,
+            runtime_description: device.runtime_description,
+            requested_device: spec.device.clone(),
+            available_device: device.available_device,
+            full_device_name: device.full_device_name,
+            device_architecture: device.device_architecture,
+            driver_version: device.driver_version,
+            static_pipeline: spec.static_pipeline(),
+            cache_directory: spec.cache_directory.display().to_string(),
+            cache_files,
+            cache_bytes,
+            genai_library: spec.genai_library.display().to_string(),
+            core_library: spec.core_library.display().to_string(),
+        };
+        Ok(Self {
+            core,
+            genai,
+            pipeline,
+            vad,
+            evidence,
+        })
+    }
+
+    fn transcribe(&self, samples: &[f32]) -> Result<String> {
+        if samples.is_empty() || samples.len() > 16_000 * 30 {
+            bail!("OpenVINO Whisper utterance must contain 1 to 480000 samples");
+        }
+        let mut results = std::ptr::null_mut();
+        self.core.check("run OpenVINO GenAI Whisper", unsafe {
+            (self.genai.generate)(
+                self.pipeline,
+                samples.as_ptr(),
+                samples.len(),
+                std::ptr::null(),
+                &mut results,
+            )
+        })?;
+        if results.is_null() {
+            bail!("OpenVINO GenAI returned null Whisper results");
+        }
+        let result = (|| {
+            let mut size = 0;
+            self.core.check("size OpenVINO transcript", unsafe {
+                (self.genai.result_string)(results, std::ptr::null_mut(), &mut size)
+            })?;
+            if size == 0 || size > 4 * 1024 * 1024 {
+                bail!("OpenVINO returned an invalid transcript size {size}");
+            }
+            let mut text = vec![0_u8; size];
+            self.core.check("read OpenVINO transcript", unsafe {
+                (self.genai.result_string)(results, text.as_mut_ptr().cast(), &mut size)
+            })?;
+            let text = CStr::from_bytes_until_nul(&text)
+                .context("OpenVINO transcript is not NUL terminated")?;
+            Ok(text.to_string_lossy().trim().to_owned())
+        })();
+        unsafe { (self.genai.result_free)(results) };
+        result
+    }
+
+    fn verify_utterance(&self, samples: &[f32]) -> Result<Option<String>> {
+        let transcript = self.transcribe(samples)?;
+        // Deliberate extension point: an enrollment-based speaker verifier belongs
+        // here, after VAD/ASR and before the transcript reaches phrase acceptance.
+        Ok(Some(transcript))
+    }
+}
+
+impl Drop for OpenVinoProvider {
+    fn drop(&mut self) {
+        if !self.pipeline.is_null() {
+            unsafe { (self.genai.pipeline_free)(self.pipeline) };
+            self.pipeline = std::ptr::null_mut();
+        }
+    }
+}
+
+fn cache_artifacts(directory: &Path) -> Result<(usize, u64)> {
+    fn walk(directory: &Path, count: &mut usize, bytes: &mut u64) -> Result<()> {
+        for entry in fs::read_dir(directory)
+            .with_context(|| format!("read cache {}", directory.display()))?
+        {
+            let entry = entry?;
+            let metadata = entry.metadata()?;
+            if metadata.is_dir() {
+                walk(&entry.path(), count, bytes)?;
+            } else if metadata.is_file() {
+                *count += 1;
+                *bytes = bytes.saturating_add(metadata.len());
+            }
+        }
+        Ok(())
+    }
+    let mut count = 0;
+    let mut bytes = 0;
+    walk(directory, &mut count, &mut bytes)?;
+    Ok((count, bytes))
+}
+
+fn path_to_c_string(path: &Path) -> Result<CString> {
+    use std::os::unix::ffi::OsStrExt;
+    CString::new(path.as_os_str().as_bytes()).context("native path contains NUL")
+}
+
+struct WorkerStream {
+    id: u64,
+    endpoint: ActivityBuffer,
+}
+
+impl WorkerStream {
+    fn finish_utterance(
+        &self,
+        provider: &OpenVinoProvider,
+        utterance: Utterance,
+    ) -> Result<Transcript> {
+        Ok(Transcript {
+            text: provider
+                .verify_utterance(&utterance.samples)?
+                .unwrap_or_default(),
+            start_sample: utterance.start_sample,
+            end_sample: utterance.end_sample,
+        })
+    }
+}
+
+pub(crate) fn worker_main(spec: ProviderSpec) -> Result<()> {
+    worker_main_io(
+        spec,
+        &mut std::io::stdin().lock(),
+        &mut std::io::stdout().lock(),
+    )
+}
+
+fn worker_main_io(
+    spec: ProviderSpec,
+    input: &mut impl io::Read,
+    output: &mut impl io::Write,
+) -> Result<()> {
+    if let Err(error) = harden_worker_process() {
+        protocol::write_response(
+            output,
+            &Response::Error {
+                id: None,
+                message: format!("{error:#}"),
+            },
+        )?;
+        return Ok(());
+    }
+    let spec = match spec.validate() {
+        Ok(spec) => spec,
+        Err(error) => {
+            protocol::write_response(
+                output,
+                &Response::Error {
+                    id: None,
+                    message: format!("{error:#}"),
+                },
+            )?;
+            return Ok(());
+        }
+    };
+    let mut provider = match OpenVinoProvider::open(&spec) {
+        Ok(provider) => provider,
+        Err(error) => {
+            protocol::write_response(
+                output,
+                &Response::Error {
+                    id: None,
+                    message: format!("{error:#}"),
+                },
+            )?;
+            return Ok(());
+        }
+    };
+    protocol::write_response(
+        output,
+        &Response::Ready {
+            evidence: provider.evidence.clone(),
+        },
+    )?;
+    let mut active: Option<WorkerStream> = None;
+    loop {
+        let (request, pcm) = protocol::read_request(input)?;
+        let response = match request {
+            Request::Shutdown => return Ok(()),
+            Request::Start { id } => match provider.vad.restart() {
+                Ok(()) => {
+                    active = Some(WorkerStream {
+                        id,
+                        endpoint: ActivityBuffer::new(),
+                    });
+                    Response::Ack { id }
+                }
+                Err(error) => Response::Error {
+                    id: Some(id),
+                    message: format!("{error:#}"),
+                },
+            },
+            Request::Audio { id, .. } => match active.as_mut() {
+                Some(stream) if stream.id == id && pcm.len() == FRAME_SAMPLES => {
+                    let result = (|| {
+                        if pcm.iter().any(|sample| !sample.is_finite()) {
+                            bail!("audio contains a non-finite sample");
+                        }
+                        let activity = provider.vad.activity(&pcm)?;
+                        let transcript = stream
+                            .endpoint
+                            .push(&pcm, activity)
+                            .map(|utterance| stream.finish_utterance(&provider, utterance))
+                            .transpose()?;
+                        if transcript.is_some() {
+                            provider.vad.restart()?;
+                        }
+                        Ok::<_, anyhow::Error>(transcript.into_iter().collect())
+                    })();
+                    match result {
+                        Ok(transcripts) => Response::Result { id, transcripts },
+                        Err(error) => Response::Error {
+                            id: Some(id),
+                            message: format!("{error:#}"),
+                        },
+                    }
+                }
+                Some(_) => Response::Error {
+                    id: Some(id),
+                    message: "worker stream id does not match".into(),
+                },
+                None => Response::Error {
+                    id: Some(id),
+                    message: "worker has no active stream".into(),
+                },
+            },
+            Request::Finish { id } => match active.take() {
+                Some(mut stream) if stream.id == id => {
+                    let result = stream
+                        .endpoint
+                        .finish()
+                        .map(|utterance| stream.finish_utterance(&provider, utterance))
+                        .transpose()
+                        .and_then(|transcript| {
+                            provider.vad.restart()?;
+                            Ok(transcript)
+                        });
+                    match result {
+                        Ok(transcript) => Response::Result {
+                            id,
+                            transcripts: transcript.into_iter().collect(),
+                        },
+                        Err(error) => Response::Error {
+                            id: Some(id),
+                            message: format!("{error:#}"),
+                        },
+                    }
+                }
+                Some(stream) => {
+                    active = Some(stream);
+                    Response::Error {
+                        id: Some(id),
+                        message: "worker stream id does not match".into(),
+                    }
+                }
+                None => Response::Error {
+                    id: Some(id),
+                    message: "worker has no active stream".into(),
+                },
+            },
+            Request::Cancel { id } => match active.as_ref() {
+                Some(stream) if stream.id == id => {
+                    active = None;
+                    match provider.vad.restart() {
+                        Ok(()) => Response::Ack { id },
+                        Err(error) => Response::Error {
+                            id: Some(id),
+                            message: format!("{error:#}"),
+                        },
+                    }
+                }
+                _ => Response::Error {
+                    id: Some(id),
+                    message: "worker stream id does not match".into(),
+                },
+            },
+        };
+        protocol::write_response(output, &response)?;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temporary(name: &str) -> PathBuf {
+        env::temp_dir().join(format!("omawake-openvino-{name}-{}", std::process::id()))
+    }
+
+    #[test]
+    fn only_explicit_physical_devices_are_accepted() {
+        assert_eq!(canonical_device(" cpu ").unwrap(), "CPU");
+        assert_eq!(canonical_device("gpu").unwrap(), "GPU");
+        assert_eq!(canonical_device("NPU").unwrap(), "NPU");
+        assert!(canonical_device("AUTO").is_err());
+        assert!(canonical_device("cuda").is_err());
+    }
+
+    #[test]
+    fn cache_inventory_counts_nested_regular_files() {
+        let root = temporary("cache");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("nested")).unwrap();
+        fs::write(root.join("one.blob"), [1, 2, 3]).unwrap();
+        fs::write(root.join("nested/two.bin"), [4, 5]).unwrap();
+        assert_eq!(cache_artifacts(&root).unwrap(), (2, 5));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn manifest_rejects_missing_files_before_native_loading() {
+        let root = temporary("manifest");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let error = verify_model_manifest(&root).unwrap_err();
+        assert!(error.to_string().contains("config.json"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn phrase_matching_uses_provider_independent_matcher() {
+        let matcher = PhraseMatcher::compile(&[WakeWord {
+            id: "lights".into(),
+            phrase: "light up".into(),
+            enabled: true,
+            command: vec!["true".into()],
+        }])
+        .unwrap();
+        let transcripts = vec![Transcript {
+            text: "Please light up the room.".into(),
+            start_sample: 8_000,
+            end_sample: 16_000,
+        }];
+        let detections: Vec<_> = transcripts
+            .into_iter()
+            .flat_map(|transcript| {
+                let tokens = normalize_tokens(&transcript.text);
+                matcher
+                    .matches(&transcript.text)
+                    .into_iter()
+                    .map(move |matched| Detection {
+                        id: matched.id,
+                        tokens: tokens[matched.start_token..matched.end_token].to_vec(),
+                        timestamps: Vec::new(),
+                        start_time: transcript.start_sample as f32 / 16_000.0,
+                    })
+            })
+            .collect();
+        assert_eq!(detections[0].id, "lights");
+        assert_eq!(detections[0].tokens, ["light", "up"]);
+        assert_eq!(detections[0].start_time, 0.5);
+    }
+}

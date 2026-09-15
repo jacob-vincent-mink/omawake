@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn catalog_pins_a_complete_originally_sourced_profile() {
     let spec = model(DEFAULT_MODEL_ID).unwrap();
-    assert_eq!(models().len(), 1);
+    assert_eq!(models().len(), 2);
     assert_eq!(spec.backend, "audiocpp");
     assert_eq!(spec.license, "MIT");
     assert_eq!(spec.license_status, "verified");
@@ -22,6 +22,19 @@ fn catalog_pins_a_complete_originally_sourced_profile() {
     );
     assert!(spec.assets[1].url.contains(SILERO_REVISION));
     assert_eq!(spec.converted_source_revision, AUDIOCPP_GGUF_REVISION);
+
+    let openvino = model(OPENVINO_MODEL_ID).unwrap();
+    assert_eq!(openvino.backend, "openvino-genai");
+    assert_eq!(openvino.languages, ["en"]);
+    assert!(!openvino.multilingual);
+    assert_eq!(openvino.assets.len(), 13);
+    assert_eq!(openvino.total_size(), 84_208_878);
+    assert_eq!(openvino.source_revision, OPENAI_WHISPER_REVISION);
+    assert_eq!(openvino.converted_source_revision, OPENVINO_WHISPER_REVISION);
+    assert!(openvino.assets[..12]
+        .iter()
+        .all(|asset| asset.source_revision == OPENVINO_WHISPER_REVISION));
+    assert_eq!(openvino.assets[12].source_revision, SILERO_REVISION);
     assert!(model("missing").is_none());
 }
 

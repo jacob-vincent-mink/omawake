@@ -11,11 +11,15 @@ use crate::config::{Config, WakeWord};
 use crate::keyword::KeywordCompiler;
 use crate::paths::AppPaths;
 
+pub(crate) mod audio;
 pub(crate) mod audiocpp;
 pub(crate) mod onnx;
+pub(crate) mod openvino_genai;
 pub(crate) mod whisper;
+use self::audio::read_wave;
 use self::audiocpp::AudioCppBackend;
-use self::onnx::{OmaOnnxBackend, read_wave};
+use self::onnx::OmaOnnxBackend;
+use self::openvino_genai::{OpenVinoGenAiBackend, ProviderSpec as OpenVinoProviderSpec};
 use self::whisper::WhisperCppBackend;
 
 pub trait WakeWordBackend {
@@ -110,6 +114,54 @@ impl Detector {
                 keywords_buffer,
                 Runtime::Default,
                 false,
+                started.elapsed(),
+            );
+        }
+        if config.backend.kind == "openvino-genai" {
+            config.backend.validate_shape()?;
+            let keywords_buffer = config
+                .wake_words
+                .iter()
+                .filter(|entry| entry.enabled)
+                .map(|entry| entry.phrase.trim())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let started = Instant::now();
+            let load = |candidate: &Config| -> Result<Box<dyn WakeWordBackend>> {
+                let spec = OpenVinoProviderSpec::from_config(candidate, paths)?;
+                Ok(Box::new(OpenVinoGenAiBackend::open(
+                    spec,
+                    &candidate.wake_words,
+                )?))
+            };
+            let (backend, fallback_used) = match load(config) {
+                Ok(backend) => (backend, false),
+                Err(accelerator_error)
+                    if config.backend.fallback == Fallback::Cpu
+                        && !config.backend.device.eq_ignore_ascii_case("cpu") =>
+                {
+                    eprintln!(
+                        "omawake: warning: OpenVINO accelerator initialization failed: {accelerator_error:#}; falling back to OpenVINO CPU"
+                    );
+                    let mut cpu = config.clone();
+                    cpu.backend.device = "cpu".into();
+                    (
+                        load(&cpu).with_context(|| {
+                            format!(
+                                "OpenVINO accelerator initialization failed ({accelerator_error:#}); OpenVINO CPU fallback also failed"
+                            )
+                        })?,
+                        true,
+                    )
+                }
+                Err(error) => return Err(error),
+            };
+            return Self::from_backend(
+                config,
+                backend,
+                keywords_buffer,
+                Runtime::Openvino,
+                fallback_used,
                 started.elapsed(),
             );
         }

@@ -62,6 +62,8 @@ fn fixture_spec(first: &'static [u8], second: &'static [u8]) -> &'static ModelSp
         license_url: "https://example.invalid/license",
         source_url: "https://example.invalid/original",
         source_revision: "1111111111111111111111111111111111111111",
+        languages: &["en"],
+        multilingual: false,
         converted_source_url: "https://example.invalid/converted",
         converted_source_revision: "3333333333333333333333333333333333333333",
         downloadable: true,
