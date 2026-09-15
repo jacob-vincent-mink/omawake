@@ -59,5 +59,6 @@ It succeeded and was idempotent (a second run reported `already-installed` with 
 omawake test --audio "$HOME/.local/share/omawake/models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/test_wavs/1.wav" --json
 ```
 
-Automatic model download is disabled because the upstream model license is
-unclear. Supply an archive obtained under rights you have verified.
+Current guided setup can download the same checksum-pinned archive. Its
+publisher README marks the model as Apache License 2.0; `--archive` remains
+available for offline setup.

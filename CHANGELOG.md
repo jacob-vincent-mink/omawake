@@ -2,8 +2,8 @@
 
 ## Unreleased
 
-- Replaced the patched sherpa runtime with an independent Rust implementation
-  of the published icefall keyword-spotting model contract.
+- Added an independent Rust implementation of the published icefall
+  keyword-spotting model contract.
 - Updated the packaged CPU runtime to ONNX Runtime 1.30.0 and optional
   accelerators to its V2 execution-provider plugin interface.
 - Added Linux aarch64 release archives and direct CPU parity validation in

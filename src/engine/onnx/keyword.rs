@@ -1,10 +1,9 @@
 //! Keyword beam search for the exported transducer model.
 //!
-//! Behavioral specification: icefall's open-vocabulary KWS recipe and its
-//! modified Aho-Corasick context graph:
-//! https://github.com/k2-fsa/icefall/blob/master/egs/librispeech/ASR/pruned_transducer_stateless2/beam_search.py
-//! https://github.com/k2-fsa/icefall/blob/master/icefall/context_graph.py
-//! This is an independent Rust implementation over plain vectors and indexes.
+//! Inspired by the algorithm published with icefall's original open-vocabulary
+//! KWS work (commit `aac7df0`): `keywords_search` and its modified
+//! Aho-Corasick context graph. This is an independent Rust implementation over
+//! plain vectors and indexes; no sherpa implementation source is used here.
 
 use anyhow::{Context, Result, bail};
 use std::collections::{HashMap, VecDeque};

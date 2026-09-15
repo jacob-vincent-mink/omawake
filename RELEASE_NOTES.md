@@ -11,11 +11,12 @@ Accelerator libraries remain mapped until process exit while sessions and runtim
 objects are still destroyed normally. This prevents late vendor worker cleanup
 from calling into an unloaded execution-provider library.
 
-The wake-word model is not bundled or downloaded automatically because the
-upstream GigaSpeech model license is unclear. Obtain the pinned archive under
-terms you have verified and pass it to setup with `--archive`.
+The wake-word model is not bundled. Guided setup downloads a checksum-pinned
+publisher archive whose included README marks the model as Apache License 2.0;
+`--archive` also accepts a previously downloaded copy.
 
 Validated configurations include default and OpenVINO CPU, Intel iGPU and NPU,
 and NVIDIA GB10 CUDA. Accelerator support requires matching external runtime
-libraries. See `INSTALL.md`, `RUNTIME.md`, and the benchmark reports for the
-exact setup and evidence.
+libraries. See `INSTALL.md` and `RUNTIME.md` for the exact setup. Benchmark
+artifacts recorded before the direct Rust KWS implementation are identified as
+historical in `benchmarks/README.md`.

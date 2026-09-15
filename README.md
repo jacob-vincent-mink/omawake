@@ -111,12 +111,14 @@ binary has no link-time dependency on ONNX Runtime. A source build needs an ORT
 
 The supported GigaSpeech Zipformer model was trained with the icefall keyword
 spotting recipe introduced by [icefall PR #1428](https://github.com/k2-fsa/icefall/pull/1428).
-Omawake's decoder follows icefall's published
-[`keywords_search`](https://github.com/k2-fsa/icefall/blob/master/egs/librispeech/ASR/pruned_transducer_stateless2/beam_search.py)
+Omawake's decoder is an independent Rust implementation of the algorithm
+published in that work: the pinned
+[`keywords_search`](https://github.com/k2-fsa/icefall/blob/aac7df064a6d1529f3bf4acccc6c550bd260b7b3/egs/librispeech/ASR/pruned_transducer_stateless2/beam_search.py#L962)
 behavior and
-[`context_graph.py`](https://github.com/k2-fsa/icefall/blob/master/icefall/context_graph.py)
-automaton specification. The Rust implementation was written independently and
-does not copy sherpa implementation code.
+[`ContextGraph`](https://github.com/k2-fsa/icefall/blob/aac7df064a6d1529f3bf4acccc6c550bd260b7b3/icefall/context_graph.py)
+automaton specification. It does not copy or compile sherpa implementation
+source.
 
-Omawake and ONNX Runtime are MIT licensed. The model and icefall are
-Apache-2.0; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Omawake and ONNX Runtime are MIT licensed. Icefall is Apache-2.0, and the
+pinned model archive's publisher README identifies the model as Apache License
+2.0; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
