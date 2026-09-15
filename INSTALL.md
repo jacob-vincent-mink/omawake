@@ -48,7 +48,8 @@ Setup installs a desktop launcher. It does not install, enable, or start a
 systemd service. `test` and `benchmark` load the engine on demand and exit.
 `daemon` keeps it resident; `status`, `pause`, `resume`, and `stop` address that
 running daemon. Install a user service only when desired with
-`omawake setup systemd`.
+`omawake setup systemd`; that explicit command enables and starts the service.
+Use `omawake setup systemd --no-start` to enable it without starting it now.
 
 Distribution packages may place the disabled vendor unit from
 `packaging/systemd/omawake.service` under `/usr/lib/systemd/user`. Installing
@@ -61,6 +62,9 @@ then point setup at the plugin package root or library directory. The provider
 package must not include a second ONNX Runtime core:
 
 ```bash
+omawake setup runtime --runtime openvino --device cpu \
+  --dir /opt/intel/openvino --apply
+
 omawake setup runtime --runtime openvino --device npu \
   --dir /opt/intel/openvino --apply
 

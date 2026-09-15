@@ -16,6 +16,11 @@ The wake-word model is not bundled. Guided setup downloads a checksum-pinned
 publisher archive whose included README marks the model as Apache License 2.0;
 `--archive` also accepts a previously downloaded copy.
 
+The model integration is owned by Omawake: feature extraction, streaming
+state, context-graph traversal, beam search, and keyword finalization are an
+independent Rust implementation of the original icefall algorithm and model
+contract. No sherpa runtime, patch, ABI, or implementation source is included.
+
 Validated configurations include default and OpenVINO CPU, Intel iGPU and NPU,
 and NVIDIA GB10 CUDA using the official ORT 1.30 Plugin EP. Accelerator support
 requires matching external runtime libraries. See `INSTALL.md` and `RUNTIME.md`

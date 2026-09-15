@@ -34,14 +34,20 @@ the sherpa runtime. The model card identifies the weights as Apache-2.0. Setup
 verifies the pinned archive and each extracted asset.
 
 ```bash
-omawake setup all
-omawake setup check
+./omawake setup check
 ```
 
 Setup downloads the pinned archive from its publisher by default. An existing
-copy can be supplied with `--archive /path/to/model.tar.bz2`.
+copy can be supplied without the guided flow:
+
+```bash
+./omawake setup all --archive /path/to/model.tar.bz2
+```
 
 ## Use
+
+The following examples assume `omawake` is on `PATH`. Prefix the commands with
+`./` when running directly from the unpacked release directory.
 
 ```bash
 omawake test --audio test.wav --json
@@ -78,15 +84,17 @@ ORT's plugin API. Provider packages contain the provider DSO and vendor
 dependencies, not another ORT core. Select a prepared package directory with:
 
 ```bash
+omawake setup runtime --runtime openvino --device cpu --dir /opt/omawake-openvino --apply
+omawake setup runtime --runtime openvino --device gpu --dir /opt/omawake-openvino --apply
 omawake setup runtime --runtime openvino --device npu --dir /opt/omawake-openvino --apply
 omawake setup runtime --runtime cuda --device gpu --dir /opt/omawake-cuda --apply
 ```
 
-Omawake selects the registered device explicitly. OpenVINO NPU uses the float
-graph set, specializes the encoder batch to one and the decoder/joiner batch to
-at least eight, and binds concrete host outputs. OpenVINO compiled models are
-cached under
-`${XDG_CACHE_HOME:-$HOME/.cache}/omawake/openvino/<device>/compiled`.
+Omawake selects the registered device explicitly. OpenVINO GPU and NPU use the
+accuracy-preserving float graph set. NPU also specializes the encoder batch to
+one and the decoder/joiner batch to at least eight. Every accelerator output
+consumed by Rust is bound to host memory. OpenVINO compiled models are cached
+under `${XDG_CACHE_HOME:-$HOME/.cache}/omawake/openvino/<device>/compiled`.
 
 `omawake setup runtime --json` reports the discovered ORT core, optional
 provider, exposed devices, and probe errors. `fallback = "cpu"` permits an

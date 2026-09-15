@@ -38,7 +38,10 @@ Distinct marker files confirmed both actions. Re-arming opened a fresh microphon
 
 ## Capability behavior
 
-The CPU binary with `runtime = "openvino"`, `device = "npu"`, and `fallback = "error"` exited before model creation with `requires openvino`. With `fallback = "cpu"`, it warned visibly, decoded both IDs, and reported:
+The binary without an OpenVINO provider plugin, configured with `runtime =
+"openvino"`, `device = "npu"`, and `fallback = "error"`, exited before model
+creation with `requires openvino`. With `fallback = "cpu"`, it warned visibly,
+decoded both IDs, and reported:
 
 ```json
 {"effective_runtime":"default","fallback_used":true}

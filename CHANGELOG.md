@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.0.1-rc.1 - 2026-09-14
+## 0.0.1-rc.1 - 2026-09-15
 
 - Added an independent Rust implementation of the published icefall
   keyword-spotting model contract.
@@ -10,8 +10,8 @@
   accelerators to its V2 execution-provider plugin interface.
 - Added Linux aarch64 release archives and direct CPU parity validation in
   release CI.
-- Use the model's FP32 graphs and a fixed beam of eight on Intel NPU to preserve
-  the reference CPU detections and timestamps.
+- Use the model's FP32 accelerator graphs on Intel GPU and NPU. NPU also uses a
+  fixed beam of at least eight to preserve the reference CPU detections.
 
 ## 0.0.1-rc - 2026-09-14
 

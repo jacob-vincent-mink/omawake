@@ -12,6 +12,7 @@ OpenVINO Python packages use
 
 ```bash
 omawake setup runtime --json
+omawake setup runtime --runtime openvino --device cpu --dir /opt/omawake-openvino --apply
 omawake setup runtime --runtime openvino --device gpu --dir /opt/omawake-openvino --apply
 omawake setup runtime --runtime openvino --device npu --dir /opt/omawake-openvino --apply
 omawake setup runtime --runtime cuda --device gpu --dir /opt/omawake-cuda --apply
@@ -34,6 +35,10 @@ python -m zipfile -e \
   /tmp/omawake-openvino-download/onnxruntime_ep_openvino-1.7.0-*.whl \
   "$runtime"
 
+omawake setup runtime --runtime openvino --device cpu \
+  --dir "$runtime/onnxruntime_ep_openvino" --apply
+omawake setup runtime --runtime openvino --device gpu \
+  --dir "$runtime/onnxruntime_ep_openvino" --apply
 omawake setup runtime --runtime openvino --device npu \
   --dir "$runtime/onnxruntime_ep_openvino" --apply
 ```
