@@ -3218,10 +3218,7 @@ fn top_level_audio_device_dispatch_uses_injected_enumerator() {
         run_with_paths_and_services(
             Cli {
                 config: Some(paths.config_file.clone()),
-                command: TopCommand::AudioDevices {
-                    json,
-                    detailed: false,
-                },
+                command: TopCommand::AudioDevices { json },
             },
             paths.clone(),
             |_, _| unreachable!(),
@@ -3233,10 +3230,7 @@ fn top_level_audio_device_dispatch_uses_injected_enumerator() {
         run_with_paths_and_services(
             Cli {
                 config: Some(paths.config_file.clone()),
-                command: TopCommand::AudioDevices {
-                    json: false,
-                    detailed: false
-                },
+                command: TopCommand::AudioDevices { json: false },
             },
             paths,
             |_, _| unreachable!(),
@@ -3961,6 +3955,32 @@ fn stale_socket_connection_errors_cover_kernel_variants() {
     assert!(!indicates_stale_socket(
         std::io::ErrorKind::PermissionDenied
     ));
+}
+
+#[test]
+fn mixed_runtime_reports_never_claim_the_default_device_for_all_groups() {
+    let mut report = json!({"backend":{"requested_runtime":"cuda","requested_device":"gpu","effective_runtime":"cuda","placement_verified":true}});
+    attach_group_values(
+        &mut report,
+        vec![crate::engine::GroupStatus {
+            profile: "intel:trained".into(),
+            backend: "trained-whisper-encoder".into(),
+            runtime: Runtime::Openvino,
+            requested_device: "cpu".into(),
+            fallback_used: false,
+            words: vec!["unusual".into()],
+        }],
+    );
+    assert_eq!(report["backend"]["effective_runtime"], "mixed");
+    assert_eq!(report["backend"]["requested_device"], "per-engine");
+    assert_eq!(report["backend"]["placement_verified"], false);
+    assert_eq!(report["backend"]["groups"][0]["runtime"], "openvino");
+    assert!(!backend_placement("multi-engine", Runtime::Cuda).0);
+    assert!(
+        backend_placement("trained-whisper-encoder", Runtime::Openvino)
+            .1
+            .contains("Silero VAD runs on CPU")
+    );
 }
 
 #[test]

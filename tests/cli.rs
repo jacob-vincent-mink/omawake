@@ -884,6 +884,310 @@ fn systemd_lifecycle_uses_user_manager_and_propagates_failures() {
 
 #[cfg(unix)]
 #[test]
+fn onboarding_previews_spelling_variants_and_applies_only_reviewed_aliases() {
+    let root = sandbox();
+    let library = build_fake_whisper(&root, None);
+    let (path, wave) = write_fake_whisper_config(&root, library);
+    let mut config = Config::load(&path).unwrap();
+    config.wake_words[0].phrase = "Unusual phrase".into();
+    config.save(&path).unwrap();
+    let before = fs::read(&path).unwrap();
+    let args = [
+        "wake-word",
+        "onboard",
+        "computer",
+        "--audio",
+        wave.to_str().unwrap(),
+        "--json",
+    ];
+    let output = run(&root, &args);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let preview: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(preview["applied"], false);
+    assert_eq!(preview["actions_executed"], false);
+    assert_eq!(fs::read(&path).unwrap(), before);
+    let alias = preview["review"]["proposals"][0]["text"].as_str().unwrap();
+    assert!(!alias.is_empty());
+    let mut rejected = args.to_vec();
+    rejected.extend(["--apply", "--accept-alias", "not observed"]);
+    let output = run(&root, &rejected);
+    assert!(!output.status.success());
+    assert_eq!(fs::read(&path).unwrap(), before);
+    let mut apply = args.to_vec();
+    apply.extend(["--apply", "--accept-alias", alias, "--keep-recordings"]);
+    let output = run(&root, &apply);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["applied"], true);
+    assert_eq!(Config::load(&path).unwrap().wake_words[0].aliases, [alias]);
+    let retained = Path::new(report["recordings"].as_str().unwrap());
+    assert!(retained.join("manifest.json").is_file());
+    assert!(retained.join("sample-001.wav").is_file());
+    assert_eq!(
+        fs::read_dir(root.join("cache/omawake/onboarding"))
+            .unwrap()
+            .count(),
+        0
+    );
+    let listed = run(&root, &["word", "recordings", "computer", "--json"]);
+    assert!(listed.status.success());
+    let sessions: serde_json::Value = serde_json::from_slice(&listed.stdout).unwrap();
+    let session = sessions[0]["session"].as_str().unwrap();
+    let removed = run(
+        &root,
+        &["word", "recordings", "computer", "--remove", session],
+    );
+    assert!(removed.status.success(), "{}", stderr(&removed));
+    assert!(!retained.exists());
+    assert!(wave.is_file());
+    assert_eq!(Config::load(&path).unwrap().wake_words[0].aliases, [alias]);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn onboarding_selects_named_profile_and_keeps_prior_heads() {
+    let root = sandbox();
+    let library = build_fake_whisper(&root, None);
+    let (path, wave) = write_fake_whisper_config(&root, library);
+    let mut config = Config::load(&path).unwrap();
+    config.engines.insert(
+        "spellings".into(),
+        omawake::config::EngineProfile {
+            backend: config.backend.clone(),
+            model: config.model.clone(),
+        },
+    );
+    config.backend.kind = "unavailable-default".into();
+    config.wake_words[0].phrase = "Unusual name".into();
+    let command = config.wake_words[0].command.clone();
+    config.wake_words[0].enrollment = Some(omawake::enrollment::artifact::EnrollmentBinding {
+        active: true,
+        heads: [(
+            "previous-encoder".into(),
+            PathBuf::from("previous-head.json"),
+        )]
+        .into(),
+    });
+    config.save(&path).unwrap();
+    let args = [
+        "word",
+        "onboard",
+        "computer",
+        "--engine",
+        "spellings",
+        "--audio",
+        wave.to_str().unwrap(),
+        "--json",
+        "--apply",
+        "--accept-alias",
+        "computer",
+    ];
+    let output = run(&root, &args);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let saved = Config::load(&path).unwrap();
+    let word = &saved.wake_words[0];
+    assert_eq!(word.engine.as_deref(), Some("spellings"));
+    assert_eq!(word.command, command);
+    assert!(!word.uses_trained_head());
+    assert_eq!(
+        word.enrollment.as_ref().unwrap().heads["previous-encoder"],
+        PathBuf::from("previous-head.json")
+    );
+    assert_eq!(saved.backend.kind, "unavailable-default");
+    let before = fs::read(&path).unwrap();
+    let output = run(
+        &root,
+        &[
+            "word",
+            "onboard",
+            "computer",
+            "--engine",
+            "missing",
+            "--audio",
+            wave.to_str().unwrap(),
+            "--apply",
+        ],
+    );
+    assert!(!output.status.success());
+    assert_eq!(fs::read(&path).unwrap(), before);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn onboarding_pty_reviews_spellings_and_cancels_without_mutation() {
+    use std::io::Read;
+    use std::sync::{Arc, Mutex};
+    for (cancel, create_new) in [(false, false), (true, false), (false, true)] {
+        let root = sandbox();
+        let library = build_fake_whisper(&root, None);
+        let (path, wave) = write_fake_whisper_config(&root, library);
+        let mut config = Config::load(&path).unwrap();
+        config.wake_words[0].phrase = "Unusual name".into();
+        config.engines.insert(
+            "alternate".into(),
+            omawake::config::EngineProfile {
+                backend: config.backend.clone(),
+                model: config.model.clone(),
+            },
+        );
+        config.save(&path).unwrap();
+        let before = fs::read(&path).unwrap();
+        let binary = env!("CARGO_BIN_EXE_omawake");
+        assert!(!binary.contains(['\'', '"', ' ']));
+        assert!(!wave.to_str().unwrap().contains(['\'', '"', ' ']));
+        let mut child = Command::new("script")
+            .args([
+                "-qec",
+                &format!("{binary} word onboard --audio {}", wave.display()),
+                "/dev/null",
+            ])
+            .env("XDG_CONFIG_HOME", root.join("config"))
+            .env("XDG_DATA_HOME", root.join("data"))
+            .env("XDG_CACHE_HOME", root.join("cache"))
+            .env("XDG_STATE_HOME", root.join("state"))
+            .env("XDG_RUNTIME_DIR", root.join("run"))
+            .env("PATH", test_path(&root))
+            .env("TERM", "xterm-256color")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut input = child.stdin.take().unwrap();
+        let mut output = child.stdout.take().unwrap();
+        let transcript = Arc::new(Mutex::new(Vec::new()));
+        let copied = Arc::clone(&transcript);
+        let reader = thread::spawn(move || {
+            let mut b = [0; 4096];
+            while let Ok(n) = output.read(&mut b) {
+                if n == 0 {
+                    break;
+                }
+                copied.lock().unwrap().extend_from_slice(&b[..n]);
+            }
+        });
+        let final_keys = if cancel { "\x1b[B\r" } else { "\r" };
+        let mut steps = vec![(
+            "Wake-word onboarding",
+            if create_new { "\x1b[B\r" } else { "\r" },
+        )];
+        if create_new {
+            steps.extend([
+                ("New word ID", "new-word\r"),
+                ("Wake phrase", "Strange phrase\r"),
+                ("Action arguments", "[\"/usr/bin/true\"]\r"),
+            ]);
+        }
+        steps.extend([
+            ("Recognition engine", "\x1b[B\r"),
+            ("Heard:", "\x1b[A\r"),
+            ("Enrollment recordings", "\x1b[B\r"),
+            ("Apply wake-word onboarding", final_keys),
+        ]);
+        for (screen, keys) in steps {
+            let deadline = Instant::now() + Duration::from_secs(8);
+            loop {
+                if String::from_utf8_lossy(&transcript.lock().unwrap()).contains(screen) {
+                    break;
+                }
+                if Instant::now() > deadline {
+                    let _ = child.kill();
+                    panic!(
+                        "missing PTY screen {screen}: {}",
+                        String::from_utf8_lossy(&transcript.lock().unwrap())
+                    );
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+            input.write_all(keys.as_bytes()).unwrap();
+            input.flush().unwrap();
+        }
+        drop(input);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while child.try_wait().unwrap().is_none() {
+            if Instant::now() > deadline {
+                child.kill().unwrap();
+                panic!("onboarding PTY did not terminate");
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        let status = child.wait().unwrap();
+        reader.join().unwrap();
+        if cancel {
+            assert!(!status.success());
+            assert_eq!(fs::read(&path).unwrap(), before);
+            assert!(!root.join("data/omawake/enrollments").exists());
+        } else {
+            assert!(status.success());
+            let saved = Config::load(&path).unwrap();
+            let word = saved.wake_words.last().unwrap();
+            assert_eq!(word.aliases, ["computer"]);
+            assert_eq!(word.engine.as_deref(), Some("alternate"));
+            if create_new {
+                assert_eq!(word.command, ["/usr/bin/true"]);
+                assert_eq!(word.id, "new-word");
+            } else {
+                assert_eq!(word.command, config.wake_words[0].command);
+            }
+        }
+        assert!(wave.is_file());
+        assert_eq!(
+            fs::read_dir(root.join("cache/omawake/onboarding"))
+                .unwrap()
+                .count(),
+            0
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn onboarding_new_word_with_file_input_preserves_other_words() {
+    let root = sandbox();
+    let library = build_fake_whisper(&root, None);
+    let (path, wave) = write_fake_whisper_config(&root, library);
+    let old = Config::load(&path).unwrap();
+    let output = run(
+        &root,
+        &[
+            "word",
+            "onboard",
+            "strange",
+            "--phrase",
+            "Strange name",
+            "--audio",
+            wave.to_str().unwrap(),
+            "--apply",
+        ],
+    );
+    assert!(output.status.success(), "{}", stderr(&output));
+    let config = Config::load(&path).unwrap();
+    assert_eq!(config.wake_words.len(), 2);
+    assert_eq!(config.wake_words[0].phrase, old.wake_words[0].phrase);
+    assert_eq!(config.wake_words[1].command[0], "notify-send");
+    let bytes = fs::read(&path).unwrap();
+    let output = run(
+        &root,
+        &[
+            "word",
+            "onboard",
+            "computer",
+            "--phrase",
+            "cannot replace",
+            "--audio",
+            wave.to_str().unwrap(),
+            "--apply",
+        ],
+    );
+    assert!(!output.status.success());
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+    let output = run(&root, &["word", "recordings", "strange", "--json"]);
+    assert!(output.status.success());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn daemon_recovers_a_pinned_microphone_and_keeps_controls_responsive() {
     let root = sandbox();
     let library = build_fake_whisper(&root, None);

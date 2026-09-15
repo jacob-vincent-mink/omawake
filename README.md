@@ -112,25 +112,31 @@ Omawake restores the prior config and explicitly restarts the prior daemon if
 the updated daemon fails to start. A custom `--config` never restarts a unit
 that points at another file.
 
-For names or coined words that the ASR verifier spells inconsistently, add
-only the exact transcript variants you have observed. They map to the same
-action without enabling general fuzzy matching:
+For names or coined words that the verifier spells inconsistently, use
+**Teach a wake word** in `omawake setup`, or run:
 
 ```bash
-omawake test --seconds 5 --show-transcripts
-omawake wake-word add --id jarvis --phrase "Hey Jarvis" \
-  --alias "Hey jar viss" -- notify-send "Jarvis heard"
-omawake wake-word add-alias jarvis "Hey jar viz"
-omawake wake-word remove-alias jarvis "Hey jar viz"
+omawake word onboard jarvis
+# Import examples without opening the microphone:
+omawake word onboard jarvis --audio example-1.wav --audio example-2.wav --json
 ```
 
-Say the phrase during the bounded diagnostic capture, then copy the reported
-`verifier transcript` from stderr into an alias. The flag is explicit because
-raw transcripts may contain nearby speech; it cannot be combined with JSON.
-Aliases remain whole-phrase, normalized exact matches, so an unrelated phrase
-that merely sounds similar is not accepted. The optional whisper.cpp provider
-also supplies enabled phrases and aliases as its decoder prompt. The default
-Moonshine and OpenVINO providers currently use aliases after transcription.
+The guided flow records examples, shows each observed spelling, and lets you
+approve exact aliases with arrow keys and Enter. Nothing changes until Apply;
+no wake-word actions run during onboarding. Recordings are discarded unless you
+explicitly choose to keep them. Existing `add-alias` and `remove-alias` commands
+remain available for manual editing.
+
+An experimental frozen-encoder head can handle phrases that transcription does
+not represent reliably. Transcript words and trained words can run together;
+compatible heads share an encoder. Applying a trained head preserves aliases and
+pins its model profile, so changing the default backend does not erase it.
+Training currently requires a labeled WAV manifest with separate training,
+calibration, and held-out examples. The first implementation uses the direct
+OpenVINO Whisper encoder; **CPU has a functional file-based proof**. Accelerator
+qualification and broader background-speech accuracy testing are still pending.
+See [wake-word enrollment](docs/architecture/WAKE-WORD-ENROLLMENT.md) for commands,
+recording retention, profiles, retraining, and the limits of local validation.
 
 Use `evaluate` for reproducible accuracy and false-activation measurements over
 a labeled WAV corpus:
