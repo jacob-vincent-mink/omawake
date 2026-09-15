@@ -29,6 +29,39 @@ installed already because it proves a real silent inference before committing
 the configuration. Use `omawake setup` for a fresh machine so runtime and model
 are selected and proved as one transaction.
 
+To build a compatible provider from the exact audio.cpp revision used in the
+release archive:
+
+```bash
+git clone https://github.com/0xShug0/audio.cpp /tmp/audio.cpp
+git -C /tmp/audio.cpp checkout e9ff20042ec85af960a720368c6927cda19ad65f
+
+# Choose exactly one backend flag.
+backend_flag=-DENGINE_ENABLE_CUDA=ON       # NVIDIA CUDA 12 or newer
+# backend_flag=-DENGINE_ENABLE_VULKAN=ON   # Vulkan SDK and loader
+# backend_flag=-DENGINE_ENABLE_HIP=ON      # AMD ROCm/HIP
+
+cmake -S /tmp/audio.cpp -B /tmp/audio.cpp-build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DAUDIOCPP_BUILD_C_API=ON \
+  -DAUDIOCPP_DEPLOYMENT_BUILD=OFF \
+  -DAUDIOCPP_MODEL_SET=custom \
+  -DAUDIOCPP_MODELS=moonshine_asr \
+  -DENGINE_ENABLE_NATIVE_CPU=OFF \
+  -DENGINE_ENABLE_LLAMAFILE=OFF \
+  -DENGINE_ENABLE_OPENMP=ON \
+  -DENGINE_BUILD_EXAMPLES=OFF \
+  -DENGINE_BUILD_TESTS=OFF \
+  -DENGINE_BUILD_EXTENDED_TESTS=OFF \
+  -DENGINE_BUILD_MODEL_TESTS=OFF \
+  "$backend_flag"
+cmake --build /tmp/audio.cpp-build --parallel --target audiocpp
+```
+
+For a local CUDA build, add `-DCMAKE_CUDA_ARCHITECTURES=native`. Select the
+result with `--dir /tmp/audio.cpp-build/bin`. The provider must retain the
+matching vendor libraries in its normal loader path.
+
 ## Intel CPU, integrated GPU, and NPU
 
 The OpenVINO path uses the OpenVINO GenAI C API directly. Install a complete
@@ -40,6 +73,12 @@ omawake setup runtime --runtime openvino --device cpu --dir /opt/intel/openvino 
 omawake setup runtime --runtime openvino --device gpu --dir /opt/intel/openvino --apply
 omawake setup runtime --runtime openvino --device npu --dir /opt/intel/openvino --apply
 ```
+
+Intel documents the
+[Linux OpenVINO archive installation](https://docs.openvino.ai/2026/get-started/install-openvino/install-openvino-archive-linux.html),
+[GPU driver setup](https://docs.openvino.ai/2026/get-started/install-openvino/configurations/configurations-intel-gpu.html),
+and [NPU driver setup](https://docs.openvino.ai/2026/get-started/install-openvino/configurations/configurations-intel-npu.html).
+The setup directory may be an archive root or a system prefix such as `/usr`.
 
 Whisper runs through OpenVINO while Silero VAD continues to use Omawake's
 packaged audio.cpp CPU provider. Release archives already include that small

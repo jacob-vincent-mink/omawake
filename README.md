@@ -107,6 +107,8 @@ by SHA-256, and may label whole clips or timestamped wake-word events. Expected
 phrase IDs must be enabled in the selected config. See the versioned
 [manifest schema](schemas/evaluation-manifest-v1.schema.json) and
 [report schema](schemas/evaluation-report-v1.schema.json).
+The [rc.3 hardware results](benchmarks/results/2026-09-15-rc3/RESULTS.md)
+compare default CPU, OpenVINO CPU/iGPU/NPU, and CUDA with file-only input.
 
 ## Default provider and models
 

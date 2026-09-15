@@ -16,3 +16,9 @@ The release archives contain project, Rust dependency, audio.cpp, ggml, cJSON,
 libyaml, PocketFFT, and conservative llama tokenizer notices. Models are
 downloaded during setup and retain their own provenance and licenses beside the
 installed assets.
+
+File-only rc.3 evidence covers the packaged CPU provider, OpenVINO CPU/iGPU/NPU
+on Intel Core Ultra hardware, and CUDA on an NVIDIA GB10. It records setup-time
+accelerator caches, placement, cold load, warm timing, positive recall, and a
+clean-speech negative subset in the
+[rc.3 hardware results](benchmarks/results/2026-09-15-rc3/RESULTS.md).

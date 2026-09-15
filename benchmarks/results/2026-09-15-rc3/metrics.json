@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "application_version": "0.0.1-rc.3",
+  "source_commit": "938341e4898b5cfaea36d0c93910bced80b5b94b",
+  "local_binary_sha256": "f9c2d2cc89683d5d1ce2b7e279e05457ba269a544f797149dbfa5ae652ef7354",
+  "host": {
+    "cpu": "Intel Core Ultra X7 358H",
+    "igpu": "Intel Arc B390",
+    "npu": "Intel Core Ultra Series 3 NPU",
+    "openvino": "2026.3.0"
+  },
+  "corpora": {
+    "positive_60_manifest_sha256": "be1b76f89051fcac96c6f1ad7ef4a1cf23707e66da919227c660b5260537ea42",
+    "negative_100_manifest_sha256": "ec09b5c216d3b1331a56878c1f02f391c271287f4083334f3e6b7e5122d3593a",
+    "negative_audio_hours": 0.25068890625
+  },
+  "local": {
+    "default_cpu": {
+      "model_load_ms": 112.672022,
+      "true_positives": 59,
+      "expected_events": 60,
+      "recall": 0.9833333333333332,
+      "precision": 1.0,
+      "f1": 0.991596638655462,
+      "positive_p50_ms": 66.188777,
+      "positive_p95_ms": 74.494361,
+      "positive_rtf": 0.03042627151561382,
+      "false_activations": 0,
+      "positive_prediction_fingerprint": "d94b3311a79b5d8be04149d52dd4408819403089cfa3a4b94123eb238d5d014e",
+      "positive_report_sha256": "93284d237dc03ec82915a17fe61ceb8329b621cad2568f170b3054ba225396e6",
+      "negative_report_sha256": "04a16fc79e340d8a89555364e36bd82c4ca28b18814d60f430ad9d7fd9a08481"
+    },
+    "openvino_cpu": {
+      "model_load_ms": 366.530861,
+      "true_positives": 51,
+      "expected_events": 60,
+      "recall": 0.85,
+      "precision": 1.0,
+      "f1": 0.9189189189189187,
+      "positive_p50_ms": 201.118057,
+      "positive_p95_ms": 212.687413,
+      "positive_rtf": 0.09156704306993414,
+      "false_activations": 0,
+      "positive_prediction_fingerprint": "13c90d1d12a6ade8a5d70ad05a3eaf299aaa1c2d861248e93004fd6833a1a42c",
+      "positive_report_sha256": "1b4eae5ab70b2f4f43fd2e0ef520f54ba800dcafb9321935b55c53995b7e58b0",
+      "negative_report_sha256": "f0331e0a8be7e1d00123bc5ca97359e555d1f1a9f61f6144d7dee993cd8d3262"
+    },
+    "openvino_igpu": {
+      "model_load_ms": 224.589974,
+      "true_positives": 50,
+      "expected_events": 60,
+      "recall": 0.8333333333333334,
+      "precision": 1.0,
+      "f1": 0.9090909090909092,
+      "positive_p50_ms": 63.272486,
+      "positive_p95_ms": 78.503456,
+      "positive_rtf": 0.03166126840210186,
+      "false_activations": 0,
+      "positive_prediction_fingerprint": "06c05e009dfcd5565c929bb49e56ef387483490603e3a5dca9786122e183537d",
+      "positive_report_sha256": "c08409f1868112e561846d224fab857f53440a6a9332b681576be6f85cdc2ac2",
+      "negative_report_sha256": "7c6e8d0ae22e240d6decd2a49a3240fb300cda84d4cd443183ef50f7221d87e3"
+    },
+    "openvino_npu": {
+      "model_load_ms": 276.761351,
+      "true_positives": 51,
+      "expected_events": 60,
+      "recall": 0.85,
+      "precision": 1.0,
+      "f1": 0.9189189189189187,
+      "positive_p50_ms": 69.364504,
+      "positive_p95_ms": 89.521689,
+      "positive_rtf": 0.032970734180848026,
+      "false_activations": 0,
+      "positive_prediction_fingerprint": "13c90d1d12a6ade8a5d70ad05a3eaf299aaa1c2d861248e93004fd6833a1a42c",
+      "positive_report_sha256": "d59bf0bd5b23feb825b9a868d6792fcaf71805a37855fdaa5b4ab7b5e1e1be32",
+      "negative_report_sha256": "f6292d3cae921a70002546390c39f19cc6b6d608ee57ac8682ee26dcaa1112cf"
+    }
+  },
+  "cuda_gb10": {
+    "audio_cpp_commit": "e9ff20042ec85af960a720368c6927cda19ad65f",
+    "cuda": "13.0",
+    "driver": "580.173.02",
+    "cold_load_ms": 1469.6,
+    "cold_inference_ms": 1446.6,
+    "hot_p50_ms": 791.2,
+    "hot_p95_ms": 799.6,
+    "hot_p50_rtf": 0.3985,
+    "placement_verified": true,
+    "evidence_archive_sha256": "0da501a5b18215f04f36994ebced2c6dcdd662043711253a0f3a5c9ef25bdd82"
+  }
+}
