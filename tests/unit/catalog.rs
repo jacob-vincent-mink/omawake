@@ -25,6 +25,11 @@ fn catalog_pins_a_complete_originally_sourced_profile() {
 
     let openvino = model(OPENVINO_MODEL_ID).unwrap();
     assert_eq!(openvino.backend, "openvino-genai");
+    assert_eq!(openvino.license, "Apache-2.0");
+    assert_eq!(
+        openvino.source_url,
+        "https://huggingface.co/openai/whisper-base.en"
+    );
     assert_eq!(openvino.languages, ["en"]);
     assert!(!openvino.multilingual);
     assert_eq!(openvino.assets.len(), 13);
@@ -40,6 +45,9 @@ fn catalog_pins_a_complete_originally_sourced_profile() {
             .all(|asset| asset.source_revision == OPENVINO_WHISPER_REVISION)
     );
     assert_eq!(openvino.assets[12].source_revision, SILERO_REVISION);
+    assert_eq!(openvino.notices.len(), 3);
+    assert_eq!(openvino.notices[0].license, "Apache-2.0");
+    assert_eq!(openvino.notices[1].license, "Apache-2.0");
     assert!(model("missing").is_none());
 }
 

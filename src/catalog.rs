@@ -252,16 +252,16 @@ const OPENVINO_ASSETS: &[ModelAsset] = &[
 
 const OPENVINO_NOTICES: &[LicenseNotice] = &[
     LicenseNotice {
-        path: "LICENSES/OpenAI-Whisper-MIT.txt",
-        license: "MIT",
-        copyright: "Copyright (c) 2022 OpenAI",
-        source_url: "https://github.com/openai/whisper/blob/main/LICENSE",
+        path: "LICENSES/OpenAI-Whisper-Model-Apache-2.0.txt",
+        license: "Apache-2.0",
+        copyright: "Whisper base.en model weights published by OpenAI",
+        source_url: "https://huggingface.co/openai/whisper-base.en/blob/911407f4214e0e1d82085af863093ec0b66f9cd6/README.md",
     },
     LicenseNotice {
-        path: "LICENSES/OpenVINO-Apache-2.0.txt",
+        path: "LICENSES/OpenVINO-Whisper-Conversion-Apache-2.0.txt",
         license: "Apache-2.0",
-        copyright: "Copyright (C) 2018-2026 Intel Corporation",
-        source_url: "https://github.com/openvinotoolkit/openvino/blob/master/LICENSE",
+        copyright: "OpenVINO Whisper INT8 conversion published by Intel Corporation",
+        source_url: "https://huggingface.co/OpenVINO/whisper-base.en-int8-ov/blob/3b292a83752fbfcad0bd6384bcf71d0b1fc4fe74/README.md",
     },
     LicenseNotice {
         path: "LICENSES/Silero-VAD-MIT.txt",
@@ -299,10 +299,10 @@ const MODELS: &[ModelSpec] = &[
         backend: "openvino-genai",
         family: "silero-vad+whisper-base.en-int8",
         description: "English Silero VAD 6.2.1 with OpenVINO Whisper Base.en INT8 verification",
-        license: "MIT + Apache-2.0",
-        license_status: "verified-separate-origin-and-conversion",
-        license_url: "https://github.com/openai/whisper/blob/main/LICENSE",
-        source_url: "https://github.com/openai/whisper",
+        license: "Apache-2.0",
+        license_status: "verified-origin-and-conversion",
+        license_url: "https://huggingface.co/openai/whisper-base.en/blob/911407f4214e0e1d82085af863093ec0b66f9cd6/README.md",
+        source_url: "https://huggingface.co/openai/whisper-base.en",
         source_revision: OPENAI_WHISPER_REVISION,
         languages: &["en"],
         multilingual: false,

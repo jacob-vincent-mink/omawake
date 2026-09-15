@@ -156,5 +156,6 @@ scripts/build-default-audiocpp-provider.sh \
 ```
 
 Omawake is MIT licensed. audio.cpp is Apache-2.0. Moonshine Streaming Tiny and
-Silero VAD are MIT licensed; their required notices are written beside every
-installed model profile.
+Silero VAD are MIT licensed. The optional OpenAI Whisper `base.en` weights and
+Intel OpenVINO conversion are Apache-2.0; their required notices are written
+beside every installed model profile.

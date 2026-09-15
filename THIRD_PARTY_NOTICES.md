@@ -23,6 +23,14 @@ the installed `PROVENANCE.json` and `.omawake-model.json` files. It also writes
 the full required MIT notices beneath the model profile's `LICENSES/`
 directory. Models are not included in the Omawake release archive.
 
+The optional direct OpenVINO profile downloads Intel's INT8 conversion of
+OpenAI Whisper `base.en` at revision
+`3b292a83752fbfcad0bd6384bcf71d0b1fc4fe74`. The original OpenAI model weights
+at revision `911407f4214e0e1d82085af863093ec0b66f9cd6` and the converted OpenVINO
+model both declare Apache-2.0. Setup writes the Apache-2.0 terms and the two
+distinct source revisions beside the installed model. The OpenVINO runtime is
+supplied separately by the user and is not included in Omawake releases.
+
 Omawake also vendors a minimal set of public whisper.cpp v1.9.3 C ABI
 declarations from commit `371b5a7561823ab2bb32142d2751e35e7534727b` for a
 comparison provider. No whisper.cpp implementation is copied or statically

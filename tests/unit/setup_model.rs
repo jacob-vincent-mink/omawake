@@ -276,3 +276,41 @@ fn unsupported_notice_and_invalid_source_directory_fail_before_activation() {
     );
     assert!(emit(ProgressFormat::Human, "event", base, None, None, None).is_ok());
 }
+
+#[test]
+fn apache_notice_is_installed_with_apache_terms_and_provenance() {
+    let root = temp("apache-notice");
+    let app = paths(&root);
+    let base = fixture_spec(b"model", b"vad");
+    let mut apache = *base;
+    apache.license = "Apache-2.0";
+    apache.license_url = "https://example.invalid/apache";
+    apache.notices = Box::leak(
+        vec![LicenseNotice {
+            path: "LICENSES/model-Apache-2.0.txt",
+            license: "Apache-2.0",
+            copyright: "Model weights published by Example",
+            source_url: "https://example.invalid/model-card",
+        }]
+        .into_boxed_slice(),
+    );
+    let installed = install_with_fetch(
+        &app,
+        Box::leak(Box::new(apache)),
+        None,
+        ProgressFormat::Human,
+        |asset| {
+            let bytes: &'static [u8] = if asset.path == "model.gguf" {
+                b"model"
+            } else {
+                b"vad"
+            };
+            Ok(Box::new(std::io::Cursor::new(bytes)))
+        },
+    )
+    .unwrap();
+    let notice = fs::read_to_string(installed.join("LICENSES/model-Apache-2.0.txt")).unwrap();
+    assert!(notice.starts_with("Model weights published by Example\n\nApache License\n"));
+    assert!(notice.contains("TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION"));
+    assert!(notice.ends_with("Source: https://example.invalid/model-card\n"));
+}

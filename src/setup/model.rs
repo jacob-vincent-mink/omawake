@@ -24,6 +24,7 @@ const MIT_TERMS: &str = "Permission is hereby granted, free of charge, to any pe
  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\
  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\
  SOFTWARE.\n";
+const APACHE_2_0_TERMS: &str = include_str!("../../licenses/APACHE-2.0.txt");
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, clap::ValueEnum)]
 pub enum ProgressFormat {
@@ -104,7 +105,7 @@ fn install_with_fetch(
     }
     for notice in spec.notices {
         validate_relative_file(notice.path)?;
-        if notice.license != "MIT" {
+        if !matches!(notice.license, "MIT" | "Apache-2.0") {
             bail!("unsupported catalog license notice {}", notice.license);
         }
     }
@@ -359,10 +360,22 @@ fn verify_directory(directory: &Path, spec: &ModelSpec) -> Result<()> {
 }
 
 fn notice_text(notice: &crate::catalog::LicenseNotice) -> String {
-    format!(
-        "MIT License\n\n{}\n\n{}\n\nSource: {}\n",
-        notice.copyright, MIT_TERMS, notice.source_url
-    )
+    match notice.license {
+        "MIT" => format!(
+            "MIT License\n\n{}\n\n{}\n\nSource: {}\n",
+            notice.copyright, MIT_TERMS, notice.source_url
+        ),
+        "Apache-2.0" => format!(
+            "{}\n\n{}\nSource: {}\n",
+            notice.copyright,
+            APACHE_2_0_TERMS.trim_end(),
+            notice.source_url
+        ),
+        other => format!(
+            "Unsupported license {other}\nSource: {}\n",
+            notice.source_url
+        ),
+    }
 }
 
 fn verify_file(path: &Path, expected_size: u64, expected_sha256: &str) -> Result<()> {
