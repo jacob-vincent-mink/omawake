@@ -1,8 +1,9 @@
 # Installing Omawake
 
-Omawake 0.0.1-rc.1 supports Linux x86-64 and aarch64. Each release archive contains one
-runtime-neutral executable and a bundled CPU runtime. OpenVINO and CUDA remain
-external runtime choices configured after installation.
+Omawake 0.0.1-rc.1 supports Linux x86-64 and aarch64 with glibc 2.35 or newer.
+Each release archive contains one runtime-neutral executable and a bundled CPU
+runtime. OpenVINO and CUDA remain external runtime choices configured after
+installation.
 
 There are no 0.0.1-rc.1 prebuilt artifacts for macOS or Windows.
 

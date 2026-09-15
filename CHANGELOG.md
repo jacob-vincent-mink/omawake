@@ -26,6 +26,6 @@
   cleanup cannot call into an unloaded provider after inference completes.
 - Added Intel CPU, iGPU, NPU, and NVIDIA GB10 validation evidence.
 
-Known limits: release artifacts target Linux with glibc; accelerator stacks are
-external. The separately downloaded catalog model is publisher-declared
-Apache-2.0.
+Known limits: release artifacts target Linux x86-64 and aarch64 with glibc 2.35
+or newer; accelerator stacks are external. The separately downloaded catalog
+model is publisher-declared Apache-2.0.

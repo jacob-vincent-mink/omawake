@@ -16,7 +16,8 @@ Runtime is loaded dynamically; there is no sherpa library, patch, or ABI.
 
 ## Install
 
-Linux x86-64 and aarch64 releases include the official ONNX Runtime 1.30.0 CPU library.
+Linux x86-64 and aarch64 releases require glibc 2.35 or newer and include the
+official ONNX Runtime 1.30.0 CPU library.
 Verify and unpack a release, then run setup:
 
 ```bash

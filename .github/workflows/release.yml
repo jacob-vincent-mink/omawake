@@ -22,7 +22,7 @@ jobs:
             ort_arch: x64
             package_arch: x86_64
             ort_sha256: a5ed5a3cac51fbb2e90da632ae43d19212faaa20e76484e62bcb7c23ddb3b3fd
-          - runner: ubuntu-24.04-arm
+          - runner: ubuntu-22.04-arm
             ort_arch: aarch64
             package_arch: aarch64
             ort_sha256: e16a27a8ed330bbc698df7330b0cf56e722f354e3bcc92118682c74ef3c3e3da
