@@ -153,8 +153,14 @@ fn isolated_with(
 ) -> Result<CacheReport> {
     let mut candidate = config.clone();
     candidate.backend.fallback = Fallback::Error;
-    candidate.backend = crate::runtime_inventory::resolve(&candidate.backend, config_path);
-    let library_path = std::env::join_paths(&candidate.backend.library_dirs)?;
+    let mut library_dirs = candidate.backend.library_dirs.clone();
+    if let Some(parent) = candidate.backend.library.parent()
+        && !candidate.backend.library.as_os_str().is_empty()
+        && !library_dirs.iter().any(|directory| directory == parent)
+    {
+        library_dirs.push(parent.to_owned());
+    }
+    let library_path = std::env::join_paths(library_dirs)?;
     let device = cache_device(&candidate)?.to_ascii_uppercase();
     retry_signaled(&device, || {
         attempt(&candidate, config_path, &library_path, &device)
@@ -267,7 +273,6 @@ fn isolated_attempt_with_timeout(
         .arg(serde_json::to_string(&candidate)?)
         .arg(response.path())
         .env("LD_LIBRARY_PATH", library_path)
-        .env("ORT_DISABLE_TELEMETRY", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut child = command
@@ -351,37 +356,12 @@ fn exit_signal(_status: &ExitStatus) -> Option<i32> {
 
 pub fn child(config: &Config, paths: &AppPaths) -> Result<CacheReport> {
     if config.backend.kind == "openvino-genai" {
-        if !required(config) {
-            bail!(
-                "model-cache preparation is only valid for an explicit OpenVINO GPU or NPU runtime"
-            );
-        }
-        if config.backend.fallback != Fallback::Error {
-            bail!("model-cache preparation requires fallback = error");
-        }
-        let started = Instant::now();
-        let evidence = crate::engine::openvino_genai::prepare(
-            crate::engine::openvino_genai::ProviderSpec::from_config(config, paths)?,
-        )?;
-        if !evidence
-            .requested_device
-            .eq_ignore_ascii_case(&cache_device(config)?)
-        {
-            bail!("OpenVINO cache worker reported the wrong physical device");
-        }
-        if evidence.requested_device == "NPU" && !evidence.static_pipeline {
-            bail!("OpenVINO NPU cache worker did not use STATIC_PIPELINE=true");
-        }
-        let mut report = status(config, paths)?;
-        report.elapsed_milliseconds = Some(started.elapsed().as_secs_f64() * 1_000.0);
-        if !report.prepared {
-            bail!(
-                "OpenVINO {} pipeline produced no compiled cache artifact in {}",
-                evidence.requested_device,
-                evidence.cache_directory
-            );
-        }
-        return Ok(report);
+        let mut prepare = |config: &Config, paths: &AppPaths| {
+            crate::engine::openvino_genai::prepare(
+                crate::engine::openvino_genai::ProviderSpec::from_config(config, paths)?,
+            )
+        };
+        return openvino_child_with(config, paths, &mut prepare);
     }
     child_with(config, paths, |candidate, paths, audio| {
         let detector = Detector::load(candidate, paths)?;
@@ -391,6 +371,43 @@ pub fn child(config: &Config, paths: &AppPaths) -> Result<CacheReport> {
         detector.detect_file(audio)?;
         Ok(())
     })
+}
+
+fn openvino_child_with(
+    config: &Config,
+    paths: &AppPaths,
+    prepare: &mut dyn FnMut(
+        &Config,
+        &AppPaths,
+    ) -> Result<crate::engine::openvino_genai::PlacementEvidence>,
+) -> Result<CacheReport> {
+    if !required(config) {
+        bail!("model-cache preparation is only valid for an explicit OpenVINO GPU or NPU runtime");
+    }
+    if config.backend.fallback != Fallback::Error {
+        bail!("model-cache preparation requires fallback = error");
+    }
+    let started = Instant::now();
+    let evidence = prepare(config, paths)?;
+    if !evidence
+        .requested_device
+        .eq_ignore_ascii_case(&cache_device(config)?)
+    {
+        bail!("OpenVINO cache worker reported the wrong physical device");
+    }
+    if evidence.requested_device == "NPU" && !evidence.static_pipeline {
+        bail!("OpenVINO NPU cache worker did not use STATIC_PIPELINE=true");
+    }
+    let mut report = status(config, paths)?;
+    report.elapsed_milliseconds = Some(started.elapsed().as_secs_f64() * 1_000.0);
+    if !report.prepared {
+        bail!(
+            "OpenVINO {} pipeline produced no compiled cache artifact in {}",
+            evidence.requested_device,
+            evidence.cache_directory
+        );
+    }
+    Ok(report)
 }
 
 fn child_with(

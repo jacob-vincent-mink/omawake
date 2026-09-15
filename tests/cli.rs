@@ -6,6 +6,10 @@ use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
+#[cfg(unix)]
+use std::thread;
+#[cfg(unix)]
+use std::time::{Duration, Instant};
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -82,6 +86,60 @@ fn stdout(output: &Output) -> String {
 
 fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
+}
+
+#[cfg(unix)]
+#[test]
+fn guided_setup_wraps_words_and_accepts_arrow_keys_in_a_real_pty() {
+    if Command::new("script").arg("--version").output().is_err() {
+        return;
+    }
+    let root = sandbox();
+    let binary = env!("CARGO_BIN_EXE_omawake");
+    assert!(!binary.contains(['\'', '"', ' ']));
+    let mut child = Command::new("script")
+        .args(["-qec", &format!("{binary} setup"), "/dev/null"])
+        .env("XDG_CONFIG_HOME", root.join("config"))
+        .env("XDG_DATA_HOME", root.join("data"))
+        .env("XDG_CACHE_HOME", root.join("cache"))
+        .env("XDG_STATE_HOME", root.join("state"))
+        .env("XDG_RUNTIME_DIR", root.join("run"))
+        .env("TERM", "xterm-256color")
+        .env(
+            "OMAWAKE_AUDIOCPP_LIBRARY",
+            root.join("missing-libaudiocpp.so"),
+        )
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    thread::sleep(Duration::from_millis(750));
+    // Runtime flow, default audio.cpp, CPU, then current discovery.
+    for keys in [b"\x1b[B\r".as_slice(), b"\r", b"\r", b"\r"] {
+        input.write_all(keys).unwrap();
+        input.flush().unwrap();
+        thread::sleep(Duration::from_millis(150));
+    }
+    drop(input);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while child.try_wait().unwrap().is_none() {
+        if Instant::now() >= deadline {
+            child.kill().unwrap();
+            panic!("guided setup did not finish after PTY input");
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
+    let output = child.wait_with_output().unwrap();
+    assert!(!output.status.success());
+    let terminal = stdout(&output);
+    assert!(terminal.contains("Omawake setup"));
+    assert!(terminal.contains("Inference runtime"));
+    assert!(terminal.contains("Inference device"));
+    assert!(terminal.contains("Runtime libraries"));
+    assert!(terminal.contains("missing-libaudiocpp.so"));
+    assert!(!root.join("config/omawake/config.toml").exists());
 }
 
 #[cfg(unix)]
@@ -189,6 +247,45 @@ fn whisper_library_worker_reuses_one_model_and_session_for_file_requests() {
 
 #[cfg(unix)]
 #[test]
+fn whisper_evaluation_runs_in_the_isolated_native_json_worker() {
+    let root = sandbox();
+    let library = build_fake_whisper(&root, None);
+    let (_, wave) = write_fake_whisper_config(&root, library);
+    let manifest = root.join("evaluation.json");
+    let checksum = omawake::evaluation::sha256_bytes(&fs::read(&wave).unwrap());
+    fs::write(
+        &manifest,
+        serde_json::to_vec(&serde_json::json!({
+            "schema_version": 1,
+            "corpus": {
+                "id": "safe-fake-whisper",
+                "version": "1",
+                "license_spdx": "CC0-1.0",
+                "source": "generated test signal"
+            },
+            "clips": [{
+                "id": "positive",
+                "path": wave.file_name().unwrap().to_str().unwrap(),
+                "sha256": checksum,
+                "split": "test",
+                "expected": [{"keyword_id": "computer"}]
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let output = run(&root, &["evaluate", manifest.to_str().unwrap()]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["evaluation"], "omawake-phrase-verifier-accuracy");
+    assert_eq!(report["backend"]["backend_kind"], "whispercpp");
+    assert_eq!(report["files"][0]["id"], "positive");
+    assert_eq!(report["summary"]["true_positives"], 1);
+}
+
+#[cfg(unix)]
+#[test]
 fn whisper_library_worker_reaps_and_restarts_after_a_normal_pre_stream_exit() {
     let root = sandbox();
     let library = build_fake_whisper(&root, None);
@@ -242,6 +339,48 @@ fn whisper_library_worker_rejects_development_abi_with_a_normal_error() {
 
 #[cfg(unix)]
 #[test]
+fn whisper_library_can_be_selected_from_an_absolute_environment_path() {
+    let root = sandbox();
+    let library = build_fake_whisper(&root, None);
+    let (config_path, wave) = write_fake_whisper_config(&root, library.clone());
+    let mut config = Config::load(&config_path).unwrap();
+    config.backend.library.clear();
+    config.backend.library_dirs.clear();
+    config.save(&config_path).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_omawake"))
+        .args(["test", "--audio", wave.to_str().unwrap()])
+        .env("HOME", &root)
+        .env("XDG_CONFIG_HOME", root.join("config"))
+        .env("XDG_DATA_HOME", root.join("data"))
+        .env("XDG_CACHE_HOME", root.join("cache"))
+        .env("XDG_STATE_HOME", root.join("state"))
+        .env("XDG_RUNTIME_DIR", root.join("run"))
+        .env("OMAWAKE_WHISPER_LIBRARY", &library)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stdout(&output).contains("computer"));
+
+    let relative = Command::new(env!("CARGO_BIN_EXE_omawake"))
+        .args(["test", "--audio", wave.to_str().unwrap()])
+        .env("HOME", &root)
+        .env("XDG_CONFIG_HOME", root.join("config"))
+        .env("XDG_DATA_HOME", root.join("data"))
+        .env("XDG_CACHE_HOME", root.join("cache"))
+        .env("XDG_STATE_HOME", root.join("state"))
+        .env("XDG_RUNTIME_DIR", root.join("run"))
+        .env("OMAWAKE_WHISPER_LIBRARY", "relative/libwhisper.so")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(!relative.status.success());
+    assert!(stderr(&relative).contains("must be an absolute file path"));
+}
+
+#[cfg(unix)]
+#[test]
 fn word_alias_add_remove_and_empty_configuration_round_trip() {
     let root = sandbox();
     let remove = run(&root, &["word", "remove", "computer"]);
@@ -289,11 +428,44 @@ fn setup_all_help_keeps_service_installation_explicit() {
 }
 
 #[test]
+fn setup_model_catalog_dispatches_listing_selection_and_verification_errors() {
+    let root = sandbox();
+    let list = run(&root, &["setup", "model", "--list"]);
+    assert!(list.status.success(), "{}", stderr(&list));
+    assert!(stdout(&list).contains("moonshine-streaming-tiny-q8_0-silero-v6.2.1"));
+
+    let no_action = run(&root, &["setup", "model"]);
+    assert!(no_action.status.success(), "{}", stderr(&no_action));
+    assert!(stdout(&no_action).contains("Download the default"));
+
+    for args in [
+        &[
+            "setup",
+            "model",
+            "--verify",
+            "moonshine-streaming-tiny-q8_0-silero-v6.2.1",
+        ][..],
+        &[
+            "setup",
+            "model",
+            "--set",
+            "moonshine-streaming-tiny-q8_0-silero-v6.2.1",
+        ],
+        &["setup", "model", "--download", "unknown-profile"],
+    ] {
+        let output = run(&root, args);
+        assert!(!output.status.success(), "{args:?}");
+        assert!(!stderr(&output).is_empty());
+    }
+    assert!(!root.join("config/omawake/config.toml").exists());
+}
+
+#[test]
 fn setup_inspection_recovers_invalid_pre_release_config_without_weakening_normal_parsing() {
     let root = sandbox();
     let config_path = root.join("config/omawake/config.toml");
     fs::create_dir_all(config_path.parent().unwrap()).unwrap();
-    let invalid = b"[backend]\nprovider_config = \"\"\n";
+    let invalid = b"[backend]\nremoved_option = \"\"\n";
     fs::write(&config_path, invalid).unwrap();
 
     for args in [
@@ -316,13 +488,13 @@ fn setup_inspection_recovers_invalid_pre_release_config_without_weakening_normal
 
     let normal = run(&root, &["config", "get", "--json"]);
     assert!(!normal.status.success());
-    assert!(stderr(&normal).contains("unknown field `provider_config`"));
+    assert!(stderr(&normal).contains("unknown field `removed_option`"));
     assert_eq!(fs::read(&config_path).unwrap(), invalid);
 }
 
 #[test]
 fn successful_explicit_setup_repairs_invalid_config_and_failure_restores_it() {
-    let invalid = b"[backend]\nprovider_config = \"\"\n";
+    let invalid = b"[backend]\nremoved_option = \"\"\n";
 
     let failed_root = sandbox();
     let failed_config = failed_root.join("config/omawake/config.toml");
@@ -349,7 +521,7 @@ fn successful_explicit_setup_repairs_invalid_config_and_failure_restores_it() {
     assert!(
         !fs::read_to_string(config_path)
             .unwrap()
-            .contains("provider_config")
+            .contains("removed_option")
     );
 }
 
@@ -375,8 +547,6 @@ fn config_commands_cover_supported_keys_and_errors() {
         ("model.name", "custom"),
         ("model.directory", "/tmp/model"),
         ("model.sample_rate", "16000"),
-        ("model.keywords_score", "2.0"),
-        ("model.keywords_threshold", "0.5"),
         ("audio.device", "test"),
         ("audio.channels", "mono"),
         ("audio.buffer_milliseconds", "100"),
@@ -407,26 +577,13 @@ fn config_commands_cover_supported_keys_and_errors() {
             .success()
     );
     assert!(
-        run(
-            &root,
-            &[
-                "config",
-                "set",
-                "backend.provider_library",
-                "/tmp/provider.so",
-            ],
-        )
-        .status
-        .success()
-    );
-    assert!(
         run(&root, &["config", "set", "backend.runtime", "default"])
             .status
             .success()
     );
     let saved = Config::load(&root.join("config/omawake/config.toml")).unwrap();
     assert_eq!(saved.backend.runtime, omawake::backend::Runtime::Default);
-    assert!(saved.backend.provider_library.as_os_str().is_empty());
+    assert!(saved.backend.library.as_os_str().is_empty());
 }
 
 #[test]
@@ -459,6 +616,23 @@ fn runtime_discovery_reports_invalid_paths_without_reexec_and_engine_use_rejects
     let engine = run(&root, &["benchmark", "/missing.wav"]);
     assert!(!engine.status.success());
     assert!(stderr(&engine).contains(&expected.display().to_string()));
+
+    let missing = root.join("missing-complete-provider");
+    let configured = run(
+        &root,
+        &[
+            "setup",
+            "runtime",
+            "--runtime",
+            "default",
+            "--device",
+            "cpu",
+            "--dir",
+            missing.to_str().unwrap(),
+        ],
+    );
+    assert!(!configured.status.success());
+    assert!(stderr(&configured).contains(&missing.display().to_string()));
 }
 
 #[test]
@@ -540,8 +714,7 @@ fn systemd_lifecycle_uses_user_manager_and_propagates_failures() {
             .success()
     );
     let unit = fs::read_to_string(root.join("config/systemd/user/omawake.service")).unwrap();
-    assert!(unit.contains(&root.join("owned-libraries").display().to_string()));
-    assert!(!unit.contains(&root.join("ambient-libraries").display().to_string()));
+    assert!(!unit.contains("LD_LIBRARY_PATH"));
     assert!(
         run_with_path(&root, &["setup", "systemd"], &success)
             .status
@@ -583,75 +756,4 @@ fn systemd_lifecycle_uses_user_manager_and_propagates_failures() {
             .status
             .success()
     );
-}
-
-#[test]
-fn real_openvino_inventory_child_registers_the_official_plugin_when_available() {
-    let (Some(runtime), Some(provider)) = (
-        std::env::var_os("OMAWAKE_TEST_ONNXRUNTIME"),
-        std::env::var_os("OMAWAKE_TEST_OPENVINO_PROVIDER"),
-    ) else {
-        return;
-    };
-    let root = sandbox();
-    let provider = PathBuf::from(provider);
-    let runtime = PathBuf::from(runtime);
-    let candidate = omawake::backend::BackendConfig {
-        runtime: omawake::backend::Runtime::Openvino,
-        device: "cpu".into(),
-        onnxruntime_library: runtime.clone(),
-        provider_library: provider.clone(),
-        library_dirs: vec![
-            runtime.parent().unwrap().to_owned(),
-            provider.parent().unwrap().to_owned(),
-        ],
-        ..Default::default()
-    };
-    let loader_path = std::env::join_paths(&candidate.library_dirs).unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_omawake"))
-        .args([
-            "__inventory-probe",
-            &serde_json::to_string(&candidate).unwrap(),
-        ])
-        .env("HOME", &root)
-        .env("LD_LIBRARY_PATH", loader_path)
-        .env("ORT_DISABLE_TELEMETRY", "1")
-        .output()
-        .unwrap();
-    assert!(output.status.success(), "{}", stderr(&output));
-    let probe: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(probe["ready"], true);
-    assert_eq!(probe["evidence"]["provider_registration"], true);
-    assert_eq!(probe["evidence"]["selected_device"], "cpu");
-}
-
-#[cfg(unix)]
-#[test]
-fn real_cpu_runtime_and_catalog_model_pass_setup_checks_when_available() {
-    use std::os::unix::fs::symlink;
-
-    let (Some(runtime), Some(model)) = (
-        std::env::var_os("OMAWAKE_TEST_ONNXRUNTIME").map(PathBuf::from),
-        std::env::var_os("OMAWAKE_TEST_MODEL").map(PathBuf::from),
-    ) else {
-        return;
-    };
-    let root = sandbox();
-    let spec = &omawake::catalog::models()[0];
-    let installed = root.join("data/omawake/models").join(spec.id);
-    fs::create_dir_all(installed.parent().unwrap()).unwrap();
-    symlink(model, installed).unwrap();
-    let launcher = root.join("data/applications/omawake-settings.desktop");
-    fs::create_dir_all(launcher.parent().unwrap()).unwrap();
-    fs::write(launcher, "fixture").unwrap();
-
-    let config_path = root.join("config/omawake/config.toml");
-    let mut config = Config::default();
-    config.backend.device = "cpu".into();
-    config.backend.onnxruntime_library = runtime;
-    config.save(&config_path).unwrap();
-
-    let output = run(&root, &["setup", "check"]);
-    assert!(output.status.success(), "{}", stderr(&output));
-    assert!(stdout(&output).contains("runtime/device probe passed"));
 }

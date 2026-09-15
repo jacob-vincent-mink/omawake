@@ -1,2 +1,0 @@
-peak_sm_percent=44
-active_samples=7

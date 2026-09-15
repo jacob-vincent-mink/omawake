@@ -31,6 +31,13 @@ fn rows_wrap_at_narrow_and_normal_widths_without_losing_unicode_alignment() {
         assert!(!output.is_empty());
     }
     assert!(wrap("\x1bhello\tworld", 80, 0).contains("helloworld"));
+    let prose = wrap(
+        "This never installs or starts a service; an active daemon restarts after Apply.",
+        32,
+        6,
+    );
+    assert!(!prose.contains("\r\n      his"));
+    assert!(!prose.contains("\r\n      pply"));
 }
 use std::collections::VecDeque;
 use std::io::IsTerminal;
@@ -193,19 +200,31 @@ fn guided_setup_metadata_covers_modes_runtimes_devices_and_review() {
     let cpu_only = runtime_items(&cpu_loadable);
     assert!(cpu_only[0].enabled);
     assert!(cpu_only[1].enabled);
-    assert!(!cpu_only[2].enabled);
-    let all_loadable = BTreeMap::from([("default", true), ("openvino", true), ("cuda", true)]);
+    assert!(cpu_only.iter().all(|item| item.enabled));
+    let all_loadable = BTreeMap::from([
+        ("default", true),
+        ("openvino", true),
+        ("cuda", true),
+        ("vulkan", true),
+        ("hip", true),
+    ]);
     let all = runtime_items(&all_loadable);
     assert!(all[0].enabled);
-    assert!(all[1].enabled && !all[2].enabled);
+    assert!(all.iter().all(|item| item.enabled));
     assert!(all[1].detail.contains("Official"));
     let compiled_only = runtime_items(&BTreeMap::from([("default", true)]));
     assert!(compiled_only[1].enabled);
     assert!(compiled_only[1].detail.contains("complete OpenVINO"));
 
-    for (index, runtime) in [Runtime::Default, Runtime::Openvino, Runtime::Cuda]
-        .into_iter()
-        .enumerate()
+    for (index, runtime) in [
+        Runtime::Default,
+        Runtime::Openvino,
+        Runtime::Cuda,
+        Runtime::Vulkan,
+        Runtime::Hip,
+    ]
+    .into_iter()
+    .enumerate()
     {
         assert_eq!(runtime_index(runtime), index);
         assert_eq!(runtime_at(index), runtime);
@@ -214,6 +233,8 @@ fn guided_setup_metadata_covers_modes_runtimes_devices_and_review() {
     assert_eq!(runtime_name(Runtime::Default), "default");
     assert_eq!(runtime_name(Runtime::Openvino), "openvino");
     assert_eq!(runtime_name(Runtime::Cuda), "cuda");
+    assert_eq!(runtime_name(Runtime::Vulkan), "vulkan");
+    assert_eq!(runtime_name(Runtime::Hip), "hip");
     assert_eq!(device_values(Runtime::Openvino)[0].0, "npu");
 
     let review = apply_items(Runtime::Openvino, "npu", "wake-model", false);

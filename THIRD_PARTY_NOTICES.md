@@ -8,6 +8,18 @@ Omawake release builds dynamically load the public C ABI of
 Apache-2.0. Omawake does not invoke the audio.cpp CLI. Release archives that
 contain `libaudiocpp` also contain its upstream license and notices.
 
+The pinned compact provider statically retains these audio.cpp build
+components, whose exact license texts are included in release archives:
+
+- ggml, MIT;
+- cJSON, MIT;
+- libyaml, MIT;
+- the PocketFFT-derived speech FFT implementation, BSD-3-Clause; and
+- tokenizer code conservatively attributed to llama.cpp, MIT.
+
+The default provider is built with `AUDIOCPP_DEPLOYMENT_BUILD=OFF`; provider
+CLI, server, test, and model-management executables are not distributed.
+
 The default model profile is installed separately and contains:
 
 - Moonshine Streaming Tiny from original revision

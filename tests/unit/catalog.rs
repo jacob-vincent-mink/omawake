@@ -60,13 +60,15 @@ fn default_and_activation_are_the_qualified_audio_cpp_profile() {
     assert_eq!(config.model.name, DEFAULT_MODEL_ID);
     assert_eq!(config.model.verifier, spec.verifier);
     assert_eq!(config.model.vad, spec.vad);
-    assert!(!format!("{config:?}").contains("sherpa"));
+    let fresh = toml::to_string(&config).unwrap();
+    for removed in ["sherpa", "onnxruntime", "omawake-onnx", "zipformer"] {
+        assert!(!fresh.contains(removed), "fresh config retained {removed}");
+    }
 
     config.backend.kind = "other".into();
     config.backend.runtime = Runtime::Cuda;
     config.backend.device = "gpu".into();
     config.model.directory = "/custom".into();
-    config.model.encoder = "old.onnx".into();
     spec.activate(&mut config);
     assert_eq!(config.backend.kind, "audiocpp");
     assert_eq!(config.backend.runtime, Runtime::Default);
@@ -75,7 +77,6 @@ fn default_and_activation_are_the_qualified_audio_cpp_profile() {
     assert!(config.model.directory.is_empty());
     assert_eq!(config.model.verifier, "moonshine-streaming-tiny-q8_0.gguf");
     assert_eq!(config.model.vad, "silero_vad_16k.safetensors");
-    assert!(config.model.encoder.is_empty());
     assert_eq!(
         config
             .backend

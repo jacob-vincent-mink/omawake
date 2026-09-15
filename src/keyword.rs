@@ -1,50 +1,7 @@
+use anyhow::{Result, bail};
 use std::collections::HashSet;
-use std::path::Path;
-
-use anyhow::{Context, Result, bail};
-use sentencepiece_rs::SentencePieceProcessor;
 
 use crate::config::WakeWord;
-
-pub struct KeywordCompiler {
-    processor: SentencePieceProcessor,
-}
-
-impl KeywordCompiler {
-    pub fn open(path: &Path) -> Result<Self> {
-        let processor = SentencePieceProcessor::open(path)
-            .with_context(|| format!("open SentencePiece model {}", path.display()))?;
-        Ok(Self { processor })
-    }
-
-    pub fn compile(&self, wake_words: &[WakeWord]) -> Result<String> {
-        validate_wake_words(wake_words)?;
-        let mut ids = HashSet::new();
-        let mut phrases = HashSet::new();
-        let mut lines = Vec::new();
-        for wake_word in wake_words.iter().filter(|entry| entry.enabled) {
-            if !ids.insert(wake_word.id.as_str()) {
-                bail!("duplicate wake-word id {}", wake_word.id);
-            }
-            let normalized = wake_word.phrase.trim().to_uppercase();
-            if !phrases.insert(normalized.clone()) {
-                bail!("duplicate wake-word phrase {}", wake_word.phrase);
-            }
-            let pieces = self
-                .processor
-                .encode(&normalized)
-                .with_context(|| format!("tokenize wake phrase {}", wake_word.phrase))?;
-            if pieces.is_empty() {
-                bail!("wake phrase {} produced no tokens", wake_word.phrase);
-            }
-            lines.push(format!("{} @{}", pieces.join(" "), wake_word.id));
-        }
-        if lines.is_empty() {
-            bail!("at least one enabled wake word is required");
-        }
-        Ok(lines.join("\n"))
-    }
-}
 
 pub fn validate_wake_words(wake_words: &[WakeWord]) -> Result<()> {
     let mut ids = HashSet::new();

@@ -8,17 +8,14 @@ use serde::Serialize;
 
 use crate::backend::{Fallback, Runtime};
 use crate::config::{Config, WakeWord};
-use crate::keyword::KeywordCompiler;
 use crate::paths::AppPaths;
 
 pub(crate) mod audio;
 pub(crate) mod audiocpp;
-pub(crate) mod onnx;
 pub(crate) mod openvino_genai;
 pub(crate) mod whisper;
 use self::audio::read_wave;
 use self::audiocpp::AudioCppBackend;
-use self::onnx::OmaOnnxBackend;
 use self::openvino_genai::{OpenVinoGenAiBackend, ProviderSpec as OpenVinoProviderSpec};
 use self::whisper::WhisperCppBackend;
 
@@ -77,6 +74,33 @@ pub fn wav_duration(path: &Path) -> Result<Duration> {
 
 impl Detector {
     pub fn load(config: &Config, paths: &AppPaths) -> Result<Self> {
+        Self::load_with(
+            config,
+            paths,
+            |candidate, paths| Ok(Box::new(AudioCppBackend::load(candidate, paths)?)),
+            |candidate, paths| Ok(Box::new(WhisperCppBackend::load(candidate, paths)?)),
+            |candidate, paths| {
+                let spec = OpenVinoProviderSpec::from_config(candidate, paths)?;
+                Ok(Box::new(OpenVinoGenAiBackend::open(
+                    spec,
+                    &candidate.wake_words,
+                )?))
+            },
+        )
+    }
+
+    fn load_with<FA, FW, FO>(
+        config: &Config,
+        paths: &AppPaths,
+        mut load_audiocpp: FA,
+        mut load_whisper: FW,
+        mut load_openvino: FO,
+    ) -> Result<Self>
+    where
+        FA: FnMut(&Config, &AppPaths) -> Result<Box<dyn WakeWordBackend>>,
+        FW: FnMut(&Config, &AppPaths) -> Result<Box<dyn WakeWordBackend>>,
+        FO: FnMut(&Config, &AppPaths) -> Result<Box<dyn WakeWordBackend>>,
+    {
         if config.backend.kind == "audiocpp" {
             config.backend.validate_shape()?;
             let keywords_buffer = config
@@ -87,13 +111,38 @@ impl Detector {
                 .collect::<Vec<_>>()
                 .join(", ");
             let started = Instant::now();
-            let backend = Box::new(AudioCppBackend::load(config, paths)?);
+            let mut load = |candidate: &Config| load_audiocpp(candidate, paths);
+            let (backend, effective_runtime, fallback_used) = match load(config) {
+                Ok(backend) => (backend, config.backend.runtime, false),
+                Err(accelerator_error)
+                    if config.backend.runtime != Runtime::Default
+                        && config.backend.fallback == Fallback::Cpu =>
+                {
+                    eprintln!(
+                        "omawake: warning: audio.cpp accelerator initialization failed: {accelerator_error:#}; falling back to audio.cpp CPU"
+                    );
+                    let mut cpu = config.clone();
+                    cpu.backend.runtime = Runtime::Default;
+                    cpu.backend.device = "cpu".into();
+                    cpu.backend.device_id = 0;
+                    (
+                        load(&cpu).with_context(|| {
+                            format!(
+                                "audio.cpp accelerator initialization failed ({accelerator_error:#}); audio.cpp CPU fallback also failed"
+                            )
+                        })?,
+                        Runtime::Default,
+                        true,
+                    )
+                }
+                Err(error) => return Err(error),
+            };
             return Self::from_backend(
                 config,
                 backend,
                 keywords_buffer,
-                Runtime::Default,
-                false,
+                effective_runtime,
+                fallback_used,
                 started.elapsed(),
             );
         }
@@ -107,7 +156,7 @@ impl Detector {
                 .collect::<Vec<_>>()
                 .join(", ");
             let started = Instant::now();
-            let backend = Box::new(WhisperCppBackend::load(config, paths)?);
+            let backend = load_whisper(config, paths)?;
             return Self::from_backend(
                 config,
                 backend,
@@ -127,13 +176,7 @@ impl Detector {
                 .collect::<Vec<_>>()
                 .join(", ");
             let started = Instant::now();
-            let load = |candidate: &Config| -> Result<Box<dyn WakeWordBackend>> {
-                let spec = OpenVinoProviderSpec::from_config(candidate, paths)?;
-                Ok(Box::new(OpenVinoGenAiBackend::open(
-                    spec,
-                    &candidate.wake_words,
-                )?))
-            };
+            let mut load = |candidate: &Config| load_openvino(candidate, paths);
             let (backend, fallback_used) = match load(config) {
                 Ok(backend) => (backend, false),
                 Err(accelerator_error)
@@ -165,59 +208,9 @@ impl Detector {
                 started.elapsed(),
             );
         }
-        if config.backend.kind == "omawake-onnx" {
-            return Self::load_with(config, paths, |config, directory, runtime, keywords| {
-                Ok(Box::new(OmaOnnxBackend::load(
-                    config, paths, directory, runtime, keywords,
-                )?))
-            });
-        }
         bail!(
             "unsupported wake-word backend {}; run `omawake setup runtime`",
             config.backend.kind
-        )
-    }
-
-    pub fn load_with<F>(config: &Config, paths: &AppPaths, mut load_backend: F) -> Result<Self>
-    where
-        F: FnMut(&Config, &Path, Runtime, &str) -> Result<Box<dyn WakeWordBackend>>,
-    {
-        config.backend.validate_shape()?;
-        let mut effective_runtime = config.backend.runtime;
-        let mut fallback_used = false;
-        let directory = config.model_directory(paths);
-        let compiler = KeywordCompiler::open(&directory.join(&config.model.bpe_model))?;
-        let keywords_buffer = compiler.compile(&config.wake_words)?;
-
-        let started = Instant::now();
-        let backend = match load_backend(config, &directory, effective_runtime, &keywords_buffer) {
-            Ok(backend) => backend,
-            Err(accelerator_error)
-                if effective_runtime != Runtime::Default
-                    && config.backend.fallback == Fallback::Cpu =>
-            {
-                eprintln!(
-                    "omawake: warning: accelerated backend initialization failed: {accelerator_error:#}; falling back to cpu"
-                );
-                effective_runtime = Runtime::Default;
-                fallback_used = true;
-                load_backend(config, &directory, Runtime::Default, &keywords_buffer).with_context(
-                    || {
-                        format!(
-                            "accelerated backend initialization failed ({accelerator_error:#}); CPU fallback also failed"
-                        )
-                    },
-                )?
-            }
-            Err(error) => return Err(error),
-        };
-        Self::from_backend(
-            config,
-            backend,
-            keywords_buffer,
-            effective_runtime,
-            fallback_used,
-            started.elapsed(),
         )
     }
 

@@ -71,16 +71,7 @@ pub struct ModelConfig {
     pub directory: String,
     pub verifier: String,
     pub vad: String,
-    pub encoder: String,
-    pub decoder: String,
-    pub joiner: String,
-    pub tokens: String,
-    pub bpe_model: String,
     pub sample_rate: i32,
-    pub keywords_score: f32,
-    pub keywords_threshold: f32,
-    pub max_active_paths: i32,
-    pub num_trailing_blanks: i32,
 }
 
 impl Default for ModelConfig {
@@ -90,16 +81,7 @@ impl Default for ModelConfig {
             directory: String::new(),
             verifier: "moonshine-streaming-tiny-q8_0.gguf".into(),
             vad: "silero_vad_16k.safetensors".into(),
-            encoder: String::new(),
-            decoder: String::new(),
-            joiner: String::new(),
-            tokens: String::new(),
-            bpe_model: String::new(),
             sample_rate: 16_000,
-            keywords_score: 1.5,
-            keywords_threshold: 0.25,
-            max_active_paths: 4,
-            num_trailing_blanks: 1,
         }
     }
 }

@@ -1,30 +1,31 @@
 # Runtime contract
 
-Omawake releases own the ONNX Runtime core. Linux x86-64 and aarch64 archives contain
-ONNX Runtime 1.30.0 under `lib/`; the Rust executable resolves and loads it at
-startup and has no `DT_NEEDED` entry for ONNX Runtime.
+Omawake integrates native providers as libraries. The release executable has
+no inference runtime in `DT_NEEDED` and does not launch provider CLIs. Its
+hidden workers are re-executions of Omawake itself for crash isolation and warm
+sessions.
 
-The `default` runtime uses ORT's CPU execution provider. The `openvino` and
-`cuda` runtimes register official V2 execution-provider plugin packages with
-`RegisterExecutionProviderLibrary` and select the requested device through the
-ORT 1.30 device API. Provider packages must not include another ORT core.
+| Runtime | Provider | Devices | Delivery |
+|---|---|---|---|
+| `default` | audio.cpp public C ABI | CPU | Compact provider in release |
+| `cuda` | audio.cpp public C ABI | NVIDIA GPU | User-supplied complete build |
+| `vulkan` | audio.cpp public C ABI | Vulkan GPU | User-supplied complete build |
+| `hip` | audio.cpp public C ABI | AMD GPU | User-supplied complete build |
+| `openvino` | OpenVINO GenAI C API | Intel CPU/GPU/NPU | User-supplied complete install |
 
-Discovery order is an exact configured path, `OMAWAKE_ONNXRUNTIME_LIBRARY` or
-`OMAWAKE_PROVIDER_LIBRARY`, `backend.library_dirs`, `OMAWAKE_LIBRARY_PATH`, and
-package-relative directories. On Linux Omawake re-executes once with its
-app-owned dependency directories in `LD_LIBRARY_PATH` before loading inference
-code.
+Discovery checks an exact `backend.library`, configured `library_dirs`, and
+package-relative `lib/` directories. `omawake setup runtime --dir DIR` records
+a complete provider only after its isolated ABI probe and silent file-only
+provider/model proof both succeed. A focused runtime apply therefore requires
+the matching catalog model to be installed already; use the full guided setup
+to select and install both together. Setup reports choices and remediation
+without installing vendor software.
 
-```bash
-omawake setup runtime --json
-omawake setup runtime --runtime openvino --device npu --dir /opt/omawake-openvino --apply
-```
+The default model is the English Moonshine Streaming Tiny Q8_0 verifier plus
+Silero VAD 6.2.1. The OpenVINO profile uses Whisper Base.en INT8 plus the same
+Silero model. Phrase verification uses provider-neutral, normalized whole-text
+matching with no per-phrase training and no fuzzy matching.
 
-Setup probes ORT 1.30.0, provider registration, and matching device exposure in
-an isolated child process. Model setup additionally executes the catalog probe
-WAV for explicit OpenVINO GPU/NPU selections and requires a compiled cache
-artifact before applying the candidate.
-
-The model, feature extraction, transducer state, context graph, and keyword
-decoder are implemented by Omawake itself. No companion inference library is
-required.
+An optional `whispercpp` backend can load a compatible external whisper.cpp
+library through its public C ABI. It is a comparison/development provider and
+is not included in release archives.

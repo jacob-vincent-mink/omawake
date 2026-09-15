@@ -267,23 +267,48 @@ fn render_at_width(
 }
 
 fn wrap(text: &str, width: usize, indent: usize) -> String {
-    use unicode_width::UnicodeWidthChar;
+    use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+
     let limit = width.saturating_sub(indent + 1).max(1);
+    let text: String = text
+        .chars()
+        .filter(|character| *character == '\n' || !character.is_control())
+        .collect();
     let mut output = String::new();
-    let mut column = 0;
-    for character in text.chars().filter(|character| *character != '\r') {
-        let size = character.width().unwrap_or(0);
-        if character == '\n' || column + size > limit {
-            output.push_str("\r\n");
-            output.push_str(&" ".repeat(indent));
-            column = 0;
+    for (paragraph_index, paragraph) in text.split('\n').enumerate() {
+        if paragraph_index > 0 {
+            wrapped_newline(&mut output, indent);
         }
-        if character != '\n' && !character.is_control() {
-            output.push(character);
-            column += size;
+        let mut column = 0;
+        for word in paragraph.split_whitespace() {
+            let word_width = word.width();
+            if column > 0 && column + 1 + word_width <= limit {
+                output.push(' ');
+                output.push_str(word);
+                column += 1 + word_width;
+                continue;
+            }
+            if column > 0 {
+                wrapped_newline(&mut output, indent);
+                column = 0;
+            }
+            for character in word.chars() {
+                let character_width = character.width().unwrap_or(0);
+                if column > 0 && column + character_width > limit {
+                    wrapped_newline(&mut output, indent);
+                    column = 0;
+                }
+                output.push(character);
+                column += character_width;
+            }
         }
     }
     output
+}
+
+fn wrapped_newline(output: &mut String, indent: usize) {
+    output.push_str("\r\n");
+    output.push_str(&" ".repeat(indent));
 }
 
 pub fn choose_setup_mode() -> Result<Option<SetupMode>> {
@@ -475,7 +500,7 @@ fn choose_runtime_with(
     }))
 }
 
-fn runtime_items(loadable: &BTreeMap<&str, bool>) -> [MenuItem; 3] {
+fn runtime_items(loadable: &BTreeMap<&str, bool>) -> [MenuItem; 5] {
     [
         if loadable.get("default").copied().unwrap_or(false) {
             MenuItem::available(
@@ -499,11 +524,26 @@ fn runtime_items(loadable: &BTreeMap<&str, bool>) -> [MenuItem; 3] {
                 "Choose a complete OpenVINO installation root; setup never installs it",
             )
         },
-        MenuItem::unavailable(
-            "audio.cpp · CUDA/Vulkan",
-            "Complete external accelerated provider builds will appear here after qualification",
-        ),
+        accelerated_runtime_item(loadable, "cuda", "audio.cpp · CUDA", "NVIDIA GPU"),
+        accelerated_runtime_item(loadable, "vulkan", "audio.cpp · Vulkan", "Vulkan GPU"),
+        accelerated_runtime_item(loadable, "hip", "audio.cpp · HIP", "AMD GPU"),
     ]
+}
+
+fn accelerated_runtime_item(
+    loadable: &BTreeMap<&str, bool>,
+    runtime: &str,
+    label: &str,
+    device: &str,
+) -> MenuItem {
+    if loadable.get(runtime).copied().unwrap_or(false) {
+        MenuItem::available(label, format!("Complete provider detected for {device}"))
+    } else {
+        MenuItem::available(
+            label,
+            format!("Choose a complete provider build for {device}; setup never installs it"),
+        )
+    }
 }
 
 fn runtime_index(runtime: Runtime) -> usize {
@@ -511,11 +551,19 @@ fn runtime_index(runtime: Runtime) -> usize {
         Runtime::Default => 0,
         Runtime::Openvino => 1,
         Runtime::Cuda => 2,
+        Runtime::Vulkan => 3,
+        Runtime::Hip => 4,
     }
 }
 
 fn runtime_at(index: usize) -> Runtime {
-    [Runtime::Default, Runtime::Openvino, Runtime::Cuda][index]
+    [
+        Runtime::Default,
+        Runtime::Openvino,
+        Runtime::Cuda,
+        Runtime::Vulkan,
+        Runtime::Hip,
+    ][index]
 }
 
 pub fn confirm_apply(
@@ -627,6 +675,8 @@ fn device_values(runtime: Runtime) -> &'static [(&'static str, &'static str)] {
             ("cpu", "CPU through OpenVINO"),
         ],
         Runtime::Cuda => &[("auto", "Default CUDA device"), ("gpu", "NVIDIA GPU")],
+        Runtime::Vulkan => &[("auto", "Default Vulkan device"), ("gpu", "Vulkan GPU")],
+        Runtime::Hip => &[("auto", "Default HIP device"), ("gpu", "AMD GPU")],
     }
 }
 
@@ -635,6 +685,8 @@ fn runtime_name(runtime: Runtime) -> &'static str {
         Runtime::Default => "default",
         Runtime::Openvino => "openvino",
         Runtime::Cuda => "cuda",
+        Runtime::Vulkan => "vulkan",
+        Runtime::Hip => "hip",
     }
 }
 

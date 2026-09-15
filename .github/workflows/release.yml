@@ -2,7 +2,9 @@ name: Release
 
 on:
   push:
-    tags: ["v*.*.*", "v*.*.*-rc*"]
+    tags:
+      - "v*.*.*"
+      - "v*.*.*-rc*"
   workflow_dispatch:
 
 permissions:
@@ -12,135 +14,180 @@ defaults:
   run:
     shell: bash
 
+env:
+  AUDIOCPP_COMMIT: e9ff20042ec85af960a720368c6927cda19ad65f
+
 jobs:
   linux:
+    name: linux-${{ matrix.package_arch }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - runner: ubuntu-22.04
-            ort_arch: x64
             package_arch: x86_64
-            ort_sha256: a5ed5a3cac51fbb2e90da632ae43d19212faaa20e76484e62bcb7c23ddb3b3fd
           - runner: ubuntu-22.04-arm
-            ort_arch: aarch64
             package_arch: aarch64
-            ort_sha256: e16a27a8ed330bbc698df7330b0cf56e722f354e3bcc92118682c74ef3c3e3da
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
+    timeout-minutes: 90
     env:
-      OMA_ORT_ROOT: /tmp/onnxruntime-linux-${{ matrix.ort_arch }}-1.30.0
-      OMA_MODEL_ROOT: /tmp/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01
-      ORT_ARCHIVE_SHA256: ${{ matrix.ort_sha256 }}
-      ORT_VERSION: 1.30.0
-      MODEL_ARCHIVE_SHA256: f170013b4716e41b62b9bfd809687c207cef798ef9bc6534d524e17af9b6561a
+      PACKAGE_ARCH: ${{ matrix.package_arch }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install build dependencies
+
+      - name: Install native build dependencies
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends bzip2 ca-certificates curl libasound2-dev pkg-config xz-utils
+          sudo apt-get install -y --no-install-recommends \
+            binutils ca-certificates cmake curl g++ git libasound2-dev libgomp1 \
+            ninja-build pkg-config xz-utils
+
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-about@0.9.2
-      - name: Download pinned ONNX Runtime
+
+      - name: Build the pinned default audio.cpp provider
         run: |
           set -euo pipefail
-          archive="/tmp/onnxruntime-linux-${{ matrix.ort_arch }}-${ORT_VERSION}.tgz"
-          curl -fsSL --retry 3 -o "${archive}" \
-            "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-${{ matrix.ort_arch }}-${ORT_VERSION}.tgz"
-          printf '%s  %s\n' "${ORT_ARCHIVE_SHA256}" "${archive}" | sha256sum -c -
-          tar -C /tmp -xzf "${archive}"
-          test -f "${OMA_ORT_ROOT}/lib/libonnxruntime.so.${ORT_VERSION}"
-      - name: Test and build
+          source="${RUNNER_TEMP}/audio.cpp"
+          build="${RUNNER_TEMP}/audio.cpp-build"
+          git clone --filter=blob:none https://github.com/0xShug0/audio.cpp.git "${source}"
+          git -C "${source}" checkout "${AUDIOCPP_COMMIT}"
+          provider=$(./scripts/build-default-audiocpp-provider.sh "${source}" "${build}")
+          grep -q '^AUDIOCPP_DEPLOYMENT_BUILD:BOOL=OFF$' "${build}/CMakeCache.txt"
+          ! find "${build}" -type f \( -name 'audiocpp_cli' -o -name 'audiocpp_server' \
+            -o -name 'audiocpp_gguf' -o -name 'audiocpp_model_manager' \) | grep .
+          strip --strip-unneeded "${provider}"
+          test "$(git -C "${source}" rev-parse HEAD)" = "${AUDIOCPP_COMMIT}"
+          echo "AUDIOCPP_SOURCE=${source}" >> "${GITHUB_ENV}"
+          echo "AUDIOCPP_PROVIDER=${provider}" >> "${GITHUB_ENV}"
+          echo "OMAWAKE_AUDIOCPP_LIBRARY=${provider}" >> "${GITHUB_ENV}"
+
+      - name: Test and build the runtime-neutral executable
         run: |
-          cargo test --locked
+          cargo test --locked -- --test-threads=1
           cargo build --release --locked
-      - name: Validate direct keyword parity
-        run: |
-          set -euo pipefail
-          archive=/tmp/omawake-kws-model.tar.bz2
-          curl -fsSL --retry 3 -o "${archive}" \
-            https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2
-          printf '%s  %s\n' "${MODEL_ARCHIVE_SHA256}" "${archive}" | sha256sum -c -
-          tar -C /tmp -xjf "${archive}"
-          scripts/validate-direct-kws.sh \
-            target/release/omawake \
-            "${OMA_ORT_ROOT}/lib/libonnxruntime.so.${ORT_VERSION}" \
-            "${OMA_MODEL_ROOT}"
-      - name: Stage release
+
+      - name: Stage the release
         id: package
         run: |
           set -euo pipefail
           version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
           if [[ "${GITHUB_REF_TYPE:-}" == tag ]]; then
-            [[ "${GITHUB_REF_NAME#v}" == "${version}" ]]
+            tag_version=${GITHUB_REF_NAME#v}
+            [[ "${tag_version}" == "${version}" ]] || {
+              echo "Cargo.toml version ${version} does not match tag ${GITHUB_REF_NAME}" >&2
+              exit 1
+            }
+            version=${tag_version}
           fi
-          package="omawake-${version}-linux-${{ matrix.package_arch }}"
-          mkdir -p "dist/${package}/lib" "dist/${package}/licenses"
-          cargo about generate about.hbs > "dist/${package}/licenses/RUST-DEPENDENCIES.txt"
-          cp target/release/omawake "dist/${package}/omawake"
-          cp "${OMA_ORT_ROOT}/lib/libonnxruntime.so.${ORT_VERSION}" "dist/${package}/lib/"
-          ln -s "libonnxruntime.so.${ORT_VERSION}" "dist/${package}/lib/libonnxruntime.so.1"
-          ln -s libonnxruntime.so.1 "dist/${package}/lib/libonnxruntime.so"
-          cp "${OMA_ORT_ROOT}/LICENSE" "dist/${package}/licenses/ONNX-RUNTIME-LICENSE"
-          cp "${OMA_ORT_ROOT}/ThirdPartyNotices.txt" "dist/${package}/licenses/ONNX-RUNTIME-THIRD-PARTY-NOTICES"
-          cp LICENSE "dist/${package}/licenses/OMAWAKE-LICENSE"
-          cp THIRD_PARTY_NOTICES.md "dist/${package}/licenses/OMAWAKE-THIRD-PARTY-NOTICES"
-          cp README.md INSTALL.md ACCELERATOR_SETUP.md CHANGELOG.md RELEASE_NOTES.md DEMO.md RUNTIME.md config.example.toml "dist/${package}/"
-          mkdir -p "dist/${package}/benchmarks"
-          cp benchmarks/README.md benchmarks/cuda-gb10-ort130-2026-09-15.md \
-            benchmarks/openvino-dell-xps-ort130-2026-09-15.md \
-            "dist/${package}/benchmarks/"
-          cp -a benchmarks/cuda-gb10-ort130-results-2026-09-15 \
-            benchmarks/openvino-dell-xps-ort130-results-2026-09-15 \
-            "dist/${package}/benchmarks/"
-          cp -a assets packaging scripts "dist/${package}/"
+          package="omawake-${version}-linux-${PACKAGE_ARCH}"
+          root="dist/${package}"
+          mkdir -p "${root}/lib" "${root}/licenses/AUDIOCPP-THIRD-PARTY"
+          cargo about generate about.hbs > "${root}/licenses/RUST-DEPENDENCIES.txt"
+          cp target/release/omawake "${root}/omawake"
+          cp "${AUDIOCPP_PROVIDER}" "${root}/lib/libaudiocpp.so.0.1.0"
+          ln -s libaudiocpp.so.0.1.0 "${root}/lib/libaudiocpp.so.0"
+          ln -s libaudiocpp.so.0 "${root}/lib/libaudiocpp.so"
+          cp "${AUDIOCPP_SOURCE}/LICENSE" "${root}/licenses/AUDIOCPP-THIRD-PARTY/AUDIOCPP-APACHE-2.0"
+          cp "${AUDIOCPP_SOURCE}/external/ggml/LICENSE" "${root}/licenses/AUDIOCPP-THIRD-PARTY/GGML-MIT"
+          cp "${AUDIOCPP_SOURCE}/external/cJSON/LICENSE" "${root}/licenses/AUDIOCPP-THIRD-PARTY/CJSON-MIT"
+          cp "${AUDIOCPP_SOURCE}/external/libyaml/License" "${root}/licenses/AUDIOCPP-THIRD-PARTY/LIBYAML-MIT"
+          cp LICENSE "${root}/licenses/OMAWAKE-LICENSE"
+          cp THIRD_PARTY_NOTICES.md "${root}/licenses/OMAWAKE-THIRD-PARTY-NOTICES"
+          cp licenses/LLAMA-CPP-LICENSE "${root}/licenses/LLAMA-CPP-LICENSE"
+          sed -n '2,42p' "${AUDIOCPP_SOURCE}/src/framework/audio/detail/speech_fft_internal.h" \
+            > "${root}/licenses/POCKETFFT-LICENSE"
+          cp README.md INSTALL.md ACCELERATOR_SETUP.md RUNTIME.md CHANGELOG.md RELEASE_NOTES.md DEMO.md config.example.toml "${root}/"
+          cp -a assets benchmarks packaging scripts "${root}/"
           tar -C dist -cJf "dist/${package}.tar.xz" "${package}"
           (cd dist && sha256sum "${package}.tar.xz" > "${package}.sha256")
           echo "name=${package}" >> "${GITHUB_OUTPUT}"
-      - name: Verify release contract
+
+      - name: Verify the release contract
         run: |
           set -euo pipefail
           package='${{ steps.package.outputs.name }}'
-          root="${RUNNER_TEMP}/${package}"
-          mkdir -p "${root}"
-          tar -C "${root}" -xJf "dist/${package}.tar.xz"
-          binary="${root}/${package}/omawake"
-          lib="${root}/${package}/lib"
-          test -x "${binary}"
-          test -e "${lib}/libonnxruntime.so"
-          for document in README.md INSTALL.md ACCELERATOR_SETUP.md CHANGELOG.md RELEASE_NOTES.md DEMO.md RUNTIME.md config.example.toml; do
-            test -s "${root}/${package}/${document}"
+          root="dist/${package}"
+          binary="${root}/omawake"
+          provider="${root}/lib/libaudiocpp.so.0.1.0"
+          expected_version="${package#omawake-}"
+          expected_version="${expected_version%-linux-${PACKAGE_ARCH}}"
+          [[ "$("${binary}" --version)" == "omawake ${expected_version}" ]]
+          [[ "$(readelf -d "${provider}" | sed -n 's/.*Library soname: \[\([^]]*\)\].*/\1/p')" == "libaudiocpp.so.0" ]]
+          test "$(find "${root}/lib" -maxdepth 1 -type f | wc -l)" -eq 1
+          test "$(find "${root}/lib" -maxdepth 1 -type l | wc -l)" -eq 2
+          test -L "${root}/lib/libaudiocpp.so.0"
+          test -L "${root}/lib/libaudiocpp.so"
+          for symbol in audiocpp_abi_version audiocpp_registry_create audiocpp_model_load audiocpp_session_create audiocpp_request_set_audio audiocpp_session_run audiocpp_result_text audiocpp_stream_start audiocpp_stream_push audiocpp_event_voice_activity; do
+            nm -D --defined-only "${provider}" | grep "${symbol}@@AUDIOCPP_0" >/dev/null
           done
-          test -s "${root}/${package}/assets/omawake-mark.svg"
-          test -s "${root}/${package}/benchmarks/cuda-gb10-ort130-2026-09-15.md"
-          test -s "${root}/${package}/benchmarks/openvino-dell-xps-ort130-2026-09-15.md"
-          test -s "${root}/${package}/packaging/systemd/omawake.service"
-          [[ $(find "${lib}" -maxdepth 1 \( -type f -o -type l \) | wc -l) == 3 ]]
-          if readelf -d "${binary}" | grep -E 'NEEDED.*(onnxruntime|sherpa|openvino|cuda|cudnn|cublas|nvinfer)'; then
-            echo "release executable must load ONNX Runtime dynamically" >&2
+          ! nm -D --defined-only --format=posix "${provider}" | awk '$1 != "AUDIOCPP_0" && $1 !~ /^audiocpp_/ { print; rejected=1 } END { exit !rejected }'
+          ! find "${root}" -type f \( -name 'audiocpp_cli' -o -name 'audiocpp_server' -o -name 'audiocpp_gguf' -o -name 'audiocpp_model_manager' \) | grep .
+          if readelf -d "${binary}" | grep -Ei 'NEEDED.*(audiocpp|onnxruntime|sherpa|openvino|cuda|cudnn|hip|vulkan)'; then
+            echo "release executable has a forbidden inference-runtime dependency" >&2
             exit 1
           fi
-          ! compgen -G "${lib}/libonnxruntime_providers_*.so*" >/dev/null
-          ! compgen -G "${lib}/libsherpa-onnx*.so*" >/dev/null
-          licenses="${root}/${package}/licenses"
-          [[ $(find "${licenses}" -maxdepth 1 -type f | wc -l) == 5 ]]
-          cmp "${OMA_ORT_ROOT}/LICENSE" "${licenses}/ONNX-RUNTIME-LICENSE"
-          cmp "${OMA_ORT_ROOT}/ThirdPartyNotices.txt" \
-            "${licenses}/ONNX-RUNTIME-THIRD-PARTY-NOTICES"
-          cmp LICENSE "${licenses}/OMAWAKE-LICENSE"
-          cmp THIRD_PARTY_NOTICES.md "${licenses}/OMAWAKE-THIRD-PARTY-NOTICES"
-          test -s "${licenses}/RUST-DEPENDENCIES.txt"
-          "${binary}" setup runtime --json > /tmp/runtime.json
-          python3 - <<'PY'
-          import json
-          report = json.load(open('/tmp/runtime.json', encoding='utf-8'))
-          assert report['libraries']['runtime_loadable']['default']
-          assert 'sherpa_library' not in report['libraries']
+          ! readelf -d "${provider}" | grep -Ei 'NEEDED.*(onnxruntime|sherpa|openvino|cuda|cudnn|hip|vulkan)'
+          ! find "${root}" -iname '*onnxruntime*' -o -iname '*sherpa*' | grep .
+          cmp "${AUDIOCPP_SOURCE}/LICENSE" "${root}/licenses/AUDIOCPP-THIRD-PARTY/AUDIOCPP-APACHE-2.0"
+          cmp "${AUDIOCPP_SOURCE}/external/ggml/LICENSE" "${root}/licenses/AUDIOCPP-THIRD-PARTY/GGML-MIT"
+          cmp "${AUDIOCPP_SOURCE}/external/cJSON/LICENSE" "${root}/licenses/AUDIOCPP-THIRD-PARTY/CJSON-MIT"
+          cmp "${AUDIOCPP_SOURCE}/external/libyaml/License" "${root}/licenses/AUDIOCPP-THIRD-PARTY/LIBYAML-MIT"
+          echo '94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d  licenses/LLAMA-CPP-LICENSE' | sha256sum -c -
+          cmp licenses/LLAMA-CPP-LICENSE "${root}/licenses/LLAMA-CPP-LICENSE"
+          sed -n '2,42p' "${AUDIOCPP_SOURCE}/src/framework/audio/detail/speech_fft_internal.h" | cmp - "${root}/licenses/POCKETFFT-LICENSE"
+          cmp licenses/POCKETFFT-LICENSE "${root}/licenses/POCKETFFT-LICENSE"
+          test "$(find "${root}/licenses/AUDIOCPP-THIRD-PARTY" -type f | wc -l)" -eq 4
+          export XDG_CONFIG_HOME="${RUNNER_TEMP}/omawake-release/config"
+          export XDG_DATA_HOME="${RUNNER_TEMP}/omawake-release/data"
+          export XDG_CACHE_HOME="${RUNNER_TEMP}/omawake-release/cache"
+          export XDG_RUNTIME_DIR="${RUNNER_TEMP}/omawake-release/run"
+          unset OMAWAKE_AUDIOCPP_LIBRARY
+          mkdir -p "${XDG_RUNTIME_DIR}"
+          "${binary}" setup runtime --json > "${RUNNER_TEMP}/runtime.json"
+          python3 - "${RUNNER_TEMP}/runtime.json" "${provider}" <<'PY'
+          import json, pathlib, sys
+          report = json.load(open(sys.argv[1], encoding="utf-8"))
+          expected = pathlib.Path(sys.argv[2]).resolve()
+          assert report["runtime_device_matrix"] == {
+              "default": ["cpu"], "openvino": ["cpu", "gpu", "npu"],
+              "cuda": ["gpu"], "vulkan": ["gpu"], "hip": ["gpu"]
+          }
+          assert report["provider"]["ready"]
+          assert pathlib.Path(report["provider"]["library"]).resolve() == expected
           PY
+
+      - name: Real file-only default provider smoke
+        if: matrix.package_arch == 'x86_64'
+        run: |
+          set -euo pipefail
+          package='${{ steps.package.outputs.name }}'
+          binary="dist/${package}/omawake"
+          export XDG_CONFIG_HOME="${RUNNER_TEMP}/omawake-smoke/config"
+          export XDG_DATA_HOME="${RUNNER_TEMP}/omawake-smoke/data"
+          export XDG_CACHE_HOME="${RUNNER_TEMP}/omawake-smoke/cache"
+          export XDG_RUNTIME_DIR="${RUNNER_TEMP}/omawake-smoke/run"
+          unset OMAWAKE_AUDIOCPP_LIBRARY
+          mkdir -p "${XDG_RUNTIME_DIR}"
+          "${binary}" setup all --model moonshine-streaming-tiny-q8_0-silero-v6.2.1
+          python3 - "${RUNNER_TEMP}/silence.wav" <<'PY'
+          import struct, sys, wave
+          with wave.open(sys.argv[1], "wb") as wav:
+              wav.setparams((1, 2, 16000, 16000, "NONE", "not compressed"))
+              wav.writeframes(struct.pack("<16000h", *([0] * 16000)))
+          PY
+          "${binary}" test --audio "${RUNNER_TEMP}/silence.wav" --json > "${RUNNER_TEMP}/smoke.json"
+          python3 - "${RUNNER_TEMP}/smoke.json" <<'PY'
+          import json, sys
+          report = json.load(open(sys.argv[1], encoding="utf-8"))
+          assert report["backend"]["kind"] == "audiocpp"
+          assert report["backend"]["effective_runtime"] == "default"
+          assert report["detections"] == []
+          PY
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.package.outputs.name }}
@@ -164,9 +211,7 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          for checksum in omawake-*.sha256; do
-            sha256sum -c "${checksum}"
-          done
+          for checksum in omawake-*.sha256; do sha256sum -c "${checksum}"; done
           sha256sum omawake-*.tar.xz > SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:

@@ -29,11 +29,11 @@ fn ensure_config_creates_and_reloads_defaults() {
 fn setup_loader_uses_defaults_for_invalid_config_without_changing_the_file() {
     let (_, paths) = fixture("invalid-recovery");
     fs::create_dir_all(paths.config_file.parent().unwrap()).unwrap();
-    let invalid = b"[backend]\nprovider_config = \"\"\n";
+    let invalid = b"[backend]\nremoved_option = \"\"\n";
     fs::write(&paths.config_file, invalid).unwrap();
 
     let issue = config_recovery(&paths.config_file).unwrap().unwrap();
-    assert!(issue.contains("unknown field `provider_config`"));
+    assert!(issue.contains("unknown field `removed_option`"));
     let config = ensure_config(&paths.config_file).unwrap();
     assert_eq!(config.backend.kind, "audiocpp");
     assert_eq!(fs::read(&paths.config_file).unwrap(), invalid);

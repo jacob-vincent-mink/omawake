@@ -64,10 +64,10 @@ omawake setup runtime \
   --runtime default --device cpu --dir /absolute/path/to/provider --apply
 ```
 
-Ordinary setup does not install system runtimes. OpenVINO and other accelerated
-providers only become selectable after a complete provider has been qualified;
-the setup screen reports unavailable choices and their status rather than
-saving an unusable configuration.
+Ordinary setup does not install system runtimes. OpenVINO GenAI and audio.cpp
+CUDA, Vulkan, and HIP choices ask for a complete user-supplied provider
+directory. Setup probes the provider and requested device before it saves an
+accelerated configuration.
 
 ## Use
 

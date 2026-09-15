@@ -84,18 +84,6 @@ fn assert_schema_keys(value: &serde_json::Value, schema: &serde_json::Value) {
 }
 
 #[test]
-fn thresholds_are_defaulted_sorted_deduplicated_and_validated() {
-    assert_eq!(normalize_thresholds(Vec::new(), 0.25).unwrap(), [0.25]);
-    assert_eq!(
-        normalize_thresholds(vec![0.5, 0.25, 0.5, -0.0, 0.0], 0.1).unwrap(),
-        [-0.0, 0.25, 0.5]
-    );
-    for invalid in [f32::NAN, f32::INFINITY, -0.1, 1.1] {
-        assert!(normalize_thresholds(vec![invalid], 0.25).is_err());
-    }
-}
-
-#[test]
 fn manifest_validation_rejects_bad_versions_paths_ids_hashes_and_events() {
     let known = BTreeSet::from(["wake".to_owned()]);
     let valid_clip = ManifestClip {
@@ -276,24 +264,23 @@ fn scoring_distinguishes_duplicates_wrong_ids_and_negative_false_activations() {
     )
     .unwrap();
     let enabled_keyword_ids = vec!["wake".into(), "unused".into()];
-    let threshold = build_threshold_report(
-        0.25,
+    let metrics = build_metrics(
         Duration::from_millis(5),
         identity(),
         vec![report, negative],
         &enabled_keyword_ids,
     );
-    assert_eq!(threshold.summary.true_positives, 1);
-    assert_eq!(threshold.summary.false_activations, 2);
-    assert_eq!(threshold.summary.false_activations_per_hour, Some(2.0));
-    assert_eq!(threshold.summary.precision, Some(0.2));
-    assert_eq!(threshold.summary.recall, Some(0.5));
-    assert_eq!(threshold.per_keyword["wake"].duplicate_predictions, 1);
-    assert_eq!(threshold.per_keyword["wrong"].wrong_id_predictions, 1);
-    assert_eq!(threshold.per_keyword["wake"].false_activations, 2);
-    assert_eq!(threshold.per_keyword["unused"].predictions, 0);
+    assert_eq!(metrics.summary.true_positives, 1);
+    assert_eq!(metrics.summary.false_activations, 2);
+    assert_eq!(metrics.summary.false_activations_per_hour, Some(2.0));
+    assert_eq!(metrics.summary.precision, Some(0.2));
+    assert_eq!(metrics.summary.recall, Some(0.5));
+    assert_eq!(metrics.per_keyword["wake"].duplicate_predictions, 1);
+    assert_eq!(metrics.per_keyword["wrong"].wrong_id_predictions, 1);
+    assert_eq!(metrics.per_keyword["wake"].false_activations, 2);
+    assert_eq!(metrics.per_keyword["unused"].predictions, 0);
     assert_eq!(
-        threshold.per_keyword["wake"].false_activations_per_hour,
+        metrics.per_keyword["wake"].false_activations_per_hour,
         Some(2.0)
     );
 }
@@ -317,7 +304,7 @@ fn invalid_detection_times_cannot_escape_into_a_report() {
 }
 
 #[test]
-fn evaluation_reloads_and_reinfers_for_each_threshold_and_is_fingerprinted() {
+fn evaluation_loads_once_scores_exact_matches_and_is_fingerprinted() {
     let prepared = PreparedManifest {
         manifest: EvaluationManifest {
             schema_version: 1,
@@ -335,57 +322,43 @@ fn evaluation_reloads_and_reinfers_for_each_threshold_and_is_fingerprinted() {
         manifest_sha256: "1".repeat(64),
         clips: vec![clip("positive", vec![event("wake", 900, 1_000)], 2_000)],
     };
-    let mut loads = Vec::new();
+    let mut loads = 0;
     let mut detections = 0;
     let report = evaluate_with(
         &prepared,
-        &[0.25, 0.5],
         EvaluationContext {
             config_sha256: "2".repeat(64),
             enabled_keyword_ids: vec!["wake".into(), "unused".into()],
             model_name: "fake-model".into(),
             model_directory: "/fake".into(),
-            keyword_score: 1.5,
             application_version: "test".into(),
         },
-        |threshold| {
-            loads.push(threshold);
-            Ok(threshold)
+        || {
+            loads += 1;
+            Ok(())
         },
-        |threshold, _| {
+        |_, _| {
             detections += 1;
-            Ok(if *threshold < 0.5 {
-                vec![detection("wake", 1_000.0)]
-            } else {
-                Vec::new()
-            })
+            Ok(vec![detection("wake", 1_000.0)])
         },
         |_| Ok(identity()),
     )
     .unwrap();
-    assert_eq!(loads, [0.25, 0.5]);
-    assert_eq!(detections, 2);
+    assert_eq!(loads, 1);
+    assert_eq!(detections, 1);
     assert_eq!(report.schema_version, 1);
-    assert_eq!(report.thresholds[0].summary.recall, Some(1.0));
-    assert_eq!(report.thresholds[1].summary.recall, Some(0.0));
-    assert_ne!(
-        report.thresholds[0].prediction_fingerprint,
-        report.thresholds[1].prediction_fingerprint
-    );
+    assert_eq!(report.summary.recall, Some(1.0));
     assert_eq!(report.prediction_fingerprint.len(), 64);
     let json = serde_json::to_value(&report).unwrap();
-    assert_eq!(json["evaluation"], "omawake-kws-accuracy");
-    assert_eq!(json["thresholds"][0]["backend"]["fallback_used"], false);
+    assert_eq!(json["evaluation"], "omawake-phrase-verifier-accuracy");
+    assert_eq!(json["backend"]["fallback_used"], false);
     assert_eq!(json["inputs"]["matching"]["early_tolerance_ms"], 250);
     assert_eq!(
         json["inputs"]["enabled_keyword_ids"],
         serde_json::json!(["wake", "unused"])
     );
-    assert_eq!(report.thresholds[0].per_keyword["unused"].predictions, 0);
-    assert_eq!(
-        report.thresholds[0].per_keyword["unused"].negative_audio_hours,
-        0.0
-    );
+    assert_eq!(report.per_keyword["unused"].predictions, 0);
+    assert_eq!(report.per_keyword["unused"].negative_audio_hours, 0.0);
 
     let schema: serde_json::Value = serde_json::from_str(include_str!(
         "../../schemas/evaluation-report-v1.schema.json"
@@ -395,27 +368,17 @@ fn evaluation_reloads_and_reinfers_for_each_threshold_and_is_fingerprinted() {
     assert_schema_keys(&json, &schema);
     assert_schema_keys(&json["inputs"], &definitions["inputs"]);
     assert_schema_keys(&json["inputs"]["corpus"], &definitions["corpus"]);
-    assert_schema_keys(&json["thresholds"][0], &definitions["threshold"]);
-    assert_schema_keys(&json["thresholds"][0]["backend"], &definitions["backend"]);
-    assert_schema_keys(&json["thresholds"][0]["files"][0], &definitions["file"]);
+    assert_schema_keys(&json["backend"], &definitions["backend"]);
+    assert_schema_keys(&json["files"][0], &definitions["file"]);
+    assert_schema_keys(&json["files"][0]["expected"][0], &definitions["expected"]);
     assert_schema_keys(
-        &json["thresholds"][0]["files"][0]["expected"][0],
-        &definitions["expected"],
-    );
-    assert_schema_keys(
-        &json["thresholds"][0]["files"][0]["predictions"][0],
+        &json["files"][0]["predictions"][0],
         &definitions["prediction"],
     );
-    assert_schema_keys(
-        &json["thresholds"][0]["files"][0]["matches"][0],
-        &definitions["match"],
-    );
-    assert_schema_keys(
-        &json["thresholds"][0]["files"][0]["counts"],
-        &definitions["counts"],
-    );
-    assert_schema_keys(&json["thresholds"][0]["summary"], &definitions["metrics"]);
-    assert_schema_keys(&json["thresholds"][0]["timing"], &definitions["timing"]);
+    assert_schema_keys(&json["files"][0]["matches"][0], &definitions["match"]);
+    assert_schema_keys(&json["files"][0]["counts"], &definitions["counts"]);
+    assert_schema_keys(&json["summary"], &definitions["metrics"]);
+    assert_schema_keys(&json["timing"], &definitions["timing"]);
 }
 
 #[test]

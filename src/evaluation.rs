@@ -105,7 +105,6 @@ pub struct EvaluationInputs {
     pub enabled_keyword_ids: Vec<String>,
     pub model_name: String,
     pub model_directory: String,
-    pub keyword_score: f32,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -114,13 +113,6 @@ pub struct EvaluationReport {
     pub evaluation: String,
     pub application_version: String,
     pub inputs: EvaluationInputs,
-    pub thresholds: Vec<ThresholdReport>,
-    pub prediction_fingerprint: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct ThresholdReport {
-    pub threshold: f32,
     pub model_load_milliseconds: f64,
     pub backend: RuntimeIdentity,
     pub files: Vec<FileReport>,
@@ -198,20 +190,6 @@ pub struct TimingSummary {
     pub aggregate_real_time_factor: Option<f64>,
     pub p50_file_milliseconds: Option<f64>,
     pub p95_file_milliseconds: Option<f64>,
-}
-
-pub fn normalize_thresholds(mut thresholds: Vec<f32>, default: f32) -> Result<Vec<f32>> {
-    if thresholds.is_empty() {
-        thresholds.push(default);
-    }
-    for threshold in &thresholds {
-        if !threshold.is_finite() || !(0.0..=1.0).contains(threshold) {
-            bail!("evaluation thresholds must be finite values between 0 and 1");
-        }
-    }
-    thresholds.sort_by(f32::total_cmp);
-    thresholds.dedup_by(|left, right| *left == *right);
-    Ok(thresholds)
 }
 
 pub fn load_manifest(path: &Path, enabled_keywords: &BTreeSet<String>) -> Result<PreparedManifest> {
@@ -390,61 +368,41 @@ pub struct EvaluationContext {
     pub enabled_keyword_ids: Vec<String>,
     pub model_name: String,
     pub model_directory: String,
-    pub keyword_score: f32,
     pub application_version: String,
 }
 
 pub fn evaluate_with<D, L, F, I>(
     prepared: &PreparedManifest,
-    thresholds: &[f32],
     context: EvaluationContext,
-    mut load: L,
+    load: L,
     mut detect: F,
     mut identity: I,
 ) -> Result<EvaluationReport>
 where
-    L: FnMut(f32) -> Result<D>,
+    L: FnOnce() -> Result<D>,
     F: FnMut(&D, &Path) -> Result<Vec<Detection>>,
     I: FnMut(&D) -> Result<RuntimeIdentity>,
 {
-    if thresholds.is_empty() {
-        bail!("evaluation requires at least one threshold");
+    let load_started = Instant::now();
+    let detector = load().context("load detector for evaluation")?;
+    let load_time = load_started.elapsed();
+    let backend = identity(&detector)?;
+    let mut files = Vec::with_capacity(prepared.clips.len());
+    for clip in &prepared.clips {
+        let started = Instant::now();
+        let detections = detect(&detector, &clip.absolute_path)
+            .with_context(|| format!("evaluate audio {}", clip.manifest.path.display()))?;
+        files.push(score_file(
+            clip,
+            detections,
+            started.elapsed(),
+            &prepared.manifest.matching,
+        )?);
     }
-    let mut reports = Vec::with_capacity(thresholds.len());
-    for &threshold in thresholds {
-        let load_started = Instant::now();
-        let detector = load(threshold)
-            .with_context(|| format!("load detector for evaluation threshold {threshold}"))?;
-        let load_time = load_started.elapsed();
-        let backend = identity(&detector)?;
-        let mut files = Vec::with_capacity(prepared.clips.len());
-        for clip in &prepared.clips {
-            let started = Instant::now();
-            let detections = detect(&detector, &clip.absolute_path).with_context(|| {
-                format!(
-                    "evaluate audio {} at threshold {threshold}",
-                    clip.manifest.path.display()
-                )
-            })?;
-            files.push(score_file(
-                clip,
-                detections,
-                started.elapsed(),
-                &prepared.manifest.matching,
-            )?);
-        }
-        reports.push(build_threshold_report(
-            threshold,
-            load_time,
-            backend,
-            files,
-            &context.enabled_keyword_ids,
-        ));
-    }
-    let prediction_fingerprint = report_fingerprint(&reports);
+    let metrics = build_metrics(load_time, backend, files, &context.enabled_keyword_ids);
     Ok(EvaluationReport {
         schema_version: REPORT_SCHEMA_VERSION,
-        evaluation: "omawake-kws-accuracy".into(),
+        evaluation: "omawake-phrase-verifier-accuracy".into(),
         application_version: context.application_version,
         inputs: EvaluationInputs {
             manifest_sha256: prepared.manifest_sha256.clone(),
@@ -454,10 +412,14 @@ where
             enabled_keyword_ids: context.enabled_keyword_ids,
             model_name: context.model_name,
             model_directory: context.model_directory,
-            keyword_score: context.keyword_score,
         },
-        thresholds: reports,
-        prediction_fingerprint,
+        model_load_milliseconds: metrics.model_load_milliseconds,
+        backend: metrics.backend,
+        files: metrics.files,
+        summary: metrics.summary,
+        per_keyword: metrics.per_keyword,
+        timing: metrics.timing,
+        prediction_fingerprint: metrics.prediction_fingerprint,
     })
 }
 
@@ -744,13 +706,12 @@ fn in_window(observed_end_ms: f64, expected: &ExpectedEvent, policy: &MatchingPo
     }
 }
 
-fn build_threshold_report(
-    threshold: f32,
+fn build_metrics(
     load_time: Duration,
     backend: RuntimeIdentity,
     files: Vec<FileReport>,
     enabled_keyword_ids: &[String],
-) -> ThresholdReport {
+) -> EvaluationMetrics {
     let mut summary = AccuracyMetrics::default();
     let mut per_keyword = enabled_keyword_ids
         .iter()
@@ -817,9 +778,8 @@ fn build_threshold_report(
         finalize_metrics(metrics);
     }
     let timing = timing_summary(&files);
-    let prediction_fingerprint = threshold_fingerprint(threshold, &files);
-    ThresholdReport {
-        threshold,
+    let prediction_fingerprint = prediction_fingerprint(&files);
+    EvaluationMetrics {
         model_load_milliseconds: duration_milliseconds(load_time),
         backend,
         files,
@@ -828,6 +788,16 @@ fn build_threshold_report(
         timing,
         prediction_fingerprint,
     }
+}
+
+struct EvaluationMetrics {
+    model_load_milliseconds: f64,
+    backend: RuntimeIdentity,
+    files: Vec<FileReport>,
+    summary: AccuracyMetrics,
+    per_keyword: BTreeMap<String, AccuracyMetrics>,
+    timing: TimingSummary,
+    prediction_fingerprint: String,
 }
 
 fn finalize_metrics(metrics: &mut AccuracyMetrics) {
@@ -889,9 +859,8 @@ fn percentile(values: &[f64], percentile: f64) -> Option<f64> {
     Some(sorted[rank])
 }
 
-fn threshold_fingerprint(threshold: f32, files: &[FileReport]) -> String {
+fn prediction_fingerprint(files: &[FileReport]) -> String {
     let mut digest = Sha256::new();
-    digest.update(threshold.to_bits().to_le_bytes());
     for file in files {
         digest.update((file.id.len() as u64).to_le_bytes());
         digest.update(file.id.as_bytes());
@@ -901,15 +870,6 @@ fn threshold_fingerprint(threshold: f32, files: &[FileReport]) -> String {
             digest.update(prediction.observed_start_ms.round().to_le_bytes());
             digest.update(prediction.observed_end_ms.round().to_le_bytes());
         }
-    }
-    format!("{:x}", digest.finalize())
-}
-
-fn report_fingerprint(reports: &[ThresholdReport]) -> String {
-    let mut digest = Sha256::new();
-    for report in reports {
-        digest.update(report.threshold.to_bits().to_le_bytes());
-        digest.update(report.prediction_fingerprint.as_bytes());
     }
     format!("{:x}", digest.finalize())
 }

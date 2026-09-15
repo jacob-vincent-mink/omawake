@@ -309,8 +309,6 @@ pub fn print_runtime(config: &Config, config_path: &Path, json: bool) -> Result<
     candidate.backend.kind = "audiocpp".into();
     candidate.backend.runtime = crate::backend::Runtime::Default;
     candidate.backend.device = "cpu".into();
-    candidate.backend.onnxruntime_library.clear();
-    candidate.backend.provider_library.clear();
     let mut probe_paths = AppPaths::discover();
     probe_paths.config_file = config_path.to_owned();
     let provider = crate::engine::audiocpp::probe_provider(&candidate, &probe_paths);
@@ -323,8 +321,10 @@ pub fn print_runtime(config: &Config, config_path: &Path, json: bool) -> Result<
         "integration": "Omawake dynamically loads audio.cpp's public C ABI; it never invokes the audio.cpp CLI. The hidden worker is an Omawake re-exec for isolation and warm sessions.",
         "runtime_device_matrix": {
             "default": ["cpu"],
-            "cuda": [],
-            "openvino": []
+            "openvino": ["cpu", "gpu", "npu"],
+            "cuda": ["gpu"],
+            "vulkan": ["gpu"],
+            "hip": ["gpu"]
         },
         "models": catalog::models(),
         "provider": {
@@ -334,10 +334,7 @@ pub fn print_runtime(config: &Config, config_path: &Path, json: bool) -> Result<
             "version": version,
             "error": error,
         },
-        "future_providers": [
-            {"kind":"openvino","status":"qualification pending","installed_by_setup":false},
-            {"kind":"audiocpp-cuda-vulkan","status":"qualification pending","installed_by_setup":false}
-        ],
+        "runtime_installation": "Omawake discovers complete provider directories supplied by the user; setup never installs vendor runtimes.",
         "loader_environment": std::env::var_os("LD_LIBRARY_PATH")
             .map(|value| value.to_string_lossy().into_owned()),
     });
@@ -376,8 +373,10 @@ pub fn print_runtime(config: &Config, config_path: &Path, json: bool) -> Result<
         }
         println!("Runtime/device choices:");
         println!("  default   cpu                       integrated audio.cpp provider");
-        println!("  openvino  Intel CPU, GPU, NPU       qualification pending; unavailable");
-        println!("  cuda      NVIDIA GPU                qualification pending; unavailable");
+        println!("  openvino  Intel CPU, GPU, NPU       external complete OpenVINO GenAI install");
+        println!("  cuda      NVIDIA GPU                external complete audio.cpp provider");
+        println!("  vulkan    Vulkan GPU                external complete audio.cpp provider");
+        println!("  hip       AMD GPU                   external complete audio.cpp provider");
         println!(
             "Setup discovers or accepts complete provider builds; it never installs a system runtime."
         );

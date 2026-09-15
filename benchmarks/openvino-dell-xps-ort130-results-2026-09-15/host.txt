@@ -1,5 +1,0 @@
-Linux ozymandias 7.2.3-arch1-1-ptl #1 SMP PREEMPT_DYNAMIC Mon, 07 Sep 2026 20:00:59 +0000 x86_64 GNU/Linux
-Architecture:                            x86_64
-Model name:                              Intel(R) Core(TM) Ultra X7 358H
-00:02.0 VGA compatible controller [0300]: Intel Corporation Panther Lake [Arc B390] [8086:b080] (rev 04)
-00:0b.0 Processing accelerators [1200]: Intel Corporation Core Ultra Processors (Series 3) NPU [8086:b03e] (rev 04)

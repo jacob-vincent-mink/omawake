@@ -1,67 +1,35 @@
-# Omawake demo
+# Demo
 
-Validated with Omawake's direct Rust keyword pipeline and the GigaSpeech 3.3M KWS model.
-
-## Recorded routing
-
-A config with `Lovely Child -> touch /tmp/omawake-action-lovely-child` and `Forever -> touch /tmp/omawake-action-forever` was run with:
+From an unpacked release, run the guided setup and its checks:
 
 ```bash
-omawake --config /tmp/omawake-demo.toml test \
-  --audio MODEL/test_wavs/1.wav --execute --json
+./omawake setup
+./omawake setup check
 ```
 
-The pure-Rust compiler emitted:
-
-```text
-▁LOVE LY ▁CHI L D @lovely-child
-▁FOR E VER @forever
-```
-
-The detector returned both stable IDs and both direct actions exited 0.
-
-## Live daemon path
-
-The live test created a temporary PipeWire null sink, routed Omawake's CPAL stream to its monitor, and played the same fixture into the sink. The daemon opened `pulse` at 44.1 kHz stereo; Omawake resampled it to the model's 16 kHz input. It then logged:
-
-```text
-loaded wake-word model in 305 ms
-armed on pulse (44100 Hz, 2 channel(s))
-detected lovely-child; action exited 0
-armed on pulse (44100 Hz, 2 channel(s))
-detected forever; action exited 0
-armed on pulse (44100 Hz, 2 channel(s))
-stopped
-```
-
-Distinct marker files confirmed both actions. Re-arming opened a fresh microphone and recognizer stream without reloading the 305 ms model. `stop` removed the control socket. The original default microphone was restored and the temporary PipeWire module was unloaded.
-
-## Capability behavior
-
-The binary without an OpenVINO provider plugin, configured with `runtime =
-"openvino"`, `device = "npu"`, and `fallback = "error"`, exited before model
-creation with `requires openvino`. With `fallback = "cpu"`, it warned visibly,
-decoded both IDs, and reported:
-
-```json
-{"effective_runtime":"default","fallback_used":true}
-```
-
-## 2026-09-13 — setup proof
-
-Ran one-command setup from a locally supplied, pinned archive in an isolated
-environment:
+Test without opening a microphone:
 
 ```bash
-omawake setup all --archive /tmp/recon/kws-model.tar.bz2
+./omawake test --audio /path/to/recording.wav --json
+./omawake benchmark --warmup 1 --iterations 5 /path/to/recording.wav
 ```
 
-It succeeded and was idempotent (a second run reported `already-installed` with no re-download). Testing the bundled fixture then produced a `lovely-child` detection with a 338 ms model load:
+Add or replace phrase-to-action mappings with direct argument vectors:
 
 ```bash
-omawake test --audio "$HOME/.local/share/omawake/models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/test_wavs/1.wav" --json
+./omawake wake-word add --id computer --phrase "Computer" -- notify-send "Wake phrase heard"
+./omawake wake-word remove computer
 ```
 
-Current guided setup can download the same checksum-pinned archive. Its
-publisher README marks the model as Apache License 2.0; `--archive` remains
-available for offline setup.
+Run the resident process only when desired:
+
+```bash
+./omawake daemon
+./omawake status --json
+./omawake pause
+./omawake resume
+./omawake stop
+```
+
+Ordinary setup does not install a service. Use `omawake setup systemd` as a
+separate, explicit step if a persistent user service is wanted.

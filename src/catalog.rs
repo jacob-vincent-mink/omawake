@@ -368,11 +368,6 @@ impl ModelSpec {
         config.model.verifier = self.verifier.into();
         config.model.vad = self.vad.into();
         config.model.sample_rate = self.sample_rate;
-        config.model.encoder.clear();
-        config.model.decoder.clear();
-        config.model.joiner.clear();
-        config.model.tokens.clear();
-        config.model.bpe_model.clear();
     }
 }
 

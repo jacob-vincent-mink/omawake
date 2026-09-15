@@ -149,4 +149,41 @@ mod tests {
         };
         assert!(write_request(&mut Vec::new(), &oversized, &[]).is_err());
     }
+
+    #[test]
+    fn framing_rejects_malformed_truncated_and_inconsistent_messages() {
+        use serde::Serializer;
+        use serde::ser::Error as _;
+
+        struct SerializationFailure;
+        impl Serialize for SerializationFailure {
+            fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: Serializer,
+            {
+                Err(S::Error::custom("deliberate serialization failure"))
+            }
+        }
+
+        assert!(write_json(&mut Vec::new(), &SerializationFailure).is_err());
+        assert!(write_json(&mut Vec::new(), &"x".repeat(MAX_HEADER_BYTES + 1)).is_err());
+        let mut oversized = ((MAX_HEADER_BYTES + 1) as u32).to_le_bytes().to_vec();
+        oversized.extend_from_slice(b"{}");
+        assert!(read_response(&mut oversized.as_slice()).is_err());
+        let mut malformed = (1_u32).to_le_bytes().to_vec();
+        malformed.push(b'{');
+        assert!(read_response(&mut malformed.as_slice()).is_err());
+        assert!(read_response(&mut [0_u8; 2].as_slice()).is_err());
+
+        let audio = Request::Audio { id: 11, samples: 1 };
+        assert!(write_request(&mut Vec::new(), &audio, &[]).is_err());
+        for samples in [0, FRAME_SAMPLES + 1] {
+            let mut encoded = Vec::new();
+            write_json(&mut encoded, &Request::Audio { id: 12, samples }).unwrap();
+            assert!(read_request(&mut encoded.as_slice()).is_err());
+        }
+        let mut truncated = Vec::new();
+        write_json(&mut truncated, &Request::Audio { id: 13, samples: 1 }).unwrap();
+        assert!(read_request(&mut truncated.as_slice()).is_err());
+    }
 }

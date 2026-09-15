@@ -4,17 +4,18 @@
   "title": "Omawake accuracy evaluation report v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "evaluation", "application_version", "inputs", "thresholds", "prediction_fingerprint"],
+  "required": ["schema_version", "evaluation", "application_version", "inputs", "model_load_milliseconds", "backend", "files", "summary", "per_keyword", "timing", "prediction_fingerprint"],
   "properties": {
     "schema_version": { "const": 1 },
-    "evaluation": { "const": "omawake-kws-accuracy" },
+    "evaluation": { "const": "omawake-phrase-verifier-accuracy" },
     "application_version": { "type": "string", "minLength": 1 },
     "inputs": { "$ref": "#/$defs/inputs" },
-    "thresholds": {
-      "type": "array",
-      "minItems": 1,
-      "items": { "$ref": "#/$defs/threshold" }
-    },
+    "model_load_milliseconds": { "type": "number", "minimum": 0 },
+    "backend": { "$ref": "#/$defs/backend" },
+    "files": { "type": "array", "items": { "$ref": "#/$defs/file" } },
+    "summary": { "$ref": "#/$defs/metrics" },
+    "per_keyword": { "type": "object", "additionalProperties": { "$ref": "#/$defs/metrics" } },
+    "timing": { "$ref": "#/$defs/timing" },
     "prediction_fingerprint": { "$ref": "#/$defs/fingerprint" }
   },
   "$defs": {
@@ -45,7 +46,7 @@
     "inputs": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["manifest_sha256", "config_sha256", "corpus", "matching", "enabled_keyword_ids", "model_name", "model_directory", "keyword_score"],
+      "required": ["manifest_sha256", "config_sha256", "corpus", "matching", "enabled_keyword_ids", "model_name", "model_directory"],
       "properties": {
         "manifest_sha256": { "$ref": "#/$defs/fingerprint" },
         "config_sha256": { "$ref": "#/$defs/fingerprint" },
@@ -66,8 +67,7 @@
           "items": { "type": "string", "minLength": 1 }
         },
         "model_name": { "type": "string" },
-        "model_directory": { "type": "string" },
-        "keyword_score": { "type": "number" }
+        "model_directory": { "type": "string" }
       }
     },
     "backend": {
@@ -180,21 +180,6 @@
         "wrong_id_prediction_indices": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
         "duplicate_prediction_indices": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
         "counts": { "$ref": "#/$defs/counts" }
-      }
-    },
-    "threshold": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["threshold", "model_load_milliseconds", "backend", "files", "summary", "per_keyword", "timing", "prediction_fingerprint"],
-      "properties": {
-        "threshold": { "type": "number", "minimum": 0, "maximum": 1 },
-        "model_load_milliseconds": { "type": "number", "minimum": 0 },
-        "backend": { "$ref": "#/$defs/backend" },
-        "files": { "type": "array", "items": { "$ref": "#/$defs/file" } },
-        "summary": { "$ref": "#/$defs/metrics" },
-        "per_keyword": { "type": "object", "additionalProperties": { "$ref": "#/$defs/metrics" } },
-        "timing": { "$ref": "#/$defs/timing" },
-        "prediction_fingerprint": { "$ref": "#/$defs/fingerprint" }
       }
     }
   }

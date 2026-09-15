@@ -128,4 +128,33 @@ mod tests {
         File::create(&file).unwrap();
         assert!(write_json(&file, &response_directory, &serde_json::json!({})).is_err());
     }
+
+    #[test]
+    fn response_file_allocation_and_security_failures_are_regular_errors() {
+        let response_directory = directory("security-errors");
+        fs::create_dir_all(&response_directory).unwrap();
+
+        assert!(ResponseFile::create(&response_directory, "missing/response").is_err());
+
+        let invalid_name = response_directory.join("response.json");
+        File::create(&invalid_name).unwrap();
+        assert!(write_json(&invalid_name, &response_directory, &serde_json::json!({})).is_err());
+
+        let public = response_directory.join(".public.json");
+        File::create(&public).unwrap();
+        fs::set_permissions(&public, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(write_json(&public, &response_directory, &serde_json::json!({})).is_err());
+
+        let purpose = "collisions";
+        let first = NEXT_RESPONSE.load(Ordering::Relaxed);
+        for sequence in first..first + 256 {
+            File::create(
+                response_directory
+                    .join(format!(".{purpose}-{}-{sequence}.json", std::process::id())),
+            )
+            .unwrap();
+        }
+        assert!(ResponseFile::create(&response_directory, purpose).is_err());
+        fs::remove_dir_all(response_directory).unwrap();
+    }
 }

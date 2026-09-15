@@ -24,7 +24,8 @@ use libloading::Library;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use self::protocol::{FRAME_SAMPLES, PlacementEvidence, Request, Response, Transcript};
+pub(crate) use self::protocol::PlacementEvidence;
+use self::protocol::{FRAME_SAMPLES, Request, Response, Transcript};
 use self::ring::{Activity, ActivityBuffer, Utterance};
 use super::audio::{AudioResampler, read_wave};
 use super::{Detection, WakeWordBackend, WakeWordStream, detect_samples};
@@ -185,15 +186,23 @@ impl ProviderSpec {
         })
     }
 
-    pub(crate) fn validate(mut self) -> Result<Self> {
+    pub(crate) fn validate(self) -> Result<Self> {
+        self.validate_with(verify_vad, verify_model_manifest)
+    }
+
+    fn validate_with(
+        mut self,
+        validate_vad: impl FnOnce(&Path) -> Result<()>,
+        validate_model: impl FnOnce(&Path) -> Result<()>,
+    ) -> Result<Self> {
         self.genai_library = canonical_file(&self.genai_library, "OpenVINO GenAI C library")?;
         self.core_library = canonical_file(&self.core_library, "OpenVINO Runtime C library")?;
         self.audiocpp_library = canonical_file(&self.audiocpp_library, "audio.cpp C library")?;
         self.model_directory =
             canonical_directory(&self.model_directory, "OpenVINO Whisper model")?;
         self.vad_model = canonical_file(&self.vad_model, "Silero VAD model")?;
-        verify_vad(&self.vad_model)?;
-        verify_model_manifest(&self.model_directory)?;
+        validate_vad(&self.vad_model)?;
+        validate_model(&self.model_directory)?;
         if !(1..=64).contains(&self.vad_threads) {
             bail!("VAD threads must be between 1 and 64");
         }
@@ -403,8 +412,16 @@ pub(crate) fn prepare(spec: ProviderSpec) -> Result<PlacementEvidence> {
 }
 
 pub(crate) fn probe_runtime(config: &Config, paths: &AppPaths) -> Result<RuntimeEvidence> {
-    let spec = ProviderSpec::from_config(config, paths)?;
     let executable = env::current_exe().context("resolve Omawake executable")?;
+    probe_runtime_with(config, paths, &executable)
+}
+
+fn probe_runtime_with(
+    config: &Config,
+    paths: &AppPaths,
+    executable: &Path,
+) -> Result<RuntimeEvidence> {
+    let spec = ProviderSpec::from_config(config, paths)?;
     let mut command = Command::new(executable);
     command
         .arg("__openvino-runtime-worker")
@@ -558,8 +575,7 @@ struct WorkerProcess {
 }
 
 impl WorkerProcess {
-    fn launch(spec: &ProviderSpec) -> Result<(Self, PlacementEvidence)> {
-        let executable = env::current_exe().context("resolve Omawake executable")?;
+    fn launch_with(spec: &ProviderSpec, executable: &Path) -> Result<(Self, PlacementEvidence)> {
         let log = OpenOptions::new()
             .create(true)
             .append(true)
@@ -687,6 +703,7 @@ fn wait_for_io(fd: c_int, events: i16, timeout: Duration) -> io::Result<()> {
 
 struct Worker {
     spec: ProviderSpec,
+    executable: PathBuf,
     process: Option<WorkerProcess>,
     active_id: Option<u64>,
     evidence: PlacementEvidence,
@@ -694,9 +711,15 @@ struct Worker {
 
 impl Worker {
     fn spawn(spec: ProviderSpec) -> Result<Self> {
-        let (process, evidence) = WorkerProcess::launch(&spec)?;
+        let executable = env::current_exe().context("resolve Omawake executable")?;
+        Self::spawn_with(spec, executable)
+    }
+
+    fn spawn_with(spec: ProviderSpec, executable: PathBuf) -> Result<Self> {
+        let (process, evidence) = WorkerProcess::launch_with(&spec, &executable)?;
         Ok(Self {
             spec,
+            executable,
             process: Some(process),
             active_id: None,
             evidence,
@@ -705,7 +728,7 @@ impl Worker {
 
     fn ensure_process(&mut self) -> Result<()> {
         if self.process.is_none() {
-            let (process, evidence) = WorkerProcess::launch(&self.spec)?;
+            let (process, evidence) = WorkerProcess::launch_with(&self.spec, &self.executable)?;
             self.process = Some(process);
             self.evidence = evidence;
         }
@@ -1562,13 +1585,29 @@ pub(crate) fn runtime_worker_main(
     requested_device: &str,
 ) -> Result<()> {
     harden_worker_process()?;
+    runtime_worker_main_io(
+        genai_library,
+        core_library,
+        audiocpp_library,
+        requested_device,
+        &mut std::io::stdout().lock(),
+    )
+}
+
+fn runtime_worker_main_io(
+    genai_library: &Path,
+    core_library: &Path,
+    audiocpp_library: &Path,
+    requested_device: &str,
+    output: &mut impl io::Write,
+) -> Result<()> {
     let requested_device = canonical_device(requested_device)?;
     let core = CoreApi::load(core_library)?;
     let device = core.inspect(requested_device)?;
     let _genai = GenAiApi::load(genai_library)?;
     let _audiocpp = VadApi::load(audiocpp_library)?;
     serde_json::to_writer(
-        std::io::stdout().lock(),
+        output,
         &RuntimeEvidence {
             runtime_build: device.runtime_build,
             runtime_description: device.runtime_description,
@@ -1643,6 +1682,14 @@ fn worker_main_io(
         use std::io::Write;
         let _ = evidence_log.write_all(b"\n");
     }
+    worker_loop(&mut provider, input, output)
+}
+
+fn worker_loop(
+    provider: &mut OpenVinoProvider,
+    input: &mut impl io::Read,
+    output: &mut impl io::Write,
+) -> Result<()> {
     protocol::write_response(
         output,
         &Response::Ready {
@@ -1677,7 +1724,7 @@ fn worker_main_io(
                         let transcript = stream
                             .endpoint
                             .push(&pcm, activity)
-                            .map(|utterance| stream.finish_utterance(&provider, utterance))
+                            .map(|utterance| stream.finish_utterance(provider, utterance))
                             .transpose()?;
                         if transcript.is_some() {
                             provider.vad.restart()?;
@@ -1706,7 +1753,7 @@ fn worker_main_io(
                     let result = stream
                         .endpoint
                         .finish()
-                        .map(|utterance| stream.finish_utterance(&provider, utterance))
+                        .map(|utterance| stream.finish_utterance(provider, utterance))
                         .transpose()
                         .and_then(|transcript| {
                             provider.vad.restart()?;
@@ -1759,6 +1806,200 @@ fn worker_main_io(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
+    use std::sync::OnceLock;
+
+    const FAKE_OPENVINO_C: &str = r#"
+    #include <stdarg.h>
+    #include <stddef.h>
+    #include <stdint.h>
+    #include <stdlib.h>
+    #include <string.h>
+    #ifndef FAKE_MODE
+    #define FAKE_MODE 0
+    #endif
+
+    typedef struct { const char *build_number; const char *description; } OvVersion;
+    typedef struct { char **devices; size_t size; } OvAvailableDevices;
+    static char cpu[] = "CPU";
+    static char gpu[] = "GPU.0";
+    static char npu[] = "NPU";
+    static char *device_names[] = { cpu, gpu, npu };
+    static const char transcript[] = "  hello oma  ";
+
+    int ov_get_openvino_version(OvVersion *out) {
+    if (FAKE_MODE == 1) return 7;
+    out->build_number = "2026.3.fake"; out->description = "safe fake OpenVINO"; return 0;
+    }
+    void ov_version_free(OvVersion *version) { (void) version; }
+    int ov_core_create(void **out) { if (FAKE_MODE == 2) return 7; *out = malloc(1); return *out ? 0 : 1; }
+    void ov_core_free(void *core) { free(core); }
+    int ov_core_get_available_devices(const void *core, OvAvailableDevices *out) {
+    if (FAKE_MODE == 3) return 7;
+    (void) core; out->devices = device_names; out->size = 3; return 0;
+    }
+    void ov_available_devices_free(OvAvailableDevices *devices) { (void) devices; }
+    int ov_core_get_property(const void *core, const char *device, const char *key, char **out) {
+    (void) core; (void) device;
+    if (FAKE_MODE == 4) return 7;
+    if (FAKE_MODE == 5) { *out = 0; return 0; }
+    const char *value = strcmp(key, "FULL_DEVICE_NAME") == 0 ? "Safe Fake Device" :
+                        strcmp(key, "DEVICE_ARCHITECTURE") == 0 ? "fake-arch" :
+                        strcmp(key, "DRIVER_VERSION") == 0 ? "fake-driver" : "fake-value";
+    *out = strdup(value); return *out ? 0 : 1;
+    }
+    void ov_free(const char *value) { free((void *) value); }
+    const char *ov_get_error_info(int status) { (void) status; return "FAKE_STATUS"; }
+    const char *ov_get_last_err_msg(void) { return "controlled fake OpenVINO error"; }
+
+    int ov_genai_whisper_pipeline_create(const char *model, const char *device,
+                                     size_t properties, void **out, ...) {
+    (void) model; (void) device; (void) properties;
+    if (FAKE_MODE == 6) return 7;
+    if (FAKE_MODE == 7) { *out = 0; return 0; }
+    *out = malloc(1); return *out ? 0 : 1;
+    }
+    void ov_genai_whisper_pipeline_free(void *pipeline) { free(pipeline); }
+    int ov_genai_whisper_pipeline_generate(void *pipeline, const float *pcm, size_t count,
+                                       const void *config, void **out) {
+    (void) pipeline; (void) pcm; (void) count; (void) config;
+    if (FAKE_MODE == 8) return 7;
+    if (FAKE_MODE == 9) { *out = 0; return 0; }
+    *out = malloc(1); return *out ? 0 : 1;
+    }
+    int ov_genai_whisper_decoded_results_get_string(const void *results, char *out, size_t *size) {
+    (void) results;
+    if (!out) {
+        if (FAKE_MODE == 10) { *size = 0; return 0; }
+        if (FAKE_MODE == 11) { *size = 5 * 1024 * 1024; return 0; }
+        *size = sizeof(transcript); return 0;
+    }
+    if (FAKE_MODE == 12) return 7;
+    if (FAKE_MODE == 13) { memset(out, 'x', *size); return 0; }
+    memcpy(out, transcript, sizeof(transcript)); *size = sizeof(transcript); return 0;
+    }
+    void ov_genai_whisper_decoded_results_free(void *results) { free(results); }
+    "#;
+
+    fn fake_openvino_library() -> &'static Path {
+        static LIBRARY: OnceLock<PathBuf> = OnceLock::new();
+        LIBRARY
+            .get_or_init(|| {
+                let root = env::temp_dir()
+                    .join(format!("omawake-safe-fake-openvino-{}", std::process::id()));
+                fs::create_dir_all(&root).unwrap();
+                let source = root.join("fake_openvino.c");
+                let library = root.join("libopenvino_fake.so");
+                fs::write(&source, FAKE_OPENVINO_C).unwrap();
+                let output = Command::new("cc")
+                    .args(["-shared", "-fPIC", "-O0"])
+                    .arg(&source)
+                    .arg("-o")
+                    .arg(&library)
+                    .output()
+                    .unwrap();
+                assert!(
+                    output.status.success(),
+                    "compile fake OpenVINO DSO: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                library
+            })
+            .as_path()
+    }
+
+    fn fake_openvino_variant(mode: u8) -> PathBuf {
+        let root = env::temp_dir().join(format!(
+            "omawake-safe-fake-openvino-variant-{}-{mode}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let source = root.join("fake_openvino.c");
+        let library = root.join("libopenvino_fake.so");
+        fs::write(&source, FAKE_OPENVINO_C).unwrap();
+        let output = Command::new("cc")
+            .args(["-shared", "-fPIC", "-O0"])
+            .arg(format!("-DFAKE_MODE={mode}"))
+            .arg(&source)
+            .arg("-o")
+            .arg(&library)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "compile fake OpenVINO variant: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        library
+    }
+
+    fn fake_spec(name: &str, device: &str) -> (PathBuf, ProviderSpec) {
+        let root = temporary(name);
+        let _ = fs::remove_dir_all(&root);
+        let model_directory = root.join("model");
+        let cache_directory = root.join("cache");
+        fs::create_dir_all(&model_directory).unwrap();
+        fs::create_dir_all(&cache_directory).unwrap();
+        let vad_model = root.join("vad.safetensors");
+        fs::write(&vad_model, b"safe fake vad").unwrap();
+        if device != "CPU" {
+            fs::write(cache_directory.join("compiled.blob"), b"fake cache").unwrap();
+        }
+        (
+            root.clone(),
+            ProviderSpec {
+                genai_library: fake_openvino_library().to_path_buf(),
+                core_library: fake_openvino_library().to_path_buf(),
+                audiocpp_library: super::super::audiocpp::tests::fake_library().to_path_buf(),
+                library_dirs: vec![fake_openvino_library().parent().unwrap().to_path_buf()],
+                model_directory,
+                vad_model,
+                cache_directory: cache_directory.clone(),
+                placement_log: cache_directory.join("placement.log"),
+                device: device.into(),
+                vad_threads: 2,
+            },
+        )
+    }
+
+    fn fake_runtime_config(name: &str) -> (PathBuf, AppPaths, Config) {
+        let root = temporary(name);
+        let _ = fs::remove_dir_all(&root);
+        let runtime = root.join("runtime");
+        fs::create_dir_all(&runtime).unwrap();
+        let genai = runtime.join("libopenvino_genai_c.so");
+        fs::copy(fake_openvino_library(), &genai).unwrap();
+        fs::copy(fake_openvino_library(), runtime.join("libopenvino_c.so")).unwrap();
+        fs::copy(
+            super::super::audiocpp::tests::fake_library(),
+            runtime.join("libaudiocpp.so.0.1.0"),
+        )
+        .unwrap();
+        for plugin in [
+            "libopenvino_intel_cpu_plugin.so",
+            "libopenvino_intel_gpu_plugin.so",
+            "libopenvino_intel_npu_plugin.so",
+            "libopenvino_intel_npu_compiler_loader.so",
+            "libopenvino_intel_npu_compiler.so",
+        ] {
+            fs::write(runtime.join(plugin), b"present").unwrap();
+        }
+        let paths = AppPaths {
+            config_file: root.join("config/config.toml"),
+            data_dir: root.join("data"),
+            cache_dir: root.join("cache"),
+            state_dir: root.join("state"),
+            runtime_dir: root.join("run"),
+        };
+        fs::create_dir_all(paths.config_file.parent().unwrap()).unwrap();
+        let mut config = Config::default();
+        config.backend.kind = "openvino-genai".into();
+        config.backend.runtime = Runtime::Openvino;
+        config.backend.device = "cpu".into();
+        config.backend.library = genai;
+        config.backend.library_dirs = vec![runtime];
+        (root, paths, config)
+    }
 
     fn temporary(name: &str) -> PathBuf {
         env::temp_dir().join(format!("omawake-openvino-{name}-{}", std::process::id()))
@@ -1826,5 +2067,560 @@ mod tests {
         assert_eq!(detections[0].id, "lights");
         assert_eq!(detections[0].tokens, ["light", "up"]);
         assert_eq!(detections[0].start_time, 0.5);
+    }
+
+    #[test]
+    fn fake_core_dso_reports_devices_and_properties() {
+        let core = CoreApi::load(fake_openvino_library()).unwrap();
+        for (requested, available) in [("CPU", "CPU"), ("GPU", "GPU.0"), ("NPU", "NPU")] {
+            let evidence = core.inspect(requested).unwrap();
+            assert_eq!(evidence.available_device, available);
+            assert_eq!(evidence.runtime_build, "2026.3.fake");
+            assert_eq!(evidence.runtime_description, "safe fake OpenVINO");
+            assert_eq!(evidence.full_device_name, "Safe Fake Device");
+            assert_eq!(evidence.device_architecture, "fake-arch");
+            assert_eq!(evidence.driver_version, "fake-driver");
+        }
+        assert!(
+            core.inspect("GNA")
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("unavailable")
+        );
+        assert!(
+            core.check("controlled", 9)
+                .unwrap_err()
+                .to_string()
+                .contains("FAKE_STATUS")
+        );
+        assert_eq!(unsafe { optional_c_string(std::ptr::null()) }, "");
+    }
+
+    #[test]
+    fn fake_core_variants_cover_safe_runtime_error_cleanup() {
+        for mode in 1..=5 {
+            let library = fake_openvino_variant(mode);
+            let core = CoreApi::load(&library).unwrap();
+            let error = core.inspect("CPU").err().unwrap();
+            assert!(!error.to_string().is_empty());
+        }
+    }
+
+    #[test]
+    fn runtime_probe_and_worker_evidence_use_isolated_valid_processes() {
+        let mut output = Vec::new();
+        runtime_worker_main_io(
+            fake_openvino_library(),
+            fake_openvino_library(),
+            super::super::audiocpp::tests::fake_library(),
+            "gpu",
+            &mut output,
+        )
+        .unwrap();
+        let evidence: RuntimeEvidence = serde_json::from_slice(&output).unwrap();
+        assert_eq!(evidence.requested_device, "GPU");
+        assert_eq!(evidence.available_device, "GPU.0");
+        assert!(
+            runtime_worker_main_io(
+                fake_openvino_library(),
+                fake_openvino_library(),
+                super::super::audiocpp::tests::fake_library(),
+                "AUTO",
+                &mut Vec::new(),
+            )
+            .is_err()
+        );
+
+        let (root, paths, config) = fake_runtime_config("runtime-probe");
+        let evidence = probe_runtime_with(
+            &config,
+            &paths,
+            super::super::audiocpp::tests::fake_worker(),
+        )
+        .unwrap();
+        assert_eq!(evidence.runtime_description, "safe fake runtime");
+        assert!(probe_runtime_with(&config, &paths, Path::new("/bin/false")).is_err());
+        assert!(
+            probe_runtime_with(
+                &config,
+                &paths,
+                Path::new("/definitely/missing/omawake-worker")
+            )
+            .is_err()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn fake_openvino_provider_runs_genai_and_vad_on_cpu_and_npu() {
+        for device in ["CPU", "NPU"] {
+            let (root, spec) = fake_spec(&format!("provider-{device}"), device);
+            let mut provider = OpenVinoProvider::open(&spec).unwrap();
+            assert_eq!(provider.evidence.requested_device, device);
+            assert_eq!(provider.evidence.static_pipeline, device == "NPU");
+            assert_eq!(provider.transcribe(&[0.25; 32]).unwrap(), "hello oma");
+            assert_eq!(
+                provider.verify_utterance(&[0.25; 32]).unwrap().as_deref(),
+                Some("hello oma")
+            );
+            assert!(provider.transcribe(&[]).is_err());
+            assert!(provider.transcribe(&vec![0.0; 16_000 * 30 + 1]).is_err());
+
+            let mut frame = vec![0.0; FRAME_SAMPLES];
+            assert_eq!(
+                provider
+                    .vad
+                    .activity(&frame)
+                    .unwrap()
+                    .start_before_frame_end,
+                None
+            );
+            frame[0] = 1.0;
+            assert_eq!(
+                provider
+                    .vad
+                    .activity(&frame)
+                    .unwrap()
+                    .start_before_frame_end,
+                Some(0)
+            );
+            frame[0] = -1.0;
+            assert_eq!(
+                provider.vad.activity(&frame).unwrap().end_before_frame_end,
+                Some(0)
+            );
+            provider.vad.restart().unwrap();
+            frame[0] = 2.0;
+            let segment = provider.vad.activity(&frame).unwrap();
+            assert_eq!(segment.start_before_frame_end, Some(FRAME_SAMPLES));
+            assert_eq!(segment.end_before_frame_end, Some(0));
+            frame[0] = 3.0;
+            assert!(
+                provider
+                    .vad
+                    .activity(&frame)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("invalid")
+            );
+            frame[0] = 4.0;
+            assert!(
+                provider
+                    .vad
+                    .activity(&frame)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("unknown")
+            );
+            assert!(provider.vad.activity(&frame[..10]).is_err());
+            provider.vad.cursor = i64::MAX;
+            assert!(provider.vad.activity(&vec![0.0; FRAME_SAMPLES]).is_err());
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn fake_genai_variants_cover_safe_pipeline_and_transcript_errors() {
+        for mode in 6..=7 {
+            let (root, mut spec) = fake_spec(&format!("pipeline-error-{mode}"), "CPU");
+            spec.genai_library = fake_openvino_variant(mode);
+            assert!(OpenVinoProvider::open(&spec).err().is_some());
+            fs::remove_dir_all(root).unwrap();
+        }
+
+        let (root, spec) = fake_spec("accelerator-cache-required", "NPU");
+        fs::remove_file(spec.cache_directory.join("compiled.blob")).unwrap();
+        assert!(
+            OpenVinoProvider::open(&spec)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("cache artifacts")
+        );
+        fs::remove_dir_all(root).unwrap();
+
+        let (root, mut spec) = fake_spec("vad-loader-error", "CPU");
+        spec.audiocpp_library = fake_openvino_library().to_path_buf();
+        assert!(OpenVinoProvider::open(&spec).err().is_some());
+        fs::remove_dir_all(root).unwrap();
+
+        for mode in 8..=13 {
+            let (root, mut spec) = fake_spec(&format!("transcript-error-{mode}"), "CPU");
+            spec.genai_library = fake_openvino_variant(mode);
+            let provider = OpenVinoProvider::open(&spec).unwrap();
+            assert!(provider.transcribe(&[0.25; 32]).is_err());
+            drop(provider);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn in_memory_openvino_worker_covers_stream_lifecycle() {
+        let (root, spec) = fake_spec("worker-loop", "CPU");
+        let mut provider = OpenVinoProvider::open(&spec).unwrap();
+        let frame = vec![0.0; FRAME_SAMPLES];
+        let mut input = Vec::new();
+        protocol::write_request(
+            &mut input,
+            &Request::Audio {
+                id: 1,
+                samples: FRAME_SAMPLES,
+            },
+            &frame,
+        )
+        .unwrap();
+        protocol::write_request(&mut input, &Request::Start { id: 1 }, &[]).unwrap();
+        protocol::write_request(
+            &mut input,
+            &Request::Audio {
+                id: 2,
+                samples: FRAME_SAMPLES,
+            },
+            &frame,
+        )
+        .unwrap();
+        let mut invalid = frame.clone();
+        invalid[0] = f32::INFINITY;
+        protocol::write_request(
+            &mut input,
+            &Request::Audio {
+                id: 1,
+                samples: FRAME_SAMPLES,
+            },
+            &invalid,
+        )
+        .unwrap();
+        let mut speech = frame.clone();
+        speech[0] = 1.0;
+        protocol::write_request(
+            &mut input,
+            &Request::Audio {
+                id: 1,
+                samples: FRAME_SAMPLES,
+            },
+            &speech,
+        )
+        .unwrap();
+        protocol::write_request(&mut input, &Request::Finish { id: 2 }, &[]).unwrap();
+        protocol::write_request(&mut input, &Request::Finish { id: 1 }, &[]).unwrap();
+        protocol::write_request(&mut input, &Request::Finish { id: 1 }, &[]).unwrap();
+        protocol::write_request(&mut input, &Request::Start { id: 3 }, &[]).unwrap();
+        protocol::write_request(&mut input, &Request::Cancel { id: 3 }, &[]).unwrap();
+        protocol::write_request(&mut input, &Request::Cancel { id: 3 }, &[]).unwrap();
+        protocol::write_request(&mut input, &Request::Shutdown, &[]).unwrap();
+
+        let mut output = Vec::new();
+        worker_loop(&mut provider, &mut input.as_slice(), &mut output).unwrap();
+        let mut responses = output.as_slice();
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Ready { .. }
+        ));
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Error { id: Some(1), .. }
+        ));
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Ack { id: 1 }
+        ));
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Error { id: Some(2), .. }
+        ));
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Error { id: Some(1), .. }
+        ));
+        assert!(
+            matches!(protocol::read_response(&mut responses).unwrap(), Response::Result { id: 1, transcripts } if transcripts.is_empty())
+        );
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Error { id: Some(2), .. }
+        ));
+        assert!(
+            matches!(protocol::read_response(&mut responses).unwrap(), Response::Result { id: 1, transcripts } if transcripts[0].text == "hello oma")
+        );
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Error { id: Some(1), .. }
+        ));
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Ack { id: 3 }
+        ));
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Ack { id: 3 }
+        ));
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Error { id: Some(3), .. }
+        ));
+        assert!(responses.is_empty());
+        drop(provider);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn provider_spec_validation_and_worker_errors_are_protocol_safe() {
+        let (root, mut spec) = fake_spec("spec-errors", "CPU");
+        assert!(
+            spec.clone()
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("Silero VAD")
+        );
+        spec.device = "AUTO".into();
+        assert!(spec.clone().validate().is_err());
+
+        let mut output = Vec::new();
+        let mut input = [].as_slice();
+        worker_main_io(spec, &mut input, &mut output).unwrap();
+        assert!(matches!(
+            protocol::read_response(&mut output.as_slice()).unwrap(),
+            Response::Error { id: None, .. }
+        ));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn io_waits_paths_and_cache_permissions_are_bounded() {
+        use std::os::unix::ffi::OsStringExt;
+        use std::os::unix::net::UnixStream;
+
+        let (reader, writer) = UnixStream::pair().unwrap();
+        assert_eq!(
+            wait_for_io(reader.as_raw_fd(), libc::POLLIN, Duration::from_millis(1))
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::TimedOut
+        );
+        wait_for_io(writer.as_raw_fd(), libc::POLLOUT, Duration::from_millis(10)).unwrap();
+
+        let mut child = Command::new("true").spawn().unwrap();
+        assert!(wait_for_exit(&mut child, Duration::from_secs(1)));
+
+        let root = temporary("secure-directory");
+        let _ = fs::remove_dir_all(&root);
+        secure_directory(&root, "test cache").unwrap();
+        assert_eq!(
+            fs::metadata(&root).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(cache_artifacts(&root).unwrap(), (0, 0));
+        assert!(canonical_file(&root, "directory").is_err());
+        assert!(canonical_directory(&root.join("missing"), "missing").is_err());
+        let nul = std::ffi::OsString::from_vec(b"bad\0path".to_vec());
+        assert!(path_to_c_string(Path::new(&nul)).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn supervised_openvino_worker_reconnects_and_reaps_normally() {
+        let (root, spec) = fake_spec("supervised-process", "CPU");
+        let executable = super::super::audiocpp::tests::fake_worker().to_path_buf();
+        let mut worker = Worker::spawn_with(spec, executable).unwrap();
+        assert_eq!(worker.evidence.available_device, "CPU");
+        worker.start(7).unwrap();
+        assert!(
+            worker
+                .start(8)
+                .unwrap_err()
+                .to_string()
+                .contains("already serving")
+        );
+        assert!(
+            worker
+                .audio(8, &[])
+                .unwrap_err()
+                .to_string()
+                .contains("not serving")
+        );
+        assert!(
+            worker
+                .audio(7, &vec![0.0; FRAME_SAMPLES])
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(worker.finish(7).unwrap()[0].text, "hello oma");
+        assert!(worker.finish(7).is_err());
+        worker.start(8).unwrap();
+        worker.cancel(8).unwrap();
+        worker.disconnect();
+        worker.start(9).unwrap();
+        worker.shutdown();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn supervised_openvino_worker_reports_controlled_protocol_errors() {
+        let executable = super::super::audiocpp::tests::fake_worker().to_path_buf();
+        for mode in ["HANDSHAKE_ERROR", "HANDSHAKE_UNEXPECTED", "HANDSHAKE_EOF"] {
+            let (root, mut spec) = fake_spec(&format!("handshake-{mode}"), "CPU");
+            spec.device = mode.into();
+            assert!(Worker::spawn_with(spec, executable.clone()).err().is_some());
+            fs::remove_dir_all(root).unwrap();
+        }
+
+        for mode in ["RESPONSE_ERROR", "RESPONSE_UNEXPECTED"] {
+            let (root, mut spec) = fake_spec(&format!("response-{mode}"), "CPU");
+            spec.device = mode.into();
+            let mut worker = Worker::spawn_with(spec, executable.clone()).unwrap();
+            assert!(worker.start(21).is_err());
+            worker.active_id = Some(21);
+            assert!(worker.audio(21, &vec![0.0; FRAME_SAMPLES]).is_err());
+            worker.active_id = Some(21);
+            assert!(worker.finish(21).is_err());
+            assert!(worker.cancel(21).is_err());
+            worker.shutdown();
+            fs::remove_dir_all(root).unwrap();
+        }
+
+        let (root, spec) = fake_spec("closed-input-reconnect", "CPU");
+        let mut worker = Worker::spawn_with(spec, executable).unwrap();
+        worker.process.as_mut().unwrap().input.take();
+        worker.start(22).unwrap();
+        worker.shutdown();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn high_level_openvino_stream_uses_supervised_worker() {
+        let (root, spec) = fake_spec("backend-stream", "CPU");
+        let executable = super::super::audiocpp::tests::fake_worker().to_path_buf();
+        let backend = OpenVinoGenAiBackend {
+            worker: RefCell::new(Worker::spawn_with(spec, executable).unwrap()),
+            matcher: PhraseMatcher::compile(&[WakeWord {
+                id: "greeting".into(),
+                phrase: "hello oma".into(),
+                enabled: true,
+                command: vec!["true".into()],
+            }])
+            .unwrap(),
+            next_stream_id: Cell::new(u64::MAX),
+        };
+        assert_eq!(backend.kind(), "openvino-genai");
+        let stream = backend.stream();
+        assert!(stream.accept(16_000, &[f32::NAN]).is_err());
+        assert!(
+            stream
+                .accept(16_000, &vec![0.0; FRAME_SAMPLES])
+                .unwrap()
+                .is_empty()
+        );
+        let detections = stream.finish().unwrap();
+        assert_eq!(detections[0].id, "greeting");
+        assert!(stream.finish().unwrap().is_empty());
+        assert!(stream.accept(16_000, &[0.0]).is_err());
+        drop(stream);
+
+        let short = backend.stream();
+        short.accept(16_000, &[0.0; 16]).unwrap();
+        assert_eq!(short.finish().unwrap()[0].id, "greeting");
+        drop(short);
+
+        let wav = root.join("silence.wav");
+        let mut writer = hound::WavWriter::create(
+            &wav,
+            hound::WavSpec {
+                channels: 1,
+                sample_rate: 16_000,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+        )
+        .unwrap();
+        for _ in 0..FRAME_SAMPLES {
+            writer.write_sample(0_i16).unwrap();
+        }
+        writer.finalize().unwrap();
+        assert_eq!(backend.detect_file(&wav).unwrap()[0].id, "greeting");
+
+        let abandoned = backend.stream();
+        abandoned.accept(16_000, &[0.0; 16]).unwrap();
+        drop(abandoned);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn provider_spec_discovery_is_explicit_and_never_installs_a_runtime() {
+        let root = temporary("provider-discovery");
+        let _ = fs::remove_dir_all(&root);
+        let runtime = root.join("runtime");
+        fs::create_dir_all(&runtime).unwrap();
+        let genai = runtime.join("libopenvino_genai_c.so");
+        let core = runtime.join("libopenvino_c.so");
+        let audiocpp = runtime.join("libaudiocpp.so.0.1.0");
+        fs::copy(fake_openvino_library(), &genai).unwrap();
+        fs::copy(fake_openvino_library(), &core).unwrap();
+        fs::copy(super::super::audiocpp::tests::fake_library(), &audiocpp).unwrap();
+        for plugin in [
+            "libopenvino_intel_cpu_plugin.so",
+            "libopenvino_intel_gpu_plugin.so",
+            "libopenvino_intel_npu_plugin.so",
+            "libopenvino_intel_npu_compiler_loader.so",
+            "libopenvino_intel_npu_compiler.so",
+        ] {
+            fs::write(runtime.join(plugin), b"present").unwrap();
+        }
+        let paths = AppPaths {
+            config_file: root.join("config/config.toml"),
+            data_dir: root.join("data"),
+            cache_dir: root.join("cache"),
+            state_dir: root.join("state"),
+            runtime_dir: root.join("run"),
+        };
+        fs::create_dir_all(paths.config_file.parent().unwrap()).unwrap();
+        let mut config = Config::default();
+        config.backend.kind = "openvino-genai".into();
+        config.backend.runtime = Runtime::Openvino;
+        config.backend.device = "cpu".into();
+        config.backend.library = genai.clone();
+        config.backend.library_dirs = vec![runtime.clone()];
+        let cpu = ProviderSpec::from_config(&config, &paths).unwrap();
+        assert_eq!(cpu.device, "CPU");
+        assert_eq!(cpu.core_library, core.canonicalize().unwrap());
+        assert_eq!(cpu.audiocpp_library, audiocpp.canonicalize().unwrap());
+        assert!(!cpu.static_pipeline());
+
+        config.backend.library.clear();
+        config.backend.library_dirs = vec![PathBuf::from("../runtime")];
+        let discovered = ProviderSpec::from_config(&config, &paths).unwrap();
+        assert_eq!(discovered.genai_library, genai.canonicalize().unwrap());
+        config.backend.library = PathBuf::from("../runtime/libopenvino_genai_c.so");
+        assert_eq!(
+            ProviderSpec::from_config(&config, &paths)
+                .unwrap()
+                .genai_library,
+            genai.canonicalize().unwrap()
+        );
+        config.backend.library = genai.clone();
+        config.backend.library_dirs = vec![runtime.clone()];
+        config.backend.device = "gpu".into();
+        assert_eq!(
+            ProviderSpec::from_config(&config, &paths).unwrap().device,
+            "GPU"
+        );
+
+        config.backend.device = "npu".into();
+        let npu = ProviderSpec::from_config(&config, &paths).unwrap();
+        assert!(npu.static_pipeline());
+        config.model.vad = root.join("absolute-vad.safetensors").display().to_string();
+        assert_eq!(
+            ProviderSpec::from_config(&config, &paths)
+                .unwrap()
+                .vad_model,
+            root.join("absolute-vad.safetensors")
+        );
+        config.backend.kind = "audiocpp".into();
+        assert!(ProviderSpec::from_config(&config, &paths).is_err());
+        config.backend.kind = "openvino-genai".into();
+        config.model.sample_rate = 8_000;
+        assert!(ProviderSpec::from_config(&config, &paths).is_err());
+        fs::remove_dir_all(root).unwrap();
     }
 }

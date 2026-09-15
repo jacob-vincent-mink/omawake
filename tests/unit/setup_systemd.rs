@@ -9,18 +9,6 @@ fn unit_uses_absolute_binary_and_config() {
 }
 
 #[test]
-fn unit_preserves_and_escapes_the_native_library_path() {
-    let unit = generate_with_library_path(
-        Path::new("/opt/omawake"),
-        Path::new("/tmp/config.toml"),
-        Some(OsStr::new("/opt/oma lib:/opt/%t/openvino\\runtime\"quoted")),
-    );
-    assert!(unit.contains(
-        "Environment=\"LD_LIBRARY_PATH=/opt/oma lib:/opt/%%t/openvino\\\\runtime\\\"quoted\""
-    ));
-}
-
-#[test]
 fn setup_reload_only_restarts_a_service_that_was_active() {
     use std::cell::Cell;
 

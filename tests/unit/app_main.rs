@@ -1,6 +1,6 @@
 use super::*;
-use std::cell::Cell;
-use std::collections::{BTreeMap, VecDeque};
+use std::cell::{Cell, RefCell};
+use std::collections::VecDeque;
 use std::io::Cursor;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -86,6 +86,10 @@ impl GuidedPrompts for ScriptedGuidedPrompts {
 
     fn confirm_runtime(&mut self, _: &Config, _: &crate::runtime_inventory::Probe) -> Result<bool> {
         Ok(self.confirm)
+    }
+
+    fn prove_runtime(&mut self, _: &Config, _: &AppPaths) -> Result<()> {
+        Ok(())
     }
 
     fn model(
@@ -391,7 +395,7 @@ fn guided_full_rejects_the_runtime_before_setup_callbacks_or_config_changes() {
     )
     .unwrap_err();
 
-    assert!(error.to_string().contains("not yet available"));
+    assert!(error.to_string().contains("candidate runtime probe failed"));
     assert_eq!(callbacks.get(), 0);
     assert_eq!(fs::read(&paths.config_file).unwrap(), original);
 }
@@ -457,51 +461,6 @@ fn guided_full_rolls_back_existing_and_new_configs_after_later_failures() {
     .unwrap_err();
     assert!(error.to_string().contains("final setup check failed"));
     assert!(!new.config_file.exists());
-}
-
-#[test]
-#[cfg(any())]
-fn full_setup_prepares_npu_cache_before_config_launcher_and_service_changes() {
-    let paths = test_paths("full-npu-cache-transaction");
-    let spec = &crate::catalog::models()[0];
-    let mut original = Config::default();
-    original.backend.runtime = Runtime::Openvino;
-    original.backend.device = "npu".into();
-    original.save(&paths.config_file).unwrap();
-    let original_bytes = fs::read(&paths.config_file).unwrap();
-    let model_installed = std::cell::Cell::new(false);
-
-    let error = install_everything_with_config_and_cache(
-        spec,
-        original,
-        &paths.config_file,
-        &paths,
-        None,
-        ProgressFormat::Human,
-        true,
-        |_, _, _, _| {
-            model_installed.set(true);
-            Ok(paths.data_dir.join("model"))
-        },
-        |candidate, path, received_paths, progress| {
-            assert!(model_installed.get());
-            assert_eq!(candidate.backend.runtime, Runtime::Openvino);
-            assert_eq!(candidate.backend.device, "npu");
-            assert_eq!(candidate.model.encoder, spec.openvino_accelerator_encoder);
-            assert_eq!(path, paths.config_file);
-            assert_eq!(received_paths, &paths);
-            assert_eq!(progress, ProgressFormat::Human);
-            assert_eq!(fs::read(path).unwrap(), original_bytes);
-            bail!("NPU cache compile failed")
-        },
-        |_| panic!("launcher must not be installed before cache preparation"),
-        |_| panic!("service must not restart before cache preparation"),
-        |_, _| panic!("checks must not run before cache preparation"),
-        |_, _| panic!("checks must not run before cache preparation"),
-    )
-    .unwrap_err();
-    assert!(error.to_string().contains("NPU cache compile failed"));
-    assert_eq!(fs::read(&paths.config_file).unwrap(), original_bytes);
 }
 
 #[test]
@@ -658,6 +617,77 @@ fn test_paths(name: &str) -> AppPaths {
     }
 }
 
+#[test]
+fn evaluation_command_loads_verified_manifest_and_reports_injected_native_identity() {
+    let paths = test_paths("evaluation-command");
+    fs::create_dir_all(&paths.data_dir).unwrap();
+    let audio = paths.data_dir.join("negative.wav");
+    let mut writer = hound::WavWriter::create(
+        &audio,
+        hound::WavSpec {
+            channels: 1,
+            sample_rate: 16_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        },
+    )
+    .unwrap();
+    for _ in 0..4_000 {
+        writer.write_sample(0_i16).unwrap();
+    }
+    writer.finalize().unwrap();
+    let checksum = evaluation::sha256_bytes(&fs::read(&audio).unwrap());
+    let manifest = paths.data_dir.join("manifest.json");
+    fs::write(
+        &manifest,
+        serde_json::to_vec(&json!({
+            "schema_version": 1,
+            "corpus": {
+                "id": "injected-negative",
+                "version": "1",
+                "license_spdx": "CC0-1.0",
+                "source": "generated silence"
+            },
+            "clips": [{
+                "id": "negative",
+                "path": "negative.wav",
+                "sha256": checksum,
+                "split": "test",
+                "expected": []
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let config = Config::default();
+    let report = evaluation_report_with(
+        &config,
+        &paths,
+        &manifest,
+        || Ok(()),
+        |_, path| {
+            assert_eq!(path, audio);
+            Ok(Vec::new())
+        },
+        |_| {
+            Ok(RuntimeIdentity {
+                backend_kind: "audiocpp".into(),
+                requested_runtime: "default".into(),
+                requested_device: "cpu".into(),
+                effective_runtime: "default".into(),
+                fallback_used: false,
+                placement_verified: true,
+                placement_evidence: "injected C ABI provider".into(),
+            })
+        },
+    )
+    .unwrap();
+    assert_eq!(report["evaluation"], "omawake-phrase-verifier-accuracy");
+    assert_eq!(report["backend"]["backend_kind"], "audiocpp");
+    assert_eq!(report["summary"]["false_activations"], 0);
+}
+
 fn send_raw(path: &Path, bytes: Vec<u8>) -> UnixStream {
     let mut stream = UnixStream::connect(path).unwrap();
     stream.write_all(&bytes).unwrap();
@@ -750,13 +780,7 @@ fn command_line_surface_parses_representative_forms() {
         ],
         vec!["omawake", "wake-word", "list", "--json"],
         vec!["omawake", "audio-devices", "--json"],
-        vec![
-            "omawake",
-            "evaluate",
-            "manifest.json",
-            "--threshold",
-            "0.2,0.4",
-        ],
+        vec!["omawake", "evaluate", "manifest.json"],
         vec!["omawake", "daemon"],
         vec!["omawake", "pause"],
         vec!["omawake", "resume"],
@@ -769,6 +793,8 @@ fn command_line_surface_parses_representative_forms() {
             "silero.safetensors",
             "2",
             "moonshine_asr",
+            "cpu",
+            "0",
         ],
         vec!["omawake", "setup", "check", "--json"],
         vec!["omawake", "setup", "runtime", "--json"],
@@ -801,33 +827,25 @@ fn command_line_surface_parses_representative_forms() {
     assert!(Cli::try_parse_from(["omawake", "benchmark"]).is_err());
     assert!(Cli::try_parse_from(["omawake", "benchmark", "--iterations", "0", "a.wav"]).is_err());
     assert!(
-        Cli::try_parse_from(["omawake", "evaluate", "manifest.json", "--threshold", "1.1"])
-            .is_err()
-    );
-    assert!(
         Cli::try_parse_from(["omawake", "setup", "systemd", "--status", "--uninstall"]).is_err()
     );
     assert!(Cli::try_parse_from(["omawake", "setup", "all", "--no-start"]).is_err());
     for args in [
-        ["omawake", "test", "--audio", "input.wav"].as_slice(),
-        ["omawake", "test", "--seconds", "1"].as_slice(),
         ["omawake", "benchmark", "input.wav"].as_slice(),
         ["omawake", "evaluate", "manifest.json"].as_slice(),
-        ["omawake", "daemon"].as_slice(),
     ] {
-        assert!(command_uses_engine(
-            &Cli::try_parse_from(args).unwrap().command
-        ));
+        assert!(native_json_request(&Cli::try_parse_from(args).unwrap().command).is_some());
     }
     for args in [
         ["omawake", "test"].as_slice(),
+        ["omawake", "test", "--audio", "input.wav"].as_slice(),
+        ["omawake", "test", "--seconds", "1"].as_slice(),
+        ["omawake", "daemon"].as_slice(),
         ["omawake", "status"].as_slice(),
         ["omawake", "config", "get"].as_slice(),
         ["omawake", "setup", "runtime"].as_slice(),
     ] {
-        assert!(!command_uses_engine(
-            &Cli::try_parse_from(args).unwrap().command
-        ));
+        assert!(native_json_request(&Cli::try_parse_from(args).unwrap().command).is_none());
     }
     let denied = || std::io::Error::from(std::io::ErrorKind::PermissionDenied);
     assert!(io_or_skip::<()>(Err(denied())).is_none());
@@ -843,6 +861,122 @@ fn command_line_surface_parses_representative_forms() {
 }
 
 #[test]
+fn hidden_native_worker_dispatch_forwards_exact_provider_arguments() {
+    let paths = test_paths("hidden-worker-dispatch");
+    let path = |name: &str| PathBuf::from(format!("/{name}"));
+
+    run_entry_with_workers(
+        Cli {
+            config: None,
+            command: TopCommand::OpenVinoRuntimeWorker {
+                genai_library: path("genai"),
+                core_library: path("core"),
+                audiocpp_library: path("audio"),
+                device: "NPU".into(),
+            },
+        },
+        paths.clone(),
+        |genai, core, audio, device| {
+            assert_eq!(genai, Path::new("/genai"));
+            assert_eq!(core, Path::new("/core"));
+            assert_eq!(audio, Path::new("/audio"));
+            assert_eq!(device, "NPU");
+            Ok(())
+        },
+        |_| unreachable!(),
+        |_, _, _, _, _, _, _| unreachable!(),
+        |_, _, _, _| unreachable!(),
+    )
+    .unwrap();
+
+    run_entry_with_workers(
+        Cli {
+            config: None,
+            command: TopCommand::OpenVinoGenAiWorker {
+                genai_library: path("genai"),
+                core_library: path("core"),
+                audiocpp_library: path("audio"),
+                model_directory: path("model"),
+                vad_model: path("vad"),
+                cache_directory: path("cache"),
+                device: "GPU".into(),
+                vad_threads: 3,
+            },
+        },
+        paths.clone(),
+        |_, _, _, _| unreachable!(),
+        |spec| {
+            assert_eq!(spec.genai_library, path("genai"));
+            assert_eq!(spec.core_library, path("core"));
+            assert_eq!(spec.audiocpp_library, path("audio"));
+            assert_eq!(spec.model_directory, path("model"));
+            assert_eq!(spec.vad_model, path("vad"));
+            assert_eq!(spec.cache_directory, path("cache"));
+            assert_eq!(spec.device, "GPU");
+            assert_eq!(spec.vad_threads, 3);
+            Ok(())
+        },
+        |_, _, _, _, _, _, _| unreachable!(),
+        |_, _, _, _| unreachable!(),
+    )
+    .unwrap();
+
+    run_entry_with_workers(
+        Cli {
+            config: None,
+            command: TopCommand::AudioCppWorker {
+                library: path("audio"),
+                verifier: path("verifier"),
+                vad: path("vad"),
+                threads: 4,
+                asr_family: "moonshine_asr".into(),
+                backend: "cuda".into(),
+                device: 2,
+            },
+        },
+        paths.clone(),
+        |_, _, _, _| unreachable!(),
+        |_| unreachable!(),
+        |library, verifier, vad, threads, family, backend, device| {
+            assert_eq!(library, Path::new("/audio"));
+            assert_eq!(verifier, Path::new("/verifier"));
+            assert_eq!(vad, Path::new("/vad"));
+            assert_eq!(
+                (threads, family, backend, device),
+                (4, "moonshine_asr", "cuda", 2)
+            );
+            Ok(())
+        },
+        |_, _, _, _| unreachable!(),
+    )
+    .unwrap();
+
+    run_entry_with_workers(
+        Cli {
+            config: None,
+            command: TopCommand::WhisperWorker {
+                library: path("whisper"),
+                verifier: path("verifier"),
+                vad: path("vad"),
+                threads: 5,
+            },
+        },
+        paths,
+        |_, _, _, _| unreachable!(),
+        |_| unreachable!(),
+        |_, _, _, _, _, _, _| unreachable!(),
+        |library, verifier, vad, threads| {
+            assert_eq!(library, Path::new("/whisper"));
+            assert_eq!(verifier, Path::new("/verifier"));
+            assert_eq!(vad, Path::new("/vad"));
+            assert_eq!(threads, 5);
+            Ok(())
+        },
+    )
+    .unwrap();
+}
+
+#[test]
 fn config_helpers_cover_every_supported_key_and_validation() {
     let mut config = Config::default();
     for (key, value) in [
@@ -854,21 +988,11 @@ fn config_helpers_cover_every_supported_key_and_validation() {
         ("backend.device_id", "2"),
         ("backend.library", "/opt/whisper/lib/libwhisper.so.1"),
         ("backend.library_dirs", "/opt/oma/lib:/opt/vendor/lib"),
-        (
-            "backend.onnxruntime_library",
-            "/opt/oma/lib/libonnxruntime.so",
-        ),
-        (
-            "backend.provider_library",
-            "/opt/oma/lib/libonnxruntime_providers_openvino.so",
-        ),
         ("model.name", "custom-model"),
         ("model.directory", "/models/custom"),
         ("model.verifier", "ggml-tiny.en.bin"),
         ("model.vad", "ggml-silero-v6.2.0.bin"),
         ("model.sample_rate", "8000"),
-        ("model.keywords_score", "2.5"),
-        ("model.keywords_threshold", "0.75"),
         ("audio.device", "microphone"),
         ("audio.channels", "stereo"),
         ("audio.buffer_milliseconds", "80"),
@@ -883,6 +1007,8 @@ fn config_helpers_cover_every_supported_key_and_validation() {
     assert!(unset_config(&mut config, "missing").is_err());
     assert_eq!(parse_runtime("DEFAULT").unwrap(), Runtime::Default);
     assert_eq!(parse_runtime("cuda").unwrap(), Runtime::Cuda);
+    assert_eq!(parse_runtime("vulkan").unwrap(), Runtime::Vulkan);
+    assert_eq!(parse_runtime("hip").unwrap(), Runtime::Hip);
     assert!(parse_runtime("rocm").is_err());
     assert_eq!(parse_fallback("error").unwrap(), Fallback::Error);
     assert!(parse_fallback("maybe").is_err());
@@ -893,7 +1019,7 @@ fn config_helpers_cover_every_supported_key_and_validation() {
 }
 
 #[test]
-fn config_mutation_saves_and_wake_words_compile_when_model_exists() {
+fn config_mutation_saves_and_wake_words_validate_before_persisting() {
     let paths = test_paths("config");
     let config = Config::default();
     config_mutation(
@@ -916,7 +1042,7 @@ fn config_mutation_saves_and_wake_words_compile_when_model_exists() {
     )
     .unwrap();
     let accelerated = Config::load(&paths.config_file).unwrap();
-    assert!(accelerated.model.encoder.is_empty());
+    assert!(accelerated.backend.library.as_os_str().is_empty());
     config_mutation(
         ConfigCommand::Unset {
             key: "backend.threads".into(),
@@ -934,7 +1060,6 @@ fn config_mutation_saves_and_wake_words_compile_when_model_exists() {
         },
         config.clone(),
         &paths.config_file,
-        &paths,
     )
     .unwrap();
     assert_eq!(
@@ -950,157 +1075,9 @@ fn config_mutation_saves_and_wake_words_compile_when_model_exists() {
             },
             config,
             &paths.config_file,
-            &paths,
         )
         .is_err()
     );
-}
-
-#[test]
-#[cfg(any())]
-fn runtime_changes_reset_cuda_only_device_state() {
-    let paths = test_paths("runtime-reset");
-    let mut cuda = Config::default();
-    cuda.backend.runtime = Runtime::Cuda;
-    cuda.backend.device = "gpu".into();
-    cuda.backend.device_id = 3;
-    cuda.backend.provider_library = "/old/libonnxruntime_providers_cuda.so".into();
-    cuda.backend
-        .options
-        .insert("gpu_mem_limit".into(), "1024".into());
-
-    config_mutation(
-        ConfigCommand::Set {
-            key: "backend.runtime".into(),
-            value: "openvino".into(),
-        },
-        cuda.clone(),
-        &paths.config_file,
-    )
-    .unwrap();
-    let openvino = Config::load(&paths.config_file).unwrap();
-    assert_eq!(openvino.backend.runtime, Runtime::Openvino);
-    assert_eq!(openvino.backend.device, "auto");
-    assert_eq!(openvino.backend.device_id, 0);
-    assert!(openvino.backend.provider_library.as_os_str().is_empty());
-    assert!(openvino.backend.options.is_empty());
-
-    cuda.save(&paths.config_file).unwrap();
-    config_mutation(
-        ConfigCommand::Unset {
-            key: "backend.runtime".into(),
-        },
-        cuda.clone(),
-        &paths.config_file,
-    )
-    .unwrap();
-    let default = Config::load(&paths.config_file).unwrap();
-    assert_eq!(default.backend.runtime, Runtime::Default);
-    assert_eq!(default.backend.device_id, 0);
-    assert!(default.backend.provider_library.as_os_str().is_empty());
-    assert!(default.backend.options.is_empty());
-
-    for (runtime, device) in [(Runtime::Openvino, "npu"), (Runtime::Default, "cpu")] {
-        cuda.save(&paths.config_file).unwrap();
-        save_runtime_selection(
-            &paths.config_file,
-            &RuntimeSelection {
-                runtime,
-                device: device.into(),
-            },
-        )
-        .unwrap();
-        let saved = Config::load(&paths.config_file).unwrap();
-        assert_eq!(saved.backend.runtime, runtime);
-        assert_eq!(saved.backend.device, device);
-        assert_eq!(saved.backend.device_id, 0);
-        assert_ne!(
-            saved.backend.provider_library,
-            PathBuf::from("/old/libonnxruntime_providers_cuda.so")
-        );
-        assert!(saved.backend.options.is_empty());
-    }
-}
-
-#[test]
-#[cfg(any())]
-fn runtime_directory_populates_exact_external_library_paths() {
-    let paths = test_paths("runtime-directory");
-    let runtime = paths.data_dir.join("runtime");
-    fs::create_dir_all(&runtime).unwrap();
-    for library in [
-        "libonnxruntime.so.1.30.0",
-        "libonnxruntime_providers_openvino.so",
-    ] {
-        fs::write(runtime.join(library), b"fixture").unwrap();
-    }
-    save_runtime_selection_impl_with(
-        &paths.config_file,
-        &RuntimeSelection {
-            runtime: Runtime::Openvino,
-            device: "npu".into(),
-        },
-        Some(&runtime),
-        |_, _| Ok(()),
-    )
-    .unwrap();
-    let mut config = Config::load(&paths.config_file).unwrap();
-    assert_eq!(
-        config.backend.library_dirs.as_slice(),
-        std::slice::from_ref(&runtime)
-    );
-    assert_eq!(
-        config.backend.onnxruntime_library,
-        runtime.join("libonnxruntime.so.1.30.0")
-    );
-    assert_eq!(
-        config.backend.provider_library,
-        runtime.join("libonnxruntime_providers_openvino.so")
-    );
-
-    assert!(configure_runtime_directory(&mut Config::default(), Path::new("relative")).is_err());
-
-    let sdk = paths.data_dir.join("sdk");
-    let base = sdk.join("lib");
-    let provider = sdk.join("runtime/lib/intel64/Release");
-    fs::create_dir_all(&base).unwrap();
-    fs::create_dir_all(&provider).unwrap();
-    fs::write(base.join("libonnxruntime.so"), b"fixture").unwrap();
-    fs::write(
-        provider.join("libonnxruntime_providers_openvino.so"),
-        b"fixture",
-    )
-    .unwrap();
-    configure_runtime_directory(&mut config, &sdk).unwrap();
-    assert_eq!(config.backend.library_dirs, [base, provider]);
-
-    let provider_only = paths.data_dir.join("provider-only");
-    fs::create_dir_all(&provider_only).unwrap();
-    let provider_library = provider_only.join("libonnxruntime_providers_openvino_plugin.so");
-    fs::write(&provider_library, b"fixture").unwrap();
-    let retained_core = config.backend.onnxruntime_library.clone();
-    configure_runtime_directory(&mut config, &provider_only).unwrap();
-    assert_eq!(config.backend.onnxruntime_library, retained_core);
-    assert_eq!(config.backend.provider_library, provider_library);
-    assert!(config.backend.library_dirs.contains(&provider_only));
-}
-
-fn runtime_report(runtime: Runtime, loadable: bool) -> runtime_paths::RuntimeLibraryReport {
-    runtime_paths::RuntimeLibraryReport {
-        onnxruntime_library: None,
-        provider_library: None,
-        configured_library_dirs: Vec::new(),
-        environment_library_dirs: Vec::new(),
-        package_library_dirs: Vec::new(),
-        effective_library_dirs: Vec::new(),
-        missing_library_dirs: Vec::new(),
-        runtime_loadable: BTreeMap::from([(runtime_name(runtime), loadable)]),
-        remediation: if loadable {
-            Vec::new()
-        } else {
-            vec!["injected provider/device probe failure".into()]
-        },
-    }
 }
 
 #[test]
@@ -1145,26 +1122,13 @@ fn runtime_candidate_validation_failure_preserves_the_original_config() {
             .to_string()
             .contains("default CPU payload is not staged")
     );
-
-    let error = validate_runtime_candidate_report(
-        Runtime::Openvino,
-        &runtime_report(Runtime::Openvino, false),
-    )
-    .unwrap_err();
-    assert!(error.to_string().contains("configuration was not changed"));
-    assert!(
-        error
-            .to_string()
-            .contains("injected provider/device probe failure")
-    );
-    validate_runtime_candidate_report(Runtime::Cuda, &runtime_report(Runtime::Cuda, true)).unwrap();
 }
 
 #[test]
 fn focused_runtime_preview_failure_and_apply_recover_invalid_config_transactionally() {
     let paths = test_paths("runtime-invalid-config-recovery");
     fs::create_dir_all(paths.config_file.parent().unwrap()).unwrap();
-    let invalid = b"# obsolete pre-release config\n[backend]\nprovider_config = \"\"\n";
+    let invalid = b"# obsolete pre-release config\n[backend]\nremoved_option = \"\"\n";
     fs::write(&paths.config_file, invalid).unwrap();
 
     let ready = |_: &crate::backend::BackendConfig, _: &Path| crate::runtime_inventory::Probe {
@@ -1173,7 +1137,7 @@ fn focused_runtime_preview_failure_and_apply_recover_invalid_config_transactiona
         ready: true,
         ..Default::default()
     };
-    configure_runtime_from_flags(
+    configure_runtime_from_flags_with(
         &paths.config_file,
         &paths,
         Some("default".into()),
@@ -1181,6 +1145,8 @@ fn focused_runtime_preview_failure_and_apply_recover_invalid_config_transactiona
         None,
         false,
         ready,
+        |_, _, _, _| Ok(None),
+        |_, _| Ok(()),
     )
     .unwrap();
     assert_eq!(fs::read(&paths.config_file).unwrap(), invalid);
@@ -1189,7 +1155,7 @@ fn focused_runtime_preview_failure_and_apply_recover_invalid_config_transactiona
         errors: vec!["injected runtime validation failure".into()],
         ..Default::default()
     };
-    let error = configure_runtime_from_flags(
+    let error = configure_runtime_from_flags_with(
         &paths.config_file,
         &paths,
         Some("default".into()),
@@ -1197,6 +1163,8 @@ fn focused_runtime_preview_failure_and_apply_recover_invalid_config_transactiona
         None,
         true,
         rejected,
+        |_, _, _, _| Ok(None),
+        |_, _| Ok(()),
     )
     .unwrap_err();
     assert!(
@@ -1206,7 +1174,7 @@ fn focused_runtime_preview_failure_and_apply_recover_invalid_config_transactiona
     );
     assert_eq!(fs::read(&paths.config_file).unwrap(), invalid);
 
-    configure_runtime_from_flags(
+    configure_runtime_from_flags_with(
         &paths.config_file,
         &paths,
         Some("default".into()),
@@ -1214,6 +1182,8 @@ fn focused_runtime_preview_failure_and_apply_recover_invalid_config_transactiona
         None,
         true,
         ready,
+        |_, _, _, _| Ok(None),
+        |_, _| Ok(()),
     )
     .unwrap();
     let repaired = Config::load(&paths.config_file).unwrap();
@@ -1222,7 +1192,7 @@ fn focused_runtime_preview_failure_and_apply_recover_invalid_config_transactiona
     assert!(
         !fs::read_to_string(&paths.config_file)
             .unwrap()
-            .contains("provider_config")
+            .contains("removed_option")
     );
 }
 
@@ -1249,9 +1219,34 @@ fn npu_runtime_cache_preparation_finishes_before_config_commit() {
             assert_eq!(fs::read(path).unwrap(), original_bytes);
             bail!("cold NPU compile failed")
         },
+        |_, _| unreachable!(),
     )
     .unwrap_err();
     assert!(error.to_string().contains("cold NPU compile failed"));
+    assert_eq!(fs::read(&paths.config_file).unwrap(), original_bytes);
+
+    let proof_error = prepare_and_save_runtime_candidate_with(
+        &candidate,
+        &paths.config_file,
+        &paths,
+        ProgressFormat::Human,
+        |_, path, _, _| {
+            assert_eq!(fs::read(path).unwrap(), original_bytes);
+            Ok(None)
+        },
+        |received, received_paths| {
+            assert_eq!(received.backend.runtime, Runtime::Openvino);
+            assert_eq!(received_paths, &paths);
+            assert_eq!(fs::read(&paths.config_file).unwrap(), original_bytes);
+            bail!("injected file-only provider/model proof failure")
+        },
+    )
+    .unwrap_err();
+    assert!(
+        proof_error
+            .to_string()
+            .contains("runtime candidate failed its file-only provider/model proof")
+    );
     assert_eq!(fs::read(&paths.config_file).unwrap(), original_bytes);
 
     prepare_and_save_runtime_candidate_with(
@@ -1263,6 +1258,7 @@ fn npu_runtime_cache_preparation_finishes_before_config_commit() {
             assert_eq!(fs::read(path).unwrap(), original_bytes);
             Ok(None)
         },
+        |_, _| Ok(()),
     )
     .unwrap();
     assert_eq!(
@@ -1302,7 +1298,7 @@ fn guided_runtime_apply_and_cancel_share_the_review_step() {
 fn guided_cancellation_preserves_invalid_config_bytes() {
     let paths = test_paths("guided-invalid-config-cancel");
     fs::create_dir_all(paths.config_file.parent().unwrap()).unwrap();
-    let invalid = b"# keep exactly\n[backend]\nprovider_config = \"\"\n";
+    let invalid = b"# keep exactly\n[backend]\nremoved_option = \"\"\n";
     fs::write(&paths.config_file, invalid).unwrap();
 
     let mut runtime = ScriptedGuidedPrompts {
@@ -1347,7 +1343,7 @@ fn guided_cancellation_preserves_invalid_config_bytes() {
 #[test]
 fn full_setup_replaces_invalid_config_only_after_transaction_success() {
     let spec = &crate::catalog::models()[0];
-    let invalid = b"[backend]\nprovider_config = \"\"\n";
+    let invalid = b"[backend]\nremoved_option = \"\"\n";
 
     let failed = test_paths("full-invalid-config-failure");
     fs::create_dir_all(failed.config_file.parent().unwrap()).unwrap();
@@ -1424,7 +1420,7 @@ fn full_setup_replaces_invalid_config_only_after_transaction_success() {
     assert!(
         !fs::read_to_string(&applied.config_file)
             .unwrap()
-            .contains("provider_config")
+            .contains("removed_option")
     );
 }
 
@@ -1517,6 +1513,47 @@ fn fresh_full_setup_proves_both_native_assets_before_its_first_config_save() {
     .unwrap_err();
     assert!(error.to_string().contains("native file proof failure"));
     assert_eq!(fs::read(&rollback.config_file).unwrap(), original_bytes);
+}
+
+#[test]
+fn setup_file_proof_uses_silence_and_removes_the_temporary_audio_on_every_outcome() {
+    let paths = test_paths("file-proof-helper");
+    let config = Config::default();
+    let observed = std::cell::RefCell::new(None);
+    prove_setup_candidate_with(&config, &paths, |received, received_paths, audio| {
+        assert_eq!(received.backend.kind, "audiocpp");
+        assert_eq!(received_paths, &paths);
+        let reader = hound::WavReader::open(audio)?;
+        assert_eq!(reader.spec().sample_rate, 16_000);
+        assert_eq!(reader.duration(), 16_000);
+        observed.replace(Some(audio.to_owned()));
+        Ok(Vec::new())
+    })
+    .unwrap();
+    assert!(!observed.borrow().as_ref().unwrap().exists());
+
+    let detected_audio = std::cell::RefCell::new(None);
+    let error = prove_setup_candidate_with(&config, &paths, |_, _, audio| {
+        detected_audio.replace(Some(audio.to_owned()));
+        Ok(vec![Detection {
+            id: "computer".into(),
+            tokens: vec!["computer".into()],
+            timestamps: Vec::new(),
+            start_time: 0.0,
+        }])
+    })
+    .unwrap_err();
+    assert!(error.to_string().contains("unexpectedly produced"));
+    assert!(!detected_audio.borrow().as_ref().unwrap().exists());
+
+    let failed_audio = std::cell::RefCell::new(None);
+    let error = prove_setup_candidate_with(&config, &paths, |_, _, audio| {
+        failed_audio.replace(Some(audio.to_owned()));
+        bail!("controlled inference failure")
+    })
+    .unwrap_err();
+    assert!(error.to_string().contains("controlled inference failure"));
+    assert!(!failed_audio.borrow().as_ref().unwrap().exists());
 }
 
 #[test]
@@ -1690,43 +1727,12 @@ fn metadata_helpers_return_stable_shapes() {
 }
 
 #[test]
-#[cfg(any())]
-fn model_activation_prepares_npu_cache_before_saving() {
-    let paths = test_paths("model-cache-transaction");
-    let spec = &crate::catalog::models()[0];
-    let mut original = Config::default();
-    original.backend.runtime = Runtime::Openvino;
-    original.backend.device = "npu".into();
-    original.model.encoder = "old-encoder.onnx".into();
-    original.save(&paths.config_file).unwrap();
-    let original_bytes = fs::read(&paths.config_file).unwrap();
-
-    let error = activate_model_with_cache(
-        &paths.config_file,
-        &paths,
-        spec,
-        ProgressFormat::Json,
-        |candidate, path, received_paths, progress| {
-            assert_eq!(candidate.model.encoder, spec.openvino_accelerator_encoder);
-            assert_eq!(path, paths.config_file);
-            assert_eq!(received_paths, &paths);
-            assert_eq!(progress, ProgressFormat::Json);
-            assert_eq!(fs::read(path).unwrap(), original_bytes);
-            bail!("model cache failed")
-        },
-    )
-    .unwrap_err();
-    assert!(error.to_string().contains("model cache failed"));
-    assert_eq!(fs::read(&paths.config_file).unwrap(), original_bytes);
-}
-
-#[test]
 fn focused_model_apply_replaces_invalid_config_only_after_cache_success() {
     let spec = &crate::catalog::models()[0];
 
     let failed = test_paths("model-invalid-config-failure");
     fs::create_dir_all(failed.config_file.parent().unwrap()).unwrap();
-    let invalid = b"[backend]\nprovider_config = \"\"\n";
+    let invalid = b"[backend]\nremoved_option = \"\"\n";
     fs::write(&failed.config_file, invalid).unwrap();
     let error = activate_model_with_cache(
         &failed.config_file,
@@ -1755,7 +1761,7 @@ fn focused_model_apply_replaces_invalid_config_only_after_cache_success() {
     assert!(
         !fs::read_to_string(&applied.config_file)
             .unwrap()
-            .contains("provider_config")
+            .contains("removed_option")
     );
 }
 
@@ -1902,11 +1908,46 @@ fn native_json_worker_reports_failure_without_polluting_stdout() {
 }
 
 #[test]
+fn native_json_worker_reports_a_missing_response_with_child_diagnostics() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let paths = test_paths("native-json-missing-response");
+    fs::create_dir_all(&paths.runtime_dir).unwrap();
+    let executable = paths.runtime_dir.join("native-json-missing-response.sh");
+    fs::write(
+        &executable,
+        "#!/bin/sh\nprintf 'provider returned no response\\n'\nprintf 'response diagnostic\\n' >&2\n",
+    )
+    .unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let mut output = Vec::new();
+    let mut diagnostics = Vec::new();
+    assert!(
+        run_native_json_worker_with(
+            &paths.config_file,
+            &paths,
+            &NativeJsonRequest::FileTest {
+                audio: PathBuf::from("probe.wav"),
+                execute: false,
+            },
+            &executable,
+            &mut output,
+            &mut diagnostics,
+        )
+        .is_err()
+    );
+    assert!(output.is_empty());
+    let diagnostics = String::from_utf8(diagnostics).unwrap();
+    assert!(diagnostics.contains("provider returned no response"));
+    assert!(diagnostics.contains("response diagnostic"));
+}
+
+#[test]
 fn native_json_requests_only_wrap_inference_commands_with_json_output() {
     assert!(matches!(
         native_json_request(&TopCommand::Evaluate {
             manifest: PathBuf::from("manifest.json"),
-            thresholds: vec![0.25],
         }),
         Some(NativeJsonRequest::Evaluate { .. })
     ));
@@ -1926,6 +1967,18 @@ fn native_json_requests_only_wrap_inference_commands_with_json_output() {
             json: true,
         }),
         Some(NativeJsonRequest::FileTest { .. })
+    ));
+    assert!(matches!(
+        native_json_request(&TopCommand::Test {
+            audio: None,
+            seconds: Some(3),
+            execute: true,
+            json: true,
+        }),
+        Some(NativeJsonRequest::LiveTest {
+            seconds: 3,
+            execute: true
+        })
     ));
     assert!(
         native_json_request(&TopCommand::Test {
@@ -2017,8 +2070,8 @@ fn file_benchmark_reports_warmups_iterations_percentiles_and_rtf() {
             .1
             .contains("fallback was disabled")
     );
-    assert!(!runtime_placement(Runtime::Cuda).0);
-    assert!(runtime_placement(Runtime::Cuda).1.contains("shape helpers"));
+    assert!(runtime_placement(Runtime::Cuda).0);
+    assert!(runtime_placement(Runtime::Cuda).1.contains("CUDA sessions"));
     assert!(
         backend_placement("audiocpp", Runtime::Default)
             .1
@@ -2343,6 +2396,88 @@ fn armed_cycle_reports_control_commands_and_detections_without_hardware() {
     .unwrap();
     assert!(detections.is_empty());
     assert!(matches!(command, Some(Command::Shutdown)));
+}
+
+#[test]
+fn daemon_state_machine_and_loaded_shutdown_are_hardware_independent() {
+    let detection = || Detection {
+        id: "computer".into(),
+        tokens: vec!["computer".into()],
+        timestamps: Vec::new(),
+        start_time: 0.0,
+    };
+    let armed = RefCell::new(VecDeque::from([
+        (vec![detection()], Some(Command::Status)),
+        (vec![detection()], Some(Command::Pause)),
+        (Vec::new(), Some(Command::Shutdown)),
+    ]));
+    let paused = RefCell::new(VecDeque::from([
+        Some(Command::Status),
+        Some(Command::Resume),
+    ]));
+    let executed = RefCell::new(Vec::new());
+    let sleeps = RefCell::new(Vec::new());
+    let mut poll_paused = || Ok(paused.borrow_mut().pop_front().unwrap());
+    let mut armed_cycle = || Ok(armed.borrow_mut().pop_front().unwrap());
+    let mut execute = |detections: Vec<Detection>| executed.borrow_mut().push(detections.len());
+    let mut sleep = |duration| sleeps.borrow_mut().push(duration);
+    run_daemon_state_machine(
+        &AtomicBool::new(false),
+        123,
+        &mut poll_paused,
+        &mut armed_cycle,
+        &mut execute,
+        &mut sleep,
+    )
+    .unwrap();
+    assert_eq!(&*executed.borrow(), &[1, 1, 0]);
+    assert_eq!(
+        sleeps
+            .borrow()
+            .iter()
+            .filter(|duration| **duration == Duration::from_millis(50))
+            .count(),
+        2
+    );
+    assert!(sleeps.borrow().contains(&Duration::from_millis(123)));
+
+    let called = Cell::new(false);
+    let mut poll_paused = || {
+        called.set(true);
+        Ok(None)
+    };
+    let mut armed_cycle = || unreachable!();
+    let mut execute = |_| unreachable!();
+    let mut sleep = |_| unreachable!();
+    run_daemon_state_machine(
+        &AtomicBool::new(true),
+        0,
+        &mut poll_paused,
+        &mut armed_cycle,
+        &mut execute,
+        &mut sleep,
+    )
+    .unwrap();
+    assert!(!called.get());
+
+    let paths = test_paths("loaded-daemon-shutdown");
+    let mut config = Config::default();
+    config.wake_words[0].command = vec!["true".into()];
+    let detector = Detector::from_backend(
+        &config,
+        Box::new(InMemoryBackend),
+        "COMPUTER @computer".into(),
+        Runtime::Default,
+        false,
+        Duration::ZERO,
+    )
+    .unwrap();
+    let result = run_loaded_daemon(&detector, &config, &paths, Arc::new(AtomicBool::new(true)));
+    if result.as_ref().is_err_and(sandbox_denied) {
+        return;
+    }
+    result.unwrap();
+    assert!(!socket_path(&paths).exists());
 }
 
 #[test]
@@ -2990,7 +3125,7 @@ fn noninteractive_setup_covers_safe_runtime_model_and_service_decisions() {
         ready: true,
         ..Default::default()
     };
-    configure_runtime_from_flags(
+    configure_runtime_from_flags_with(
         &paths.config_file,
         &paths,
         Some("openvino".into()),
@@ -2998,13 +3133,15 @@ fn noninteractive_setup_covers_safe_runtime_model_and_service_decisions() {
         None,
         false,
         ready,
+        |_, _, _, _| Ok(None),
+        |_, _| Ok(()),
     )
     .unwrap();
     assert_eq!(
         Config::load(&paths.config_file).unwrap().backend.runtime,
         Runtime::Default
     );
-    configure_runtime_from_flags(
+    configure_runtime_from_flags_with(
         &paths.config_file,
         &paths,
         Some("default".into()),
@@ -3012,6 +3149,8 @@ fn noninteractive_setup_covers_safe_runtime_model_and_service_decisions() {
         None,
         true,
         ready,
+        |_, _, _, _| Ok(None),
+        |_, _| Ok(()),
     )
     .unwrap();
     assert_eq!(
@@ -3024,28 +3163,10 @@ fn noninteractive_setup_covers_safe_runtime_model_and_service_decisions() {
 fn default_runtime_probe_and_os_socket_wrappers_report_real_failures_cleanly() {
     let paths = test_paths("default-probe-and-sockets");
     let mut config = Config::default();
-    config.backend.onnxruntime_library = paths.data_dir.join("missing-ort.so");
+    config.backend.library = paths.data_dir.join("missing-audiocpp.so");
     let mut prompts = DefaultProbePrompts;
     assert!(prompts.probe_runtime(&config, &paths.config_file).is_err());
     assert!(validate_runtime_candidate(&config, &paths.config_file).is_err());
-
-    let report = runtime_paths::RuntimeLibraryReport {
-        onnxruntime_library: None,
-        provider_library: None,
-        configured_library_dirs: vec![],
-        environment_library_dirs: vec![],
-        package_library_dirs: vec![],
-        effective_library_dirs: vec![],
-        missing_library_dirs: vec![],
-        runtime_loadable: BTreeMap::from([("default", false)]),
-        remediation: vec![],
-    };
-    assert!(
-        validate_runtime_candidate_report(Runtime::Default, &report)
-            .unwrap_err()
-            .to_string()
-            .contains("ABI")
-    );
 
     let listener = match bind_socket(&paths) {
         Ok(listener) => listener,
@@ -3066,6 +3187,53 @@ fn default_runtime_probe_and_os_socket_wrappers_report_real_failures_cleanly() {
 }
 
 #[test]
+fn native_runtime_probe_reports_real_safe_audio_cpp_and_openvino_evidence() {
+    let paths = test_paths("native-runtime-evidence");
+    let mut audio_cpp = Config::default();
+    audio_cpp.backend.library = crate::engine::audiocpp::tests::fake_library().to_path_buf();
+    let probe = native_runtime_probe(&audio_cpp.backend, &paths.config_file);
+    assert!(probe.ready);
+    assert_eq!(probe.evidence.selected_device.as_deref(), Some("cpu"));
+    assert!(probe.evidence.versions[0].contains("fake-provider-1"));
+
+    let mut openvino = Config::default();
+    openvino.backend.kind = "openvino-genai".into();
+    openvino.backend.runtime = Runtime::Openvino;
+    openvino.backend.device = "npu".into();
+    let probe = native_runtime_probe_with(
+        &openvino.backend,
+        &paths.config_file,
+        |_, _| {
+            Ok(crate::engine::openvino_genai::RuntimeEvidence {
+                runtime_build: "2026.3.fake".into(),
+                runtime_description: "safe fake runtime".into(),
+                requested_device: "NPU".into(),
+                available_device: "NPU".into(),
+                full_device_name: "Safe Fake NPU".into(),
+                device_architecture: "fake".into(),
+                driver_version: "fake".into(),
+                genai_library: "/fake/libopenvino_genai_c.so".into(),
+                core_library: "/fake/libopenvino_c.so".into(),
+                audiocpp_library: "/fake/libaudiocpp.so".into(),
+            })
+        },
+        |_, _| unreachable!(),
+    );
+    assert!(probe.ready, "{:?}", probe.errors);
+    assert_eq!(probe.evidence.selected_device.as_deref(), Some("npu"));
+    assert!(probe.evidence.versions[0].contains("OpenVINO"));
+
+    let failed = native_runtime_probe_with(
+        &openvino.backend,
+        &paths.config_file,
+        |_, _| bail!("controlled OpenVINO probe failure"),
+        |_, _| unreachable!(),
+    );
+    assert!(!failed.ready);
+    assert!(failed.errors[0].contains("controlled OpenVINO"));
+}
+
+#[test]
 fn runtime_directory_and_config_snapshot_cover_default_cuda_and_cleanup_edges() {
     let paths = test_paths("runtime-and-snapshot-edges");
     let runtime = paths.data_dir.join("runtime");
@@ -3075,7 +3243,43 @@ fn runtime_directory_and_config_snapshot_cover_default_cuda_and_cleanup_edges() 
     let mut config = Config::default();
     configure_runtime_directory(&mut config, &runtime).unwrap();
     assert!(config.backend.library.ends_with("libaudiocpp.so.0.1.0"));
-    assert!(config.backend.provider_library.as_os_str().is_empty());
+    assert!(configure_runtime_directory(&mut config, Path::new("relative")).is_err());
+
+    let openvino = paths.data_dir.join("openvino/runtime/lib/intel64/Release");
+    fs::create_dir_all(&openvino).unwrap();
+    for library in [
+        "libopenvino_genai_c.so",
+        "libopenvino_c.so",
+        "libopenvino_intel_cpu_plugin.so",
+        "libopenvino_intel_gpu_plugin.so",
+        "libopenvino_intel_npu_plugin.so",
+        "libopenvino_intel_npu_compiler_loader.so",
+        "libopenvino_intel_npu_compiler.so",
+    ] {
+        fs::write(openvino.join(library), b"provider").unwrap();
+    }
+    for device in ["cpu", "gpu", "npu"] {
+        let mut candidate = Config::default();
+        candidate.backend.kind = "openvino-genai".into();
+        candidate.backend.runtime = Runtime::Openvino;
+        candidate.backend.device = device.into();
+        configure_runtime_directory(&mut candidate, &paths.data_dir.join("openvino")).unwrap();
+        assert!(
+            candidate
+                .backend
+                .library
+                .ends_with("libopenvino_genai_c.so")
+        );
+        assert!(candidate.backend.library_dirs.contains(&openvino));
+    }
+    fs::remove_file(openvino.join("libopenvino_intel_npu_compiler.so")).unwrap();
+    let mut incomplete_npu = Config::default();
+    incomplete_npu.backend.kind = "openvino-genai".into();
+    incomplete_npu.backend.runtime = Runtime::Openvino;
+    incomplete_npu.backend.device = "npu".into();
+    assert!(
+        configure_runtime_directory(&mut incomplete_npu, &paths.data_dir.join("openvino")).is_err()
+    );
 
     let snapshot = paths.data_dir.join("snapshot.toml");
     let temporary = snapshot.with_extension("toml.tmp");
@@ -3290,186 +3494,6 @@ fn real_detector_forwards_control_metadata_without_native_backend() {
         poll_control(&detector, "armed", None, || Ok(streams.pop_front())).unwrap(),
         Some(Command::Pause)
     ));
-}
-
-#[test]
-fn real_model_runs_through_top_level_file_and_benchmark_commands_when_available() {
-    let (Some(runtime), Some(model)) = (
-        std::env::var_os("OMAWAKE_TEST_ONNXRUNTIME"),
-        std::env::var_os("OMAWAKE_TEST_MODEL"),
-    ) else {
-        return;
-    };
-    let runtime = PathBuf::from(runtime);
-    let model = PathBuf::from(model);
-    let paths = test_paths("real-top-level");
-    let catalog_paths = paths.clone();
-    let installed = app_setup::model::model_directory(&catalog_paths, &crate::catalog::models()[0]);
-    fs::create_dir_all(installed.parent().unwrap()).unwrap();
-    std::os::unix::fs::symlink(&model, &installed).unwrap();
-    let active = crate::catalog::models()[0].id;
-    choose_model_with(&catalog_paths, active, |items, _| {
-        assert!(items[0].label.contains("active"));
-        Ok(None)
-    })
-    .unwrap();
-    choose_model_with(&catalog_paths, "different-model", |items, _| {
-        assert!(items[0].label.contains("installed"));
-        Ok(None)
-    })
-    .unwrap();
-    print_models(&catalog_paths);
-    let mut config = Config::default();
-    config.backend.onnxruntime_library = runtime;
-    config.model.directory = model.to_string_lossy().into_owned();
-    config.wake_words = vec![WakeWord {
-        id: "light-up".into(),
-        phrase: "Light up".into(),
-        enabled: true,
-        command: vec!["true".into()],
-    }];
-    config.save(&paths.config_file).unwrap();
-    let audio = model.join("test_wavs/0.wav");
-    let evaluation_dir = paths.state_dir.join("evaluation");
-    fs::create_dir_all(&evaluation_dir).unwrap();
-    let evaluation_audio = evaluation_dir.join("light-up.wav");
-    fs::copy(&audio, &evaluation_audio).unwrap();
-    let manifest = evaluation_dir.join("manifest.json");
-    fs::write(
-        &manifest,
-        serde_json::to_vec_pretty(&serde_json::json!({
-            "schema_version": 1,
-            "corpus": {
-                "id": "publisher-smoke",
-                "version": "1",
-                "license_spdx": "CC-BY-4.0",
-                "source": "OMAWAKE_TEST_MODEL"
-            },
-            "clips": [{
-                "id": "light-up",
-                "path": "light-up.wav",
-                "sha256": crate::evaluation::sha256_bytes(&fs::read(&evaluation_audio).unwrap()),
-                "split": "smoke",
-                "expected": [{
-                    "keyword_id": "light-up",
-                    "start_ms": 2800,
-                    "end_ms": 3400
-                }]
-            }]
-        }))
-        .unwrap(),
-    )
-    .unwrap();
-
-    for args in [
-        vec![
-            "omawake".to_owned(),
-            "--config".into(),
-            paths.config_file.display().to_string(),
-            "test".into(),
-            "--audio".into(),
-            audio.display().to_string(),
-            "--json".into(),
-        ],
-        vec![
-            "omawake".to_owned(),
-            "--config".into(),
-            paths.config_file.display().to_string(),
-            "benchmark".into(),
-            "--warmup".into(),
-            "0".into(),
-            "--iterations".into(),
-            "1".into(),
-            audio.display().to_string(),
-        ],
-        vec![
-            "omawake".to_owned(),
-            "--config".into(),
-            paths.config_file.display().to_string(),
-            "evaluate".into(),
-            manifest.display().to_string(),
-            "--threshold".into(),
-            "0.25".into(),
-        ],
-    ] {
-        let cli = Cli::try_parse_from(args).unwrap();
-        run_with_paths_services_and_loader(
-            cli,
-            paths.clone(),
-            |_, _| unreachable!(),
-            || unreachable!(),
-            |_, _| Ok(()),
-        )
-        .unwrap();
-    }
-    let report = execute_native_json(
-        &config,
-        &paths,
-        NativeJsonRequest::Evaluate {
-            manifest,
-            thresholds: vec![0.25],
-        },
-    )
-    .unwrap();
-    assert_eq!(report["schema_version"], 1);
-    assert_eq!(report["thresholds"][0]["summary"]["true_positives"], 1);
-}
-
-#[test]
-fn hidden_inventory_command_uses_real_ort_when_available() {
-    let Some(runtime) = std::env::var_os("OMAWAKE_TEST_ONNXRUNTIME") else {
-        return;
-    };
-    let runtime = PathBuf::from(runtime);
-    let paths = test_paths("real-runtime-command");
-    let candidate = crate::backend::BackendConfig {
-        runtime: Runtime::Default,
-        device: "cpu".into(),
-        onnxruntime_library: runtime.clone(),
-        ..Default::default()
-    };
-    let cli = Cli {
-        config: Some(paths.config_file.clone()),
-        command: TopCommand::InventoryProbe {
-            candidate: serde_json::to_string(&candidate).unwrap(),
-        },
-    };
-    run_with_paths_and_services(cli, paths.clone(), |_, _| unreachable!(), || unreachable!())
-        .unwrap();
-
-    let cli = Cli {
-        config: Some(paths.config_file.clone()),
-        command: TopCommand::ModelCachePrepare {
-            candidate: serde_json::to_string(&Config::default()).unwrap(),
-            response: paths.runtime_dir.join(".model-cache-test.json"),
-        },
-    };
-    assert!(
-        run_with_paths_and_services(cli, paths, |_, _| unreachable!(), || unreachable!()).is_err()
-    );
-}
-
-#[test]
-fn real_daemon_initializes_and_cleans_up_when_shutdown_is_already_requested() {
-    let (Some(runtime), Some(model)) = (
-        std::env::var_os("OMAWAKE_TEST_ONNXRUNTIME"),
-        std::env::var_os("OMAWAKE_TEST_MODEL"),
-    ) else {
-        return;
-    };
-    let paths = test_paths("real-daemon-shutdown");
-    let mut config = Config::default();
-    config.backend.onnxruntime_library = PathBuf::from(runtime);
-    config.model.directory = PathBuf::from(model).to_string_lossy().into_owned();
-    config.wake_words = vec![WakeWord {
-        id: "light-up".into(),
-        phrase: "Light up".into(),
-        enabled: true,
-        command: vec!["true".into()],
-    }];
-
-    run_daemon_with_shutdown(&config, &paths, Arc::new(AtomicBool::new(true))).unwrap();
-    assert!(!socket_path(&paths).exists());
 }
 
 #[test]

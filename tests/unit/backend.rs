@@ -13,6 +13,8 @@ fn validates_runtime_device_matrix() {
     for (runtime, accepted) in [
         (Runtime::Default, &["auto", "CPU"][..]),
         (Runtime::Cuda, &["auto", "GPU"][..]),
+        (Runtime::Vulkan, &["auto", "GPU"][..]),
+        (Runtime::Hip, &["auto", "GPU"][..]),
         (Runtime::Openvino, &["auto", "npu", "GPU", "cpu"][..]),
     ] {
         for device in accepted {
@@ -40,5 +42,8 @@ fn validates_runtime_device_matrix() {
 
 #[test]
 fn reports_all_supported_runtimes() {
-    assert_eq!(supported_capabilities(), &["cpu", "openvino"]);
+    assert_eq!(
+        supported_capabilities(),
+        &["cpu", "openvino", "cuda", "vulkan", "hip"]
+    );
 }

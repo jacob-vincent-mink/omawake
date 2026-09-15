@@ -3,6 +3,9 @@ set -euo pipefail
 
 readonly AUDIOCPP_COMMIT="e9ff20042ec85af960a720368c6927cda19ad65f"
 
+# The release only needs the public C ABI library. Deployment specs and every
+# provider CLI/server/test target remain disabled and are never packaged.
+
 if [[ $# -ne 2 ]]; then
   echo "usage: $0 AUDIOCPP_SOURCE BUILD_DIRECTORY" >&2
   exit 2
@@ -20,7 +23,7 @@ cmake -S "${source_directory}" -B "${build_directory}" \
   -DCMAKE_BUILD_TYPE=Release \
   -DAUDIOCPP_VERSION="${AUDIOCPP_COMMIT:0:7}" \
   -DAUDIOCPP_BUILD_C_API=ON \
-  -DAUDIOCPP_DEPLOYMENT_BUILD=ON \
+  -DAUDIOCPP_DEPLOYMENT_BUILD=OFF \
   -DAUDIOCPP_MODEL_SET=custom \
   -DAUDIOCPP_MODELS=moonshine_asr \
   -DENGINE_ENABLE_NATIVE_CPU=OFF \

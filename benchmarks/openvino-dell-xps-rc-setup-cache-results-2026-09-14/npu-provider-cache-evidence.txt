@@ -1,1 +1,0 @@
-load_config={"NPU":{"CACHE_DIR":"/tmp/omawake-npu-final-validation.7LvLMM/cache/omawake/openvino/npu/compiled","NPU_QDQ_OPTIMIZATION":"YES"}}

@@ -19,7 +19,7 @@ use sha2::{Digest, Sha256};
 
 use self::protocol::{FRAME_SAMPLES, Request, Response, Transcript};
 use self::ring::{Activity, ActivityBuffer, Utterance};
-use super::onnx::resample::AudioResampler;
+use super::audio::{AudioResampler, read_wave};
 use super::{Detection, WakeWordBackend, WakeWordStream, detect_samples};
 use crate::backend::Runtime;
 use crate::config::Config;
@@ -41,15 +41,7 @@ pub(crate) fn probe_provider(config: &Config, paths: &AppPaths) -> Result<(PathB
     if config.backend.kind != "audiocpp" {
         bail!("audio.cpp probe requires backend.kind = audiocpp");
     }
-    if config.backend.runtime != Runtime::Default {
-        bail!("audio.cpp CPU provider requires backend.runtime = default");
-    }
-    if !matches!(
-        config.backend.device.trim().to_ascii_lowercase().as_str(),
-        "auto" | "cpu"
-    ) {
-        bail!("audio.cpp CPU provider requires backend.device = auto or cpu");
-    }
+    let (backend, device) = runtime_backend(config)?;
     if !(1..=64).contains(&config.backend.threads) {
         bail!("backend threads must be between 1 and 64");
     }
@@ -58,10 +50,10 @@ pub(crate) fn probe_provider(config: &Config, paths: &AppPaths) -> Result<(PathB
     let api = AudioCppApi::load(&library)?;
     let version = unsafe { (api.build_version)() };
     let version = if version.is_null() {
-        "audio.cpp ABI 0.1.0 (cpu)".into()
+        format!("audio.cpp ABI 0.1.0 ({backend}:{device})")
     } else {
         format!(
-            "audio.cpp {} (ABI 0.1.0, cpu)",
+            "audio.cpp {} (ABI 0.1.0, {backend}:{device})",
             unsafe { CStr::from_ptr(version) }.to_string_lossy()
         )
     };
@@ -105,15 +97,7 @@ struct ClientStream {
 
 impl AudioCppBackend {
     pub(super) fn load(config: &Config, paths: &AppPaths) -> Result<Self> {
-        if config.backend.runtime != Runtime::Default {
-            bail!("audiocpp currently supports only backend.runtime = default");
-        }
-        if !matches!(
-            config.backend.device.trim().to_ascii_lowercase().as_str(),
-            "auto" | "cpu"
-        ) {
-            bail!("audiocpp CPU checkpoint requires backend.device = auto or cpu");
-        }
+        let (backend, device) = runtime_backend(config)?;
         if config.model.sample_rate != 16_000 {
             bail!("audio.cpp Silero and the selected ASR family require model.sample_rate = 16000");
         }
@@ -132,15 +116,18 @@ impl AudioCppBackend {
         verify_asset(&verifier, profile.bytes, profile.sha256, profile.label)?;
         verify_asset(&vad, SILERO_VAD_BYTES, SILERO_VAD_SHA256, "Silero VAD")?;
         let matcher = PhraseMatcher::compile(&config.wake_words)?;
-        let worker = Worker::spawn(
-            &library,
-            &verifier,
-            &vad,
-            i32::from(config.backend.threads),
-            &paths.cache_dir.join("native-tmp"),
-            profile.family,
-            &library_dirs,
-        )?;
+        let worker = Worker::spawn(WorkerSpec {
+            executable: env::current_exe().context("resolve Omawake executable")?,
+            library,
+            verifier,
+            vad,
+            cache: paths.cache_dir.join("native-tmp"),
+            threads: i32::from(config.backend.threads),
+            asr_family: profile.family.into(),
+            library_dirs,
+            backend: backend.into(),
+            device,
+        })?;
         Ok(Self {
             worker: RefCell::new(worker),
             matcher,
@@ -151,6 +138,24 @@ impl AudioCppBackend {
     fn detections(&self, transcripts: Vec<Transcript>) -> Vec<Detection> {
         transcripts_to_detections(&self.matcher, transcripts)
     }
+}
+
+fn runtime_backend(config: &Config) -> Result<(&'static str, i32)> {
+    config.backend.validate_shape()?;
+    let backend = match config.backend.runtime {
+        Runtime::Default => "cpu",
+        Runtime::Cuda => "cuda",
+        Runtime::Vulkan => "vulkan",
+        Runtime::Hip => "hip",
+        Runtime::Openvino => {
+            bail!(
+                "audio.cpp does not use the OpenVINO runtime; select backend.kind = openvino-genai"
+            )
+        }
+    };
+    let device = i32::try_from(config.backend.device_id)
+        .context("backend.device_id exceeds audio.cpp's supported range")?;
+    Ok((backend, device))
 }
 
 fn asr_profile(config: &Config) -> Result<&'static AsrProfile> {
@@ -210,7 +215,7 @@ impl WakeWordBackend for AudioCppBackend {
     }
 
     fn detect_file(&self, path: &Path) -> Result<Vec<Detection>> {
-        let (sample_rate, samples) = super::onnx::read_wave(path)?;
+        let (sample_rate, samples) = read_wave(path)?;
         let stream = self.stream();
         detect_samples(stream.as_ref(), sample_rate, &samples)
     }
@@ -556,32 +561,16 @@ struct WorkerSpec {
     threads: i32,
     asr_family: String,
     library_dirs: Vec<PathBuf>,
+    backend: String,
+    device: i32,
 }
 
 impl Worker {
-    fn spawn(
-        library: &Path,
-        verifier: &Path,
-        vad: &Path,
-        threads: i32,
-        cache: &Path,
-        asr_family: &str,
-        library_dirs: &[PathBuf],
-    ) -> Result<Self> {
-        fs::create_dir_all(cache)
-            .with_context(|| format!("create audio.cpp cache {}", cache.display()))?;
-        fs::set_permissions(cache, fs::Permissions::from_mode(0o700))
-            .with_context(|| format!("secure audio.cpp cache {}", cache.display()))?;
-        let spec = WorkerSpec {
-            executable: env::current_exe().context("resolve Omawake executable")?,
-            library: library.to_owned(),
-            verifier: verifier.to_owned(),
-            vad: vad.to_owned(),
-            cache: cache.to_owned(),
-            threads,
-            asr_family: asr_family.to_owned(),
-            library_dirs: library_dirs.to_owned(),
-        };
+    fn spawn(spec: WorkerSpec) -> Result<Self> {
+        fs::create_dir_all(&spec.cache)
+            .with_context(|| format!("create audio.cpp cache {}", spec.cache.display()))?;
+        fs::set_permissions(&spec.cache, fs::Permissions::from_mode(0o700))
+            .with_context(|| format!("secure audio.cpp cache {}", spec.cache.display()))?;
         let (child, input, output) = launch_worker(&spec)?;
         let mut worker = Self {
             child,
@@ -763,6 +752,8 @@ fn launch_worker(spec: &WorkerSpec) -> Result<(Child, ChildStdin, BufReader<Chil
         .arg(&spec.vad)
         .arg(spec.threads.to_string())
         .arg(&spec.asr_family)
+        .arg(&spec.backend)
+        .arg(spec.device.to_string())
         .env("TMPDIR", &spec.cache)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -1009,6 +1000,8 @@ impl AudioCppProvider {
         vad: &Path,
         threads: i32,
         asr_family: &str,
+        backend: &str,
+        device: i32,
     ) -> Result<Self> {
         let api = AudioCppApi::load(library)?;
         let mut provider = Self {
@@ -1025,10 +1018,22 @@ impl AudioCppProvider {
         provider.api.check("create audio.cpp registry", status)?;
         provider.vad_model = provider.load_model(vad, "silero_vad")?;
         provider.asr_model = provider.load_model(verifier, asr_family)?;
-        provider.vad_session =
-            provider.create_session(provider.vad_model, "vad", "streaming", threads)?;
-        provider.asr_session =
-            provider.create_session(provider.asr_model, "asr", "offline", threads)?;
+        provider.vad_session = provider.create_session(
+            provider.vad_model,
+            "vad",
+            "streaming",
+            threads,
+            backend,
+            device,
+        )?;
+        provider.asr_session = provider.create_session(
+            provider.asr_model,
+            "asr",
+            "offline",
+            threads,
+            backend,
+            device,
+        )?;
         provider.start_vad()?;
         Ok(provider)
     }
@@ -1066,13 +1071,15 @@ impl AudioCppProvider {
         task: &str,
         mode: &str,
         threads: i32,
+        backend_name: &str,
+        device: i32,
     ) -> Result<*mut c_void> {
         let task = CString::new(task)?;
         let mode = CString::new(mode)?;
-        let cpu = CString::new("cpu")?;
+        let backend_name = CString::new(backend_name)?;
         let backend = BackendConfig {
-            backend: cpu.as_ptr(),
-            device: 0,
+            backend: backend_name.as_ptr(),
+            device,
             threads,
         };
         let mut session = std::ptr::null_mut();
@@ -1086,7 +1093,7 @@ impl AudioCppProvider {
                 &mut session,
             )
         };
-        self.api.check("create audio.cpp CPU session", status)?;
+        self.api.check("create audio.cpp session", status)?;
         if session.is_null() {
             bail!("audio.cpp returned a null session");
         }
@@ -1285,10 +1292,11 @@ pub(crate) fn worker_main(
     vad: &Path,
     threads: i32,
     asr_family: &str,
+    backend: &str,
+    device: i32,
 ) -> Result<()> {
-    let mut output = io::stdout().lock();
-    let mut input = io::stdin().lock();
     if let Err(error) = harden_worker_process() {
+        let mut output = io::stdout().lock();
         protocol::write_response(
             &mut output,
             &Response::Error {
@@ -1298,11 +1306,38 @@ pub(crate) fn worker_main(
         )?;
         return Ok(());
     }
-    let mut provider = match AudioCppProvider::open(library, verifier, vad, threads, asr_family) {
+    worker_main_io(
+        library,
+        verifier,
+        vad,
+        threads,
+        asr_family,
+        backend,
+        device,
+        &mut io::stdin().lock(),
+        &mut io::stdout().lock(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn worker_main_io(
+    library: &Path,
+    verifier: &Path,
+    vad: &Path,
+    threads: i32,
+    asr_family: &str,
+    backend: &str,
+    device: i32,
+    input: &mut impl io::Read,
+    output: &mut impl io::Write,
+) -> Result<()> {
+    let mut provider = match AudioCppProvider::open(
+        library, verifier, vad, threads, asr_family, backend, device,
+    ) {
         Ok(provider) => provider,
         Err(error) => {
             protocol::write_response(
-                &mut output,
+                output,
                 &Response::Error {
                     id: None,
                     message: format!("{error:#}"),
@@ -1312,14 +1347,14 @@ pub(crate) fn worker_main(
         }
     };
     protocol::write_response(
-        &mut output,
+        output,
         &Response::Ready {
             version: provider.version(),
         },
     )?;
     let mut stream: Option<WorkerStream> = None;
     loop {
-        let (request, pcm) = protocol::read_request(&mut input)?;
+        let (request, pcm) = protocol::read_request(input)?;
         let response = match request {
             Request::Shutdown => return Ok(()),
             Request::Start { id } => match provider.restart_vad() {
@@ -1419,15 +1454,244 @@ pub(crate) fn worker_main(
                 },
             },
         };
-        protocol::write_response(&mut output, &response)?;
+        protocol::write_response(output, &response)?;
     }
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::config::WakeWord;
     use std::os::unix::net::UnixStream;
+    use std::process::Command;
+    use std::sync::OnceLock;
+
+    const FAKE_AUDIOCPP_C: &str = r#"
+    #include <stdint.h>
+    #include <stddef.h>
+    #include <stdlib.h>
+
+    typedef struct { int kind; int64_t sample; float probability; int64_t start; int64_t end; } Event;
+    static const char *last_error = "controlled fake audio.cpp error";
+    static const char transcript[] = "  hello oma  ";
+
+    uint32_t audiocpp_abi_version(void) { return 256; }
+    const char *audiocpp_build_version(void) { return "fake-provider-1"; }
+    const char *audiocpp_last_error(void) { return last_error; }
+    int audiocpp_registry_create(const char *json, void **out) {
+    (void) json; *out = malloc(1); return *out ? 0 : 1;
+    }
+    void audiocpp_registry_free(void *value) { free(value); }
+    int audiocpp_model_load(void *registry, const char *path, const void *config,
+                        const void *options, void **out) {
+    (void) registry; (void) path; (void) config; (void) options;
+    *out = malloc(1); return *out ? 0 : 1;
+    }
+    void audiocpp_model_free(void *value) { free(value); }
+    int audiocpp_session_create(const void *model, const char *task, const char *mode,
+                            const void *backend, const void *options, void **out) {
+    (void) model; (void) task; (void) mode; (void) backend; (void) options;
+    *out = malloc(1); return *out ? 0 : 1;
+    }
+    void audiocpp_session_free(void *value) { free(value); }
+    void *audiocpp_request_create(void) { return malloc(1); }
+    void audiocpp_request_free(void *value) { free(value); }
+    int audiocpp_request_set_audio(void *request, const float *pcm, size_t count,
+                               int rate, int channels) {
+    (void) request; (void) pcm; (void) count; (void) rate; (void) channels; return 0;
+    }
+    int audiocpp_session_run(void *session, const void *request, void **out) {
+    (void) session; (void) request; *out = malloc(1); return *out ? 0 : 1;
+    }
+    int audiocpp_result_text(const void *result, const char **text, const char **json) {
+    (void) result; *text = transcript; if (json) *json = 0; return 0;
+    }
+    size_t audiocpp_result_segment_count(const void *result) { (void) result; return 1; }
+    int audiocpp_result_segment(const void *result, size_t index, int64_t *start,
+                            int64_t *end, float *score, const char **text) {
+    const Event *event = (const Event *) result; (void) index;
+    if (start) *start = event->start;
+    if (end) *end = event->end;
+    if (score) *score = 0.9f;
+    if (text) *text = transcript;
+    return 0;
+    }
+    void audiocpp_result_free(void *value) { free(value); }
+    int audiocpp_stream_start(void *session, const void *options) {
+    (void) session; (void) options; return 0;
+    }
+    int audiocpp_stream_push(void *session, const float *pcm, size_t count, int rate,
+                         int channels, int64_t offset, void **out) {
+    (void) session; (void) rate; (void) channels; *out = 0;
+    if (!count || pcm[0] == 0.0f) return 0;
+    Event *event = calloc(1, sizeof(Event));
+    if (!event) return 1;
+    event->probability = pcm[0] == 3.0f ? 2.0f : 0.9f;
+    event->sample = offset + (int64_t) count;
+    if (pcm[0] == -1.0f) event->kind = 1;
+    else if (pcm[0] == 2.0f) {
+        event->kind = 2; event->start = offset; event->end = offset + (int64_t) count;
+    } else if (pcm[0] == 4.0f) event->kind = 9;
+    else { event->kind = 0; if (pcm[0] == 5.0f) event->sample++; }
+    *out = event; return 0;
+    }
+    int audiocpp_stream_reset(void *session) { (void) session; return 0; }
+    void audiocpp_event_free(void *event) { free(event); }
+    const void *audiocpp_event_as_result(const void *event) { return event; }
+    size_t audiocpp_event_voice_activity_count(const void *event) { (void) event; return 1; }
+    int audiocpp_event_voice_activity(const void *value, size_t index, int *kind,
+                                  int64_t *sample, float *probability) {
+    const Event *event = (const Event *) value; (void) index;
+    *kind = event->kind; *sample = event->sample; *probability = event->probability; return 0;
+    }
+    "#;
+
+    const FAKE_WORKER_C: &str = r#"
+    #include <stdint.h>
+    #include <stdio.h>
+    #include <stdlib.h>
+    #include <string.h>
+
+    static int read_exact(void *buffer, size_t size) {
+    return fread(buffer, 1, size, stdin) == size;
+    }
+    static void write_response(const char *json) {
+    uint32_t size = (uint32_t) strlen(json);
+    fwrite(&size, sizeof(size), 1, stdout);
+    fwrite(json, 1, size, stdout);
+    fflush(stdout);
+    }
+    static unsigned long long request_id(const char *json) {
+    const char *id = strstr(json, "\"id\":");
+    return id ? strtoull(id + 5, 0, 10) : 0;
+    }
+    static size_t request_samples(const char *json) {
+    const char *samples = strstr(json, "\"samples\":");
+    return samples ? (size_t) strtoull(samples + 10, 0, 10) : 0;
+    }
+    int main(int argc, char **argv) {
+    if (argc > 1 && strcmp(argv[1], "__openvino-runtime-worker") == 0) {
+        fputs("{\"runtime_build\":\"fake\",\"runtime_description\":\"safe fake runtime\",\"requested_device\":\"CPU\",\"available_device\":\"CPU\",\"full_device_name\":\"Fake CPU\",\"device_architecture\":\"fake\",\"driver_version\":\"fake\",\"genai_library\":\"fake\",\"core_library\":\"fake\",\"audiocpp_library\":\"fake\"}", stdout);
+        return 0;
+    }
+    int openvino = argc > 1 && strcmp(argv[1], "__openvino-genai-worker") == 0;
+    const char *mode = openvino ? (argc > 8 ? argv[8] : "CPU") : (argc > 7 ? argv[7] : "cpu");
+    if (!openvino && argc == 6 && strcmp(argv[1], "__whisper-worker") == 0) {
+        if (strcmp(argv[5], "101") == 0) mode = "HANDSHAKE_ERROR";
+        else if (strcmp(argv[5], "102") == 0) mode = "HANDSHAKE_UNEXPECTED";
+        else if (strcmp(argv[5], "103") == 0) mode = "HANDSHAKE_EOF";
+        else if (strcmp(argv[5], "201") == 0) mode = "RESPONSE_ERROR";
+        else if (strcmp(argv[5], "202") == 0) mode = "RESPONSE_UNEXPECTED";
+    }
+    if (strcmp(mode, "HANDSHAKE_EOF") == 0) return 0;
+    if (strcmp(mode, "HANDSHAKE_ERROR") == 0) {
+        write_response("{\"type\":\"error\",\"id\":null,\"message\":\"controlled handshake error\"}");
+        return 0;
+    }
+    if (strcmp(mode, "HANDSHAKE_UNEXPECTED") == 0) {
+        write_response("{\"type\":\"ack\",\"id\":0}");
+        return 0;
+    }
+    if (openvino) {
+        write_response("{\"type\":\"ready\",\"evidence\":{\"profile_id\":\"whisper-base.en-int8-ov\",\"languages\":[\"en\"],\"multilingual\":false,\"runtime_build\":\"fake\",\"runtime_description\":\"fake\",\"requested_device\":\"CPU\",\"available_device\":\"CPU\",\"full_device_name\":\"Fake CPU\",\"device_architecture\":\"fake\",\"driver_version\":\"fake\",\"static_pipeline\":false,\"pipeline_load_milliseconds\":1.0,\"cache_directory\":\"/tmp\",\"cache_files\":0,\"cache_bytes\":0,\"genai_library\":\"fake\",\"core_library\":\"fake\"}}");
+    } else {
+        write_response("{\"type\":\"ready\",\"version\":\"safe fake worker\"}");
+    }
+    for (;;) {
+        uint32_t size = 0;
+        if (!read_exact(&size, sizeof(size))) return 0;
+        if (size > 65536) return 2;
+        char *json = calloc((size_t) size + 1, 1);
+        if (!json || !read_exact(json, size)) return 3;
+        size_t samples = request_samples(json);
+        float discard[512];
+        if (samples && (!read_exact(discard, samples * sizeof(float)))) return 4;
+        unsigned long long id = request_id(json);
+        char response[512];
+        if (strstr(json, "\"type\":\"shutdown\"")) { free(json); return 0; }
+        if (strcmp(mode, "RESPONSE_ERROR") == 0) {
+            snprintf(response, sizeof(response), "{\"type\":\"error\",\"id\":%llu,\"message\":\"controlled request error\"}", id);
+        } else if (strcmp(mode, "RESPONSE_UNEXPECTED") == 0) {
+            snprintf(response, sizeof(response), "{\"type\":\"ack\",\"id\":0}");
+        } else if (strstr(json, "\"type\":\"start\"") || strstr(json, "\"type\":\"cancel\"")) {
+            snprintf(response, sizeof(response), "{\"type\":\"ack\",\"id\":%llu}", id);
+        } else if (strstr(json, "\"type\":\"finish\"")) {
+            snprintf(response, sizeof(response), "{\"type\":\"result\",\"id\":%llu,\"transcripts\":[{\"text\":\"hello oma\",\"start_sample\":0,\"end_sample\":512}]}", id);
+        } else {
+            snprintf(response, sizeof(response), "{\"type\":\"result\",\"id\":%llu,\"transcripts\":[]}", id);
+        }
+        free(json);
+        write_response(response);
+    }
+    }
+    "#;
+
+    pub(crate) fn fake_library() -> &'static Path {
+        static LIBRARY: OnceLock<PathBuf> = OnceLock::new();
+        LIBRARY
+            .get_or_init(|| {
+                let root = env::temp_dir()
+                    .join(format!("omawake-safe-fake-audiocpp-{}", std::process::id()));
+                fs::create_dir_all(&root).unwrap();
+                let source = root.join("fake_audiocpp.c");
+                let library = root.join("libaudiocpp.so.0.1.0");
+                fs::write(&source, FAKE_AUDIOCPP_C).unwrap();
+                let output = Command::new("cc")
+                    .args(["-shared", "-fPIC", "-O0"])
+                    .arg(&source)
+                    .arg("-o")
+                    .arg(&library)
+                    .output()
+                    .unwrap();
+                assert!(
+                    output.status.success(),
+                    "compile fake audio.cpp DSO: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                library
+            })
+            .as_path()
+    }
+
+    pub(crate) fn fake_worker() -> &'static Path {
+        static WORKER: OnceLock<PathBuf> = OnceLock::new();
+        WORKER
+            .get_or_init(|| {
+                let root = env::temp_dir()
+                    .join(format!("omawake-safe-fake-worker-{}", std::process::id()));
+                fs::create_dir_all(&root).unwrap();
+                let source = root.join("fake_worker.c");
+                let worker = root.join("fake-worker");
+                fs::write(&source, FAKE_WORKER_C).unwrap();
+                let output = Command::new("cc")
+                    .args(["-O0"])
+                    .arg(&source)
+                    .arg("-o")
+                    .arg(&worker)
+                    .output()
+                    .unwrap();
+                assert!(
+                    output.status.success(),
+                    "compile safe fake worker: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                worker
+            })
+            .as_path()
+    }
+
+    fn fake_models(name: &str) -> (PathBuf, PathBuf, PathBuf) {
+        let root = env::temp_dir().join(format!(
+            "omawake-safe-fake-models-{name}-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let verifier = root.join("verifier.gguf");
+        let vad = root.join("vad.safetensors");
+        fs::write(&verifier, b"fake verifier").unwrap();
+        fs::write(&vad, b"fake vad").unwrap();
+        (root, verifier, vad)
+    }
 
     fn test_paths(name: &str) -> (PathBuf, AppPaths) {
         let root = env::temp_dir().join(format!("omawake-audiocpp-{name}-{}", std::process::id()));
@@ -1467,14 +1731,45 @@ mod tests {
     }
 
     #[test]
-    fn cpu_checkpoint_rejects_accelerator_runtime_without_spawning() {
+    fn audiocpp_rejects_openvino_runtime_without_spawning() {
         let mut config = Config::default();
         config.backend.kind = "audiocpp".into();
-        config.backend.runtime = Runtime::Cuda;
+        config.backend.runtime = Runtime::Openvino;
         let error = AudioCppBackend::load(&config, &AppPaths::discover())
             .err()
             .unwrap();
-        assert!(error.to_string().contains("only backend.runtime = default"));
+        assert!(
+            error
+                .to_string()
+                .contains("select backend.kind = openvino-genai")
+        );
+    }
+
+    #[test]
+    fn backend_load_validates_configuration_and_pinned_assets_before_spawning() {
+        let (root, paths) = test_paths("backend-load-validation");
+        let mut config = Config::default();
+        config.backend.kind = "audiocpp".into();
+        config.backend.library = fake_library().to_path_buf();
+        config.model.sample_rate = 8_000;
+        assert!(AudioCppBackend::load(&config, &paths).is_err());
+        config.model.sample_rate = 16_000;
+        config.backend.threads = 0;
+        assert!(AudioCppBackend::load(&config, &paths).is_err());
+        config.backend.threads = 2;
+        let models = config.model_directory(&paths);
+        fs::create_dir_all(&models).unwrap();
+        fs::write(models.join(&config.model.verifier), b"wrong verifier").unwrap();
+        assert!(AudioCppBackend::load(&config, &paths).is_err());
+        fs::write(models.join(&config.model.vad), b"wrong vad").unwrap();
+        assert!(
+            AudioCppBackend::load(&config, &paths)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("expected pinned size")
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -1561,5 +1856,484 @@ mod tests {
         let (reader, _writer) = UnixStream::pair().unwrap();
         let error = wait_readable(&reader, Duration::from_millis(1)).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+    }
+
+    #[test]
+    fn runtime_mapping_covers_every_audio_cpp_backend() {
+        let mut config = Config::default();
+        config.backend.kind = "audiocpp".into();
+        for (runtime, backend) in [
+            (Runtime::Default, "cpu"),
+            (Runtime::Cuda, "cuda"),
+            (Runtime::Vulkan, "vulkan"),
+            (Runtime::Hip, "hip"),
+        ] {
+            config.backend.runtime = runtime;
+            config.backend.device = if runtime == Runtime::Default {
+                "cpu".into()
+            } else {
+                "gpu".into()
+            };
+            config.backend.device_id = if runtime == Runtime::Default { 0 } else { 3 };
+            assert_eq!(
+                runtime_backend(&config).unwrap(),
+                (backend, config.backend.device_id as i32)
+            );
+        }
+        config.backend.runtime = Runtime::Openvino;
+        config.backend.device = "cpu".into();
+        config.backend.device_id = 0;
+        assert!(
+            runtime_backend(&config)
+                .unwrap_err()
+                .to_string()
+                .contains("openvino-genai")
+        );
+    }
+
+    #[test]
+    fn fake_provider_loads_real_dso_and_runs_vad_and_asr() {
+        let (_root, verifier, vad) = fake_models("provider");
+        let mut provider = AudioCppProvider::open(
+            fake_library(),
+            &verifier,
+            &vad,
+            2,
+            "moonshine_asr",
+            "cpu",
+            0,
+        )
+        .unwrap();
+        assert!(provider.version().contains("fake-provider-1"));
+        assert_eq!(provider.transcribe(&[0.25; 32]).unwrap(), "hello oma");
+        assert_eq!(
+            provider
+                .vad_activity(&vec![0.0; FRAME_SAMPLES])
+                .unwrap()
+                .start_before_frame_end,
+            None
+        );
+
+        let mut frame = vec![0.0; FRAME_SAMPLES];
+        frame[0] = 1.0;
+        assert_eq!(
+            provider
+                .vad_activity(&frame)
+                .unwrap()
+                .start_before_frame_end,
+            Some(0)
+        );
+        frame[0] = -1.0;
+        assert_eq!(
+            provider.vad_activity(&frame).unwrap().end_before_frame_end,
+            Some(0)
+        );
+        provider.restart_vad().unwrap();
+        frame[0] = 2.0;
+        let segment = provider.vad_activity(&frame).unwrap();
+        assert_eq!(segment.start_before_frame_end, Some(FRAME_SAMPLES));
+        assert_eq!(segment.end_before_frame_end, Some(0));
+
+        frame[0] = 3.0;
+        assert!(
+            provider
+                .vad_activity(&frame)
+                .unwrap_err()
+                .to_string()
+                .contains("invalid")
+        );
+        frame[0] = 4.0;
+        assert!(
+            provider
+                .vad_activity(&frame)
+                .unwrap_err()
+                .to_string()
+                .contains("unknown")
+        );
+        frame[0] = 5.0;
+        assert!(
+            provider
+                .vad_activity(&frame)
+                .unwrap_err()
+                .to_string()
+                .contains("outside")
+        );
+        assert!(provider.vad_activity(&frame[..10]).is_err());
+        provider.vad_cursor = i64::MAX;
+        assert!(provider.vad_activity(&vec![0.0; FRAME_SAMPLES]).is_err());
+        assert!(
+            provider
+                .api
+                .check("controlled", 7)
+                .unwrap_err()
+                .to_string()
+                .contains("controlled fake")
+        );
+    }
+
+    #[test]
+    fn provider_probe_uses_configured_real_dso() {
+        let (root, paths) = test_paths("probe-real-dso");
+        let mut config = Config::default();
+        config.backend.kind = "audiocpp".into();
+        config.backend.library = fake_library().to_path_buf();
+        let (path, version) = probe_provider(&config, &paths).unwrap();
+        assert_eq!(path, fake_library().canonicalize().unwrap());
+        assert!(version.contains("fake-provider-1"));
+
+        config.backend.threads = 0;
+        assert!(
+            probe_provider(&config, &paths)
+                .unwrap_err()
+                .to_string()
+                .contains("threads")
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn in_memory_worker_protocol_covers_stream_lifecycle() {
+        let (_root, verifier, vad) = fake_models("worker-io");
+        let mut input = Vec::new();
+        let frame = vec![0.0; FRAME_SAMPLES];
+        protocol::write_request(
+            &mut input,
+            &Request::Audio {
+                id: 1,
+                samples: FRAME_SAMPLES,
+            },
+            &frame,
+        )
+        .unwrap();
+        protocol::write_request(&mut input, &Request::Start { id: 1 }, &[]).unwrap();
+        protocol::write_request(
+            &mut input,
+            &Request::Audio {
+                id: 2,
+                samples: FRAME_SAMPLES,
+            },
+            &frame,
+        )
+        .unwrap();
+        let mut non_finite = frame.clone();
+        non_finite[0] = f32::NAN;
+        protocol::write_request(
+            &mut input,
+            &Request::Audio {
+                id: 1,
+                samples: FRAME_SAMPLES,
+            },
+            &non_finite,
+        )
+        .unwrap();
+        let mut speech = frame.clone();
+        speech[0] = 1.0;
+        protocol::write_request(
+            &mut input,
+            &Request::Audio {
+                id: 1,
+                samples: FRAME_SAMPLES,
+            },
+            &speech,
+        )
+        .unwrap();
+        protocol::write_request(&mut input, &Request::Finish { id: 2 }, &[]).unwrap();
+        protocol::write_request(&mut input, &Request::Finish { id: 1 }, &[]).unwrap();
+        protocol::write_request(&mut input, &Request::Finish { id: 1 }, &[]).unwrap();
+        protocol::write_request(&mut input, &Request::Start { id: 3 }, &[]).unwrap();
+        protocol::write_request(&mut input, &Request::Cancel { id: 3 }, &[]).unwrap();
+        protocol::write_request(&mut input, &Request::Cancel { id: 3 }, &[]).unwrap();
+        protocol::write_request(&mut input, &Request::Shutdown, &[]).unwrap();
+
+        let mut output = Vec::new();
+        worker_main_io(
+            fake_library(),
+            &verifier,
+            &vad,
+            2,
+            "moonshine_asr",
+            "cpu",
+            0,
+            &mut input.as_slice(),
+            &mut output,
+        )
+        .unwrap();
+
+        let mut responses = output.as_slice();
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Ready { .. }
+        ));
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Error { id: Some(1), .. }
+        ));
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Ack { id: 1 }
+        ));
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Error { id: Some(2), .. }
+        ));
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Error { id: Some(1), .. }
+        ));
+        assert!(
+            matches!(protocol::read_response(&mut responses).unwrap(), Response::Result { id: 1, transcripts } if transcripts.is_empty())
+        );
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Error { id: Some(2), .. }
+        ));
+        assert!(
+            matches!(protocol::read_response(&mut responses).unwrap(), Response::Result { id: 1, transcripts } if transcripts[0].text == "hello oma")
+        );
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Error { id: Some(1), .. }
+        ));
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Ack { id: 3 }
+        ));
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Ack { id: 3 }
+        ));
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Error { id: Some(3), .. }
+        ));
+        assert!(responses.is_empty());
+    }
+
+    #[test]
+    fn worker_reports_native_open_errors_over_protocol() {
+        let (_root, verifier, vad) = fake_models("worker-open-error");
+        let mut output = Vec::new();
+        worker_main_io(
+            Path::new("/definitely/missing/libaudiocpp.so"),
+            &verifier,
+            &vad,
+            2,
+            "moonshine_asr",
+            "cpu",
+            0,
+            &mut [].as_slice(),
+            &mut output,
+        )
+        .unwrap();
+        assert!(matches!(
+            protocol::read_response(&mut output.as_slice()).unwrap(),
+            Response::Error { id: None, message } if message.contains("load audio.cpp")
+        ));
+    }
+
+    fn fake_worker_spec(name: &str) -> (PathBuf, WorkerSpec) {
+        let (root, verifier, vad) = fake_models(name);
+        let cache = root.join("cache");
+        (
+            root,
+            WorkerSpec {
+                executable: fake_worker().to_path_buf(),
+                library: fake_library().to_path_buf(),
+                verifier,
+                vad,
+                cache,
+                threads: 2,
+                asr_family: "moonshine_asr".into(),
+                library_dirs: Vec::new(),
+                backend: "cpu".into(),
+                device: 0,
+            },
+        )
+    }
+
+    #[test]
+    fn supervised_worker_restarts_and_reaps_a_normal_process() {
+        let (root, spec) = fake_worker_spec("supervised-worker");
+        let mut worker = Worker::spawn(spec).unwrap();
+        assert!(worker.start(7).is_ok());
+        assert!(
+            worker
+                .start(8)
+                .unwrap_err()
+                .to_string()
+                .contains("already serving")
+        );
+        assert!(
+            worker
+                .audio(7, &vec![0.0; FRAME_SAMPLES])
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(worker.finish(7).unwrap()[0].text, "hello oma");
+        worker.start(8).unwrap();
+        worker.cancel(8).unwrap();
+        worker.relaunch().unwrap();
+        worker.terminate().unwrap();
+        // The first exchange observes the normal EOF, then the one supervised
+        // restart succeeds without ever invoking a malformed native library.
+        worker.start(9).unwrap();
+        worker.shutdown();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn supervised_worker_reports_controlled_handshake_and_response_errors() {
+        for mode in ["HANDSHAKE_ERROR", "HANDSHAKE_UNEXPECTED", "HANDSHAKE_EOF"] {
+            let (root, mut spec) = fake_worker_spec(&format!("handshake-{mode}"));
+            spec.backend = mode.into();
+            assert!(Worker::spawn(spec).err().is_some());
+            fs::remove_dir_all(root).unwrap();
+        }
+
+        for mode in ["RESPONSE_ERROR", "RESPONSE_UNEXPECTED"] {
+            let (root, mut spec) = fake_worker_spec(&format!("response-{mode}"));
+            spec.backend = mode.into();
+            let mut worker = Worker::spawn(spec).unwrap();
+            assert!(worker.start(21).is_err());
+            assert!(worker.audio(21, &vec![0.0; FRAME_SAMPLES]).is_err());
+            assert!(worker.finish(21).is_err());
+            assert!(worker.cancel(21).is_err());
+            worker.shutdown();
+            fs::remove_dir_all(root).unwrap();
+        }
+
+        for mode in ["HANDSHAKE_ERROR", "HANDSHAKE_UNEXPECTED", "HANDSHAKE_EOF"] {
+            let (root, spec) = fake_worker_spec(&format!("relaunch-{mode}"));
+            let mut worker = Worker::spawn(spec).unwrap();
+            worker.spec.backend = mode.into();
+            assert!(worker.relaunch().is_err());
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn high_level_stream_uses_supervised_worker_and_phrase_matcher() {
+        let (root, spec) = fake_worker_spec("backend-stream");
+        let backend = AudioCppBackend {
+            worker: RefCell::new(Worker::spawn(spec).unwrap()),
+            matcher: PhraseMatcher::compile(&[WakeWord {
+                id: "greeting".into(),
+                phrase: "hello oma".into(),
+                enabled: true,
+                command: vec!["true".into()],
+            }])
+            .unwrap(),
+            next_stream_id: Cell::new(u64::MAX),
+        };
+        assert_eq!(backend.kind(), "audiocpp");
+        let stream = backend.stream();
+        assert!(stream.accept(16_000, &[f32::NAN]).is_err());
+        assert!(
+            stream
+                .accept(16_000, &vec![0.0; FRAME_SAMPLES])
+                .unwrap()
+                .is_empty()
+        );
+        let detections = stream.finish().unwrap();
+        assert_eq!(detections[0].id, "greeting");
+        assert!(stream.finish().unwrap().is_empty());
+        assert!(stream.accept(16_000, &[0.0]).is_err());
+        drop(stream);
+
+        let short = backend.stream();
+        short.accept(16_000, &[0.0; 16]).unwrap();
+        assert_eq!(short.finish().unwrap()[0].id, "greeting");
+        drop(short);
+
+        let wav = root.join("silence.wav");
+        let mut writer = hound::WavWriter::create(
+            &wav,
+            hound::WavSpec {
+                channels: 1,
+                sample_rate: 16_000,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+        )
+        .unwrap();
+        for _ in 0..FRAME_SAMPLES {
+            writer.write_sample(0_i16).unwrap();
+        }
+        writer.finalize().unwrap();
+        assert_eq!(backend.detect_file(&wav).unwrap()[0].id, "greeting");
+
+        let abandoned = backend.stream();
+        abandoned.accept(16_000, &[0.0; 16]).unwrap();
+        drop(abandoned);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn model_and_library_path_validation_covers_success_and_tampering() {
+        let (root, paths) = test_paths("paths-and-hashes");
+        let model_dir = root.join("models");
+        fs::create_dir_all(&model_dir).unwrap();
+        let asset = model_dir.join("asset.bin");
+        fs::write(&asset, b"abc").unwrap();
+        assert_eq!(
+            resolve_model_asset(&model_dir, "asset.bin", "test").unwrap(),
+            asset
+        );
+        assert!(resolve_model_asset(&model_dir, "", "test").is_err());
+        assert!(resolve_model_asset(&model_dir, "missing", "test").is_err());
+        assert_eq!(
+            resolve_model_asset(&model_dir, asset.to_str().unwrap(), "test").unwrap(),
+            asset
+        );
+        verify_asset(
+            &asset,
+            3,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            "test",
+        )
+        .unwrap();
+        assert!(verify_asset(&asset, 2, "unused", "test").is_err());
+        assert!(verify_asset(&asset, 3, "bad", "test").is_err());
+
+        let configured = paths.config_file.parent().unwrap().join("provider.so");
+        fs::write(&configured, b"provider").unwrap();
+        let mut config = Config::default();
+        config.backend.library = PathBuf::from("provider.so");
+        assert_eq!(
+            resolve_library_with(&config, &paths, &[], None, fake_worker()).unwrap(),
+            configured.canonicalize().unwrap()
+        );
+        config.backend.library.clear();
+        assert_eq!(
+            resolve_library_with(&config, &paths, &[], Some(&configured), fake_worker()).unwrap(),
+            configured.canonicalize().unwrap()
+        );
+        assert!(
+            resolve_library_with(
+                &config,
+                &paths,
+                &[],
+                Some(Path::new("relative.so")),
+                fake_worker()
+            )
+            .is_err()
+        );
+
+        let relative_dir = paths.config_file.parent().unwrap().join("relative-native");
+        fs::create_dir_all(&relative_dir).unwrap();
+        config.backend.library_dirs = vec![PathBuf::from("relative-native"), relative_dir.clone()];
+        assert_eq!(
+            resolve_configured_library_dirs(&config, &paths)
+                .unwrap()
+                .len(),
+            1
+        );
+        config.backend.library_dirs = vec![PathBuf::from("missing-native")];
+        assert!(resolve_configured_library_dirs(&config, &paths).is_err());
+        config.backend.library_dirs = vec![configured.clone()];
+        assert!(resolve_configured_library_dirs(&config, &paths).is_err());
+        assert!(package_library_dirs(Path::new("/")).is_empty());
+        assert!(worker_library_dirs(Path::new("/"), vec![]).is_err());
+        fs::remove_dir_all(root).unwrap();
     }
 }

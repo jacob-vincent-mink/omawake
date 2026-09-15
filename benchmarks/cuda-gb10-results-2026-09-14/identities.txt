@@ -1,9 +1,0 @@
-Linux 6.17.0-1032-nvidia aarch64 GNU/Linux
-name, driver_version
-NVIDIA GB10, 580.173.02
-95e1914b185bb3bb839defdef8f0a8a17bf332d9e5d74a85cba8e955bfdb0959  omawake/target/release/omawake
-e09eaa687970be80652b8c892d0dd1cc35acbdb472c08fb941cf8c1677c90269  omaspeak/target/release/omaspeak
-f8ce231d49198480e2431800295c375822fb6502baadb670b792f73af2b16cbb  acceptance/sherpa-build/lib/libsherpa-onnx-c-api.so
-3ffc93d211fe02696e6cf3a4213bf0a758bf0d93c03ebf01e25ef68213bf9f29  omawake/native/sherpa/patches/sherpa-onnx-oma-runtime-v1.13.8.patch
-cbeb3c5cf2de5a47f986c12b1e8901404880ab6abb27299ffdef2040125f984f  /tmp/oma-native-cuda/runtime/lib/libonnxruntime.so.1.29.0
-d7aaeea019ba6d4e3a9c03f0a6a863bf39c87d4c79a6d31466c646abe2b40f07  /tmp/oma-native-cuda/runtime/lib/libonnxruntime_providers_cuda.so

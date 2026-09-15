@@ -31,6 +31,31 @@ fn report(paths: &AppPaths, device: &str, prepared: bool) -> CacheReport {
     }
 }
 
+fn placement(
+    device: &str,
+    static_pipeline: bool,
+) -> crate::engine::openvino_genai::PlacementEvidence {
+    crate::engine::openvino_genai::PlacementEvidence {
+        profile_id: "whisper-base.en-int8-ov".into(),
+        languages: vec!["en".into()],
+        multilingual: false,
+        runtime_build: "test".into(),
+        runtime_description: "safe injected OpenVINO".into(),
+        requested_device: device.into(),
+        available_device: device.into(),
+        full_device_name: format!("Test {device}"),
+        device_architecture: "test".into(),
+        driver_version: "test".into(),
+        static_pipeline,
+        pipeline_load_milliseconds: 1.0,
+        cache_directory: "/test/cache".into(),
+        cache_files: 1,
+        cache_bytes: 8,
+        genai_library: "/test/libopenvino_genai_c.so".into(),
+        core_library: "/test/libopenvino_c.so".into(),
+    }
+}
+
 #[test]
 fn cache_requirement_and_status_follow_explicit_accelerator_selection() {
     let paths = fixture("status");
@@ -148,6 +173,40 @@ fn child_requires_managed_accelerator_catalog_audio_and_real_cache_output() {
     assert!(child_with(&config, &paths, |_, _, _| Ok(())).is_err());
 
     assert!(crate::catalog::models()[0].probe_audio.is_none());
+}
+
+#[test]
+fn direct_openvino_child_requires_exact_placement_and_a_persisted_compiled_graph() {
+    let paths = fixture("direct-openvino-child");
+    let mut config = openvino("npu");
+    config.backend.kind = "openvino-genai".into();
+
+    let mut cpu = config.clone();
+    cpu.backend.device = "cpu".into();
+    let mut unexpected = |_: &Config, _: &AppPaths| unreachable!();
+    assert!(openvino_child_with(&cpu, &paths, &mut unexpected).is_err());
+    config.backend.fallback = Fallback::Cpu;
+    assert!(openvino_child_with(&config, &paths, &mut unexpected).is_err());
+    config.backend.fallback = Fallback::Error;
+
+    let mut wrong_device = |_: &Config, _: &AppPaths| Ok(placement("GPU", false));
+    assert!(openvino_child_with(&config, &paths, &mut wrong_device).is_err());
+    let mut no_static_pipeline = |_: &Config, _: &AppPaths| Ok(placement("NPU", false));
+    assert!(openvino_child_with(&config, &paths, &mut no_static_pipeline).is_err());
+    let mut no_artifact = |_: &Config, _: &AppPaths| Ok(placement("NPU", true));
+    assert!(openvino_child_with(&config, &paths, &mut no_artifact).is_err());
+
+    let mut prepare = |config: &Config, paths: &AppPaths| {
+        let cache = crate::engine::openvino_cache_directory(config, paths)?;
+        fs::create_dir_all(&cache)?;
+        fs::write(cache.join("compiled.blob"), b"compiled")?;
+        Ok(placement("NPU", true))
+    };
+    let report = openvino_child_with(&config, &paths, &mut prepare).unwrap();
+    assert!(report.prepared);
+    assert_eq!(report.artifacts, 1);
+    assert_eq!(report.bytes, 8);
+    assert!(report.elapsed_milliseconds.is_some());
 }
 
 #[test]
@@ -308,15 +367,12 @@ fn isolated_preparation_forces_error_fallback_and_resolves_child_environment() {
     let paths = fixture("isolated-plan");
     let libraries = paths.data_dir.join("runtime");
     fs::create_dir_all(&libraries).unwrap();
-    let core = libraries.join("libonnxruntime.so.1.30.0");
-    let provider = libraries.join("libonnxruntime_providers_openvino_plugin.so");
-    fs::write(&core, b"fixture").unwrap();
+    let provider = libraries.join("libopenvino_genai_c.so");
     fs::write(&provider, b"fixture").unwrap();
     let mut config = openvino("npu");
     config.backend.fallback = Fallback::Cpu;
     config.backend.library_dirs = vec![libraries.clone()];
-    config.backend.onnxruntime_library = core.clone();
-    config.backend.provider_library = provider.clone();
+    config.backend.library = provider.clone();
 
     let expected = report(&paths, "npu", true);
     let actual = isolated_with(
@@ -324,8 +380,7 @@ fn isolated_preparation_forces_error_fallback_and_resolves_child_environment() {
         &paths.config_file,
         |candidate, path, loader, device| {
             assert_eq!(candidate.backend.fallback, Fallback::Error);
-            assert_eq!(candidate.backend.onnxruntime_library, core);
-            assert_eq!(candidate.backend.provider_library, provider);
+            assert_eq!(candidate.backend.library, provider);
             assert_eq!(path, paths.config_file);
             assert_eq!(device, "NPU");
             assert!(std::env::split_paths(loader).any(|entry| entry == libraries));

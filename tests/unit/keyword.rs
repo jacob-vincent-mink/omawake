@@ -49,37 +49,3 @@ fn rejects_invalid_entries() {
         assert!(validate_wake_words(&[invalid]).is_err());
     }
 }
-
-#[test]
-fn real_sentencepiece_model_compiles_enabled_keywords() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/bpe.model");
-    let compiler = KeywordCompiler::open(&path).unwrap();
-    let compiled = compiler
-        .compile(&[
-            word("computer", " Computer ", true, &["true"]),
-            word("lovely-child", "Lovely Child", true, &["true"]),
-            word("disabled", "Forever", false, &["true"]),
-        ])
-        .unwrap();
-    assert!(compiled.contains("@computer"));
-    assert!(compiled.contains("@lovely-child"));
-    assert!(!compiled.contains("@disabled"));
-    assert!(compiler.compile(&[]).is_err());
-    assert!(
-        compiler
-            .compile(&[
-                word("duplicate", "First", true, &["true"]),
-                word("duplicate", "Second", true, &["true"]),
-            ])
-            .is_err()
-    );
-    assert!(
-        compiler
-            .compile(&[
-                word("first", "Same Phrase", true, &["true"]),
-                word("second", " same phrase ", true, &["true"]),
-            ])
-            .is_err()
-    );
-    assert!(KeywordCompiler::open(Path::new("/definitely/missing.model")).is_err());
-}

@@ -241,75 +241,6 @@ fn backend_assembly_filters_disabled_actions_and_records_metadata() {
 }
 
 #[test]
-fn injected_loader_exercises_complete_model_preparation_and_cpu_fallback() {
-    let root = temp("load-with");
-    let paths = AppPaths {
-        config_file: root.join("config.toml"),
-        data_dir: root.join("data"),
-        cache_dir: root.join("cache"),
-        state_dir: root.join("state"),
-        runtime_dir: root.join("run"),
-    };
-    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
-    let mut config = Config::default();
-    config.model.directory = fixtures.to_string_lossy().into_owned();
-    config.model.bpe_model = "bpe.model".into();
-    let detector = Detector::load_with(&config, &paths, |_, directory, runtime, keywords| {
-        assert_eq!(directory, fixtures);
-        assert_eq!(runtime, Runtime::Default);
-        assert!(keywords.ends_with("@computer"));
-        Ok(Box::new(FakeBackend { detections: vec![] }))
-    })
-    .unwrap();
-    assert_eq!(detector.effective_runtime, Runtime::Default);
-    assert!(!detector.fallback_used);
-
-    config.backend.runtime = Runtime::Cuda;
-    config.backend.device = "gpu".into();
-    config.backend.fallback = Fallback::Cpu;
-    let mut attempts = Vec::new();
-    let detector = Detector::load_with(&config, &paths, |_, _, runtime, _| {
-        attempts.push(runtime);
-        if runtime == Runtime::Cuda {
-            Err(anyhow!("CUDA provider unavailable"))
-        } else {
-            Ok(Box::new(FakeBackend { detections: vec![] }))
-        }
-    })
-    .unwrap();
-    assert_eq!(attempts, [Runtime::Cuda, Runtime::Default]);
-    assert_eq!(detector.effective_runtime, Runtime::Default);
-    assert!(detector.fallback_used);
-
-    config.backend.fallback = Fallback::Error;
-    let error = Detector::load_with(&config, &paths, |_, _, _, _| {
-        Err(anyhow!("CUDA provider unavailable"))
-    })
-    .err()
-    .unwrap();
-    assert_eq!(error.to_string(), "CUDA provider unavailable");
-
-    config.backend.fallback = Fallback::Cpu;
-    let mut attempts = 0;
-    let error = Detector::load_with(&config, &paths, |_, _, runtime, _| {
-        attempts += 1;
-        Err(anyhow!("{runtime:?} initialization failed"))
-    })
-    .err()
-    .unwrap();
-    assert_eq!(attempts, 2);
-    assert!(error.to_string().contains("CPU fallback also failed"));
-
-    config.backend.kind = "future-local-backend".into();
-    let detector = Detector::load_with(&config, &paths, |_, _, _, _| {
-        Ok(Box::new(FakeBackend { detections: vec![] }))
-    })
-    .unwrap();
-    assert_eq!(detector.backend_kind, "fake");
-    assert!(Detector::load(&config, &paths).is_err());
-}
-
-#[test]
 fn backend_and_stream_failures_are_returned_unchanged() {
     let mut failed = detector("known", vec!["true".into()], "known");
     failed.backend = Box::new(FailingBackend);
@@ -348,4 +279,137 @@ fn sample_chunking_pads_finishes_and_propagates_stream_errors() {
 
     assert!(detect_samples(&FailingStream { fail_accept: true }, 16_000, &[0.0]).is_err());
     assert!(detect_samples(&FailingStream { fail_accept: false }, 16_000, &[]).is_err());
+}
+
+#[test]
+fn native_backend_load_failures_report_provider_and_fallback_context_without_crashing() {
+    let root = temp("native-load-failures");
+    let paths = AppPaths {
+        config_file: root.join("config/config.toml"),
+        data_dir: root.join("data"),
+        cache_dir: root.join("cache"),
+        state_dir: root.join("state"),
+        runtime_dir: root.join("run"),
+    };
+
+    let mut audio_cpp = Config::default();
+    audio_cpp.backend.library = root.join("missing-libaudiocpp.so");
+    assert!(Detector::load(&audio_cpp, &paths).is_err());
+    audio_cpp.backend.runtime = Runtime::Cuda;
+    audio_cpp.backend.device = "gpu".into();
+    audio_cpp.backend.fallback = Fallback::Cpu;
+    let error = Detector::load(&audio_cpp, &paths)
+        .err()
+        .expect("CUDA provider should fail");
+    assert!(error.to_string().contains("CPU fallback also failed"));
+
+    let mut openvino = Config::default();
+    openvino.backend.kind = "openvino-genai".into();
+    openvino.backend.runtime = Runtime::Openvino;
+    openvino.backend.device = "npu".into();
+    openvino.backend.library = root.join("missing-openvino-genai.so");
+    openvino.backend.fallback = Fallback::Cpu;
+    let error = Detector::load(&openvino, &paths)
+        .err()
+        .expect("OpenVINO provider should fail");
+    assert!(
+        error
+            .to_string()
+            .contains("OpenVINO CPU fallback also failed")
+    );
+
+    let mut whisper = Config::default();
+    whisper.backend.kind = "whispercpp".into();
+    whisper.model.sample_rate = 8_000;
+    assert!(
+        Detector::load(&whisper, &paths)
+            .err()
+            .expect("Whisper provider should fail")
+            .to_string()
+            .contains("sample_rate = 16000")
+    );
+
+    let mut unknown = Config::default();
+    unknown.backend.kind = "unknown".into();
+    assert!(
+        Detector::load(&unknown, &paths)
+            .err()
+            .expect("unknown provider should fail")
+            .to_string()
+            .contains("unsupported wake-word backend")
+    );
+}
+
+#[test]
+fn provider_neutral_loader_assembles_each_backend_and_exercises_cpu_fallbacks() {
+    let root = temp("provider-neutral-load");
+    let paths = AppPaths {
+        config_file: root.join("config/config.toml"),
+        data_dir: root.join("data"),
+        cache_dir: root.join("cache"),
+        state_dir: root.join("state"),
+        runtime_dir: root.join("run"),
+    };
+    let backend = || -> Box<dyn WakeWordBackend> {
+        Box::new(FakeBackend {
+            detections: Vec::new(),
+        })
+    };
+
+    let mut audio_cpp = Config::default();
+    audio_cpp.backend.runtime = Runtime::Cuda;
+    audio_cpp.backend.device = "gpu".into();
+    audio_cpp.backend.fallback = Fallback::Cpu;
+    let detector = Detector::load_with(
+        &audio_cpp,
+        &paths,
+        |candidate, _| {
+            if candidate.backend.runtime == Runtime::Cuda {
+                Err(anyhow!("controlled CUDA initialization failure"))
+            } else {
+                Ok(backend())
+            }
+        },
+        |_, _| unreachable!(),
+        |_, _| unreachable!(),
+    )
+    .unwrap();
+    assert_eq!(detector.effective_runtime, Runtime::Default);
+    assert!(detector.fallback_used);
+    assert_eq!(detector.keywords_buffer, "Computer");
+
+    let mut whisper = Config::default();
+    whisper.backend.kind = "whispercpp".into();
+    let detector = Detector::load_with(
+        &whisper,
+        &paths,
+        |_, _| unreachable!(),
+        |_, _| Ok(backend()),
+        |_, _| unreachable!(),
+    )
+    .unwrap();
+    assert_eq!(detector.effective_runtime, Runtime::Default);
+    assert!(!detector.fallback_used);
+
+    let mut openvino = Config::default();
+    openvino.backend.kind = "openvino-genai".into();
+    openvino.backend.runtime = Runtime::Openvino;
+    openvino.backend.device = "npu".into();
+    openvino.backend.fallback = Fallback::Cpu;
+    let detector = Detector::load_with(
+        &openvino,
+        &paths,
+        |_, _| unreachable!(),
+        |_, _| unreachable!(),
+        |candidate, _| {
+            if candidate.backend.device.eq_ignore_ascii_case("npu") {
+                Err(anyhow!("controlled NPU initialization failure"))
+            } else {
+                Ok(backend())
+            }
+        },
+    )
+    .unwrap();
+    assert_eq!(detector.effective_runtime, Runtime::Openvino);
+    assert!(detector.fallback_used);
 }

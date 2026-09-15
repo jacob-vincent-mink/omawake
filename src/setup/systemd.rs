@@ -1,4 +1,3 @@
-use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -6,8 +5,6 @@ use std::process::{Command, Stdio};
 use anyhow::{Context, Result, bail};
 
 use crate::paths::AppPaths;
-use crate::{config::Config, runtime_paths};
-
 const UNIT: &str = "omawake.service";
 
 pub fn service_path(paths: &AppPaths) -> PathBuf {
@@ -20,37 +17,17 @@ pub fn service_path(paths: &AppPaths) -> PathBuf {
 }
 
 pub fn generate(binary: &Path, config: &Path) -> String {
-    generate_with_library_path(binary, config, None)
-}
-
-fn generate_with_library_path(
-    binary: &Path,
-    config: &Path,
-    library_path: Option<&OsStr>,
-) -> String {
-    let library_environment = library_path
-        .filter(|value| !value.is_empty())
-        .map(|value| {
-            format!(
-                "Environment=\"LD_LIBRARY_PATH={}\"\n",
-                escape_environment_value(value)
-            )
-        })
-        .unwrap_or_default();
     format!(
-        "[Unit]\nDescription=Omawake local wake-word daemon\nPartOf=graphical-session.target\nAfter=graphical-session.target pipewire.service\n\n[Service]\nType=simple\nExecStart={} --config {} daemon\nRestart=on-failure\nRestartSec=1\nEnvironment=XDG_RUNTIME_DIR=%t\n{}\n[Install]\nWantedBy=graphical-session.target\n",
+        "[Unit]\nDescription=Omawake local wake-word daemon\nPartOf=graphical-session.target\nAfter=graphical-session.target pipewire.service\n\n[Service]\nType=simple\nExecStart={} --config {} daemon\nRestart=on-failure\nRestartSec=1\nEnvironment=XDG_RUNTIME_DIR=%t\n\n[Install]\nWantedBy=graphical-session.target\n",
         quote(binary),
-        quote(config),
-        library_environment
+        quote(config)
     )
 }
 
 pub fn install(paths: &AppPaths, config: &Path, start: bool) -> Result<PathBuf> {
     let path = service_path(paths);
     let binary = std::env::current_exe()?.canonicalize()?;
-    let app_config = Config::load(config)?;
-    let library_path = runtime_paths::effective_library_path(&app_config.backend, config)?;
-    let unit = generate_with_library_path(&binary, config, library_path.as_deref());
+    let unit = generate(&binary, config);
     write_atomic(&path, unit.as_bytes())?;
     systemctl(["daemon-reload"])?;
     if start {
@@ -137,16 +114,6 @@ fn systemctl<const N: usize>(args: [&str; N]) -> Result<()> {
 
 fn quote(path: &Path) -> String {
     format!("\"{}\"", path.display().to_string().replace('"', "\\\""))
-}
-
-fn escape_environment_value(value: &OsStr) -> String {
-    value
-        .to_string_lossy()
-        .replace('\\', "\\\\")
-        .replace('%', "%%")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
 }
 
 pub(super) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {

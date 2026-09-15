@@ -16,10 +16,9 @@ use crate::backend::{Fallback, Runtime, supported_capabilities};
 use crate::config::{Config, WakeWord};
 use crate::engine::{ActionResult, Detection, Detector, wav_duration};
 use crate::evaluation::{self, EvaluationContext, RuntimeIdentity};
-use crate::keyword::{KeywordCompiler, validate_wake_words};
+use crate::keyword::validate_wake_words;
 use crate::paths::AppPaths;
 use crate::protocol::{Command, Request, Response, ResultPayload};
-use crate::runtime_paths;
 use crate::setup as app_setup;
 use crate::setup::model::ProgressFormat;
 use crate::setup::wizard::{self, RuntimeSelection, SetupMode};
@@ -44,10 +43,6 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum TopCommand {
-    #[command(name = "__inventory-probe", hide = true)]
-    InventoryProbe {
-        candidate: String,
-    },
     #[command(name = "__model-cache-prepare", hide = true)]
     ModelCachePrepare {
         candidate: String,
@@ -72,6 +67,8 @@ enum TopCommand {
         vad: PathBuf,
         threads: i32,
         asr_family: String,
+        backend: String,
+        device: i32,
     },
     #[command(name = "__openvino-genai-worker", hide = true)]
     OpenVinoGenAiWorker {
@@ -114,13 +111,6 @@ enum TopCommand {
     Evaluate {
         #[arg(value_name = "MANIFEST")]
         manifest: PathBuf,
-        #[arg(
-            long = "threshold",
-            value_delimiter = ',',
-            value_name = "VALUE",
-            value_parser = parse_evaluation_threshold
-        )]
-        thresholds: Vec<f32>,
     },
     Status {
         #[arg(long)]
@@ -167,7 +157,6 @@ enum NativeJsonRequest {
     },
     Evaluate {
         manifest: PathBuf,
-        thresholds: Vec<f32>,
     },
 }
 
@@ -248,7 +237,7 @@ enum SetupCommand {
         #[arg(long)]
         json: bool,
         /// Select the runtime without opening the TUI.
-        #[arg(long, value_parser = ["default", "openvino", "cuda"], conflicts_with = "json")]
+        #[arg(long, value_parser = ["default", "openvino", "cuda", "vulkan", "hip"], conflicts_with = "json")]
         runtime: Option<String>,
         /// Select a compatible device without opening the TUI.
         #[arg(long, conflicts_with = "json")]
@@ -288,6 +277,31 @@ pub fn entry() -> ExitCode {
 
 fn run_entry(cli: Cli) -> Result<()> {
     let paths = AppPaths::discover();
+    run_entry_with_workers(
+        cli,
+        paths,
+        crate::engine::openvino_genai::runtime_worker_main,
+        crate::engine::openvino_genai::worker_main,
+        crate::engine::audiocpp::worker_main,
+        crate::engine::whisper::worker_main,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_entry_with_workers<OR, OG, AC, WH>(
+    cli: Cli,
+    paths: AppPaths,
+    openvino_runtime_worker: OR,
+    openvino_genai_worker: OG,
+    audiocpp_worker: AC,
+    whisper_worker: WH,
+) -> Result<()>
+where
+    OR: FnOnce(&Path, &Path, &Path, &str) -> Result<()>,
+    OG: FnOnce(crate::engine::openvino_genai::ProviderSpec) -> Result<()>,
+    AC: FnOnce(&Path, &Path, &Path, i32, &str, &str, i32) -> Result<()>,
+    WH: FnOnce(&Path, &Path, &Path, i32) -> Result<()>,
+{
     if let TopCommand::OpenVinoRuntimeWorker {
         genai_library,
         core_library,
@@ -295,12 +309,7 @@ fn run_entry(cli: Cli) -> Result<()> {
         device,
     } = &cli.command
     {
-        return crate::engine::openvino_genai::runtime_worker_main(
-            genai_library,
-            core_library,
-            audiocpp_library,
-            device,
-        );
+        return openvino_runtime_worker(genai_library, core_library, audiocpp_library, device);
     }
     if let TopCommand::OpenVinoGenAiWorker {
         genai_library,
@@ -313,20 +322,18 @@ fn run_entry(cli: Cli) -> Result<()> {
         vad_threads,
     } = &cli.command
     {
-        return crate::engine::openvino_genai::worker_main(
-            crate::engine::openvino_genai::ProviderSpec {
-                genai_library: genai_library.clone(),
-                core_library: core_library.clone(),
-                audiocpp_library: audiocpp_library.clone(),
-                library_dirs: Vec::new(),
-                model_directory: model_directory.clone(),
-                vad_model: vad_model.clone(),
-                cache_directory: cache_directory.clone(),
-                placement_log: cache_directory.join("placement.log"),
-                device: device.clone(),
-                vad_threads: *vad_threads,
-            },
-        );
+        return openvino_genai_worker(crate::engine::openvino_genai::ProviderSpec {
+            genai_library: genai_library.clone(),
+            core_library: core_library.clone(),
+            audiocpp_library: audiocpp_library.clone(),
+            library_dirs: Vec::new(),
+            model_directory: model_directory.clone(),
+            vad_model: vad_model.clone(),
+            cache_directory: cache_directory.clone(),
+            placement_log: cache_directory.join("placement.log"),
+            device: device.clone(),
+            vad_threads: *vad_threads,
+        });
     }
     if let TopCommand::AudioCppWorker {
         library,
@@ -334,9 +341,13 @@ fn run_entry(cli: Cli) -> Result<()> {
         vad,
         threads,
         asr_family,
+        backend,
+        device,
     } = &cli.command
     {
-        return crate::engine::audiocpp::worker_main(library, verifier, vad, *threads, asr_family);
+        return audiocpp_worker(
+            library, verifier, vad, *threads, asr_family, backend, *device,
+        );
     }
     if let TopCommand::WhisperWorker {
         library,
@@ -345,7 +356,7 @@ fn run_entry(cli: Cli) -> Result<()> {
         threads,
     } = &cli.command
     {
-        return crate::engine::whisper::worker_main(library, verifier, vad, *threads);
+        return whisper_worker(library, verifier, vad, *threads);
     }
     if let Some(request) = native_json_request(&cli.command) {
         let config_path = cli.config.as_deref().unwrap_or(&paths.config_file);
@@ -383,12 +394,8 @@ fn native_json_request(command: &TopCommand) -> Option<NativeJsonRequest> {
             warmup: *warmup,
             iterations: *iterations,
         }),
-        TopCommand::Evaluate {
-            manifest,
-            thresholds,
-        } => Some(NativeJsonRequest::Evaluate {
+        TopCommand::Evaluate { manifest } => Some(NativeJsonRequest::Evaluate {
             manifest: manifest.clone(),
-            thresholds: thresholds.clone(),
         }),
         _ => None,
     }
@@ -471,10 +478,7 @@ fn execute_native_json(
             warmup,
             iterations,
         } => file_benchmark_report(config, paths, &audio, warmup, iterations),
-        NativeJsonRequest::Evaluate {
-            manifest,
-            thresholds,
-        } => evaluation_report(config, paths, &manifest, thresholds),
+        NativeJsonRequest::Evaluate { manifest } => evaluation_report(config, paths, &manifest),
     }
 }
 
@@ -499,45 +503,28 @@ where
     F: FnMut(&AppPaths, Command) -> Result<Response>,
     D: FnOnce() -> Result<Vec<String>>,
 {
-    run_with_paths_services_and_loader(
-        cli,
-        paths,
-        &mut send_request,
-        list_devices,
-        runtime_paths::ensure_engine_library_path,
-    )
+    run_with_paths_services(cli, paths, &mut send_request, list_devices)
 }
 
-fn run_with_paths_services_and_loader<F, D, L>(
+fn run_with_paths_services<F, D>(
     cli: Cli,
     mut paths: AppPaths,
     mut send_request: F,
     list_devices: D,
-    ensure_engine_library_path: L,
 ) -> Result<()>
 where
     F: FnMut(&AppPaths, Command) -> Result<Response>,
     D: FnOnce() -> Result<Vec<String>>,
-    L: FnOnce(&crate::backend::BackendConfig, &Path) -> Result<()>,
 {
     let config_path = cli.config.unwrap_or_else(|| paths.config_file.clone());
     paths.config_file = config_path.clone();
     let command = match cli.command {
-        TopCommand::InventoryProbe { candidate } => {
-            let candidate = serde_json::from_str(&candidate)?;
-            println!(
-                "{}",
-                serde_json::to_string(&crate::runtime_inventory::child(&candidate))?
-            );
-            return Ok(());
-        }
         TopCommand::ModelCachePrepare {
             candidate,
             response,
         } => {
             let mut candidate: Config = serde_json::from_str(&candidate)?;
             candidate.backend.fallback = Fallback::Error;
-            runtime_paths::ensure_engine_library_path(&candidate.backend, &config_path)?;
             crate::native_worker::write_json(
                 &response,
                 &paths.runtime_dir,
@@ -548,9 +535,6 @@ where
         TopCommand::NativeJson { request, response } => {
             let request = serde_json::from_str(&request)?;
             let config = Config::load(&config_path)?;
-            if config.backend.kind == "omawake-onnx" {
-                runtime_paths::ensure_engine_library_path(&config.backend, &config_path)?;
-            }
             let report = execute_native_json(&config, &paths, request)?;
             crate::native_worker::write_json(&response, &paths.runtime_dir, &report)?;
             return Ok(());
@@ -559,20 +543,14 @@ where
         command => command,
     };
     let config = Config::load(&config_path)?;
-    if command_uses_engine(&command) && config.backend.kind == "omawake-onnx" {
-        ensure_engine_library_path(&config.backend, &config_path)?;
-    }
     match command {
         TopCommand::Benchmark {
             audio,
             warmup,
             iterations,
         } => run_file_benchmark(&config, &paths, &audio, warmup, iterations),
-        TopCommand::Evaluate {
-            manifest,
-            thresholds,
-        } => {
-            let report = evaluation_report(&config, &paths, &manifest, thresholds)?;
+        TopCommand::Evaluate { manifest } => {
+            let report = evaluation_report(&config, &paths, &manifest)?;
             println!("{}", serde_json::to_string_pretty(&report)?);
             Ok(())
         }
@@ -623,9 +601,7 @@ where
             }
             Ok(())
         }
-        TopCommand::WakeWord { command } => {
-            wake_word_command(command, config, &config_path, &paths)
-        }
+        TopCommand::WakeWord { command } => wake_word_command(command, config, &config_path),
         TopCommand::Config {
             command: ConfigCommand::Get { key, json: as_json },
         } => {
@@ -649,13 +625,12 @@ where
                 println!("{}", serde_json::to_string_pretty(&value)?);
             } else {
                 println!(
-                    "backend.runtime\tdefault|openvino|cuda\nbackend.device\truntime-dependent\nwake_words\tcollection"
+                    "backend.runtime\tdefault|openvino|cuda|vulkan|hip\nbackend.device\truntime-dependent\nwake_words\tcollection"
                 );
             }
             Ok(())
         }
-        TopCommand::InventoryProbe { .. }
-        | TopCommand::ModelCachePrepare { .. }
+        TopCommand::ModelCachePrepare { .. }
         | TopCommand::NativeJson { .. }
         | TopCommand::AudioCppWorker { .. }
         | TopCommand::OpenVinoGenAiWorker { .. }
@@ -666,27 +641,8 @@ where
     }
 }
 
-fn command_uses_engine(command: &TopCommand) -> bool {
-    matches!(
-        command,
-        TopCommand::Benchmark { .. }
-            | TopCommand::Evaluate { .. }
-            | TopCommand::Test { audio: Some(_), .. }
-            | TopCommand::Test {
-                seconds: Some(_),
-                ..
-            }
-            | TopCommand::Daemon
-    )
-}
-
 fn config_mutation(command: ConfigCommand, mut config: Config, path: &Path) -> Result<()> {
     let previous_runtime = config.backend.runtime;
-    let reconcile_model = matches!(
-        &command,
-        ConfigCommand::Set { key, .. } | ConfigCommand::Unset { key }
-            if matches!(key.as_str(), "backend.runtime" | "backend.device")
-    );
     match command {
         ConfigCommand::Set { key, value } => set_config(&mut config, &key, &value)?,
         ConfigCommand::Unset { key } => unset_config(&mut config, &key)?,
@@ -695,14 +651,12 @@ fn config_mutation(command: ConfigCommand, mut config: Config, path: &Path) -> R
     let runtime_changed = config.backend.runtime != previous_runtime;
     if runtime_changed {
         config.backend.device = "auto".into();
-        config.backend.provider_library.clear();
+        config.backend.library.clear();
+        config.backend.library_dirs.clear();
         config.backend.options.clear();
-        if config.backend.runtime != Runtime::Cuda {
-            config.backend.device_id = 0;
-        }
+        config.backend.device_id = 0;
     }
     config.backend.validate_shape()?;
-    let _ = reconcile_model;
     save_config(path, &config)
 }
 
@@ -718,15 +672,11 @@ fn set_config(config: &mut Config, key: &str, value: &str) -> Result<()> {
         "backend.library_dirs" => {
             config.backend.library_dirs = std::env::split_paths(value).collect()
         }
-        "backend.onnxruntime_library" => config.backend.onnxruntime_library = value.into(),
-        "backend.provider_library" => config.backend.provider_library = value.into(),
         "model.name" => config.model.name = value.into(),
         "model.directory" => config.model.directory = value.into(),
         "model.verifier" => config.model.verifier = value.into(),
         "model.vad" => config.model.vad = value.into(),
         "model.sample_rate" => config.model.sample_rate = value.parse()?,
-        "model.keywords_score" => config.model.keywords_score = value.parse()?,
-        "model.keywords_threshold" => config.model.keywords_threshold = value.parse()?,
         "audio.device" => config.audio.device = value.into(),
         "audio.channels" => config.audio.channels = value.into(),
         "audio.buffer_milliseconds" => config.audio.buffer_milliseconds = value.parse()?,
@@ -748,21 +698,11 @@ fn unset_config(config: &mut Config, key: &str) -> Result<()> {
         "backend.device_id" => config.backend.device_id = defaults.backend.device_id,
         "backend.library" => config.backend.library = defaults.backend.library,
         "backend.library_dirs" => config.backend.library_dirs = defaults.backend.library_dirs,
-        "backend.onnxruntime_library" => {
-            config.backend.onnxruntime_library = defaults.backend.onnxruntime_library
-        }
-        "backend.provider_library" => {
-            config.backend.provider_library = defaults.backend.provider_library
-        }
         "model.name" => config.model.name = defaults.model.name,
         "model.directory" => config.model.directory = defaults.model.directory,
         "model.verifier" => config.model.verifier = defaults.model.verifier,
         "model.vad" => config.model.vad = defaults.model.vad,
         "model.sample_rate" => config.model.sample_rate = defaults.model.sample_rate,
-        "model.keywords_score" => config.model.keywords_score = defaults.model.keywords_score,
-        "model.keywords_threshold" => {
-            config.model.keywords_threshold = defaults.model.keywords_threshold
-        }
         "audio.device" => config.audio.device = defaults.audio.device,
         "audio.channels" => config.audio.channels = defaults.audio.channels,
         "audio.buffer_milliseconds" => {
@@ -777,12 +717,7 @@ fn unset_config(config: &mut Config, key: &str) -> Result<()> {
     Ok(())
 }
 
-fn wake_word_command(
-    command: WakeWordCommand,
-    mut config: Config,
-    path: &Path,
-    paths: &AppPaths,
-) -> Result<()> {
+fn wake_word_command(command: WakeWordCommand, mut config: Config, path: &Path) -> Result<()> {
     let message = match command {
         WakeWordCommand::List { json: as_json } => {
             if as_json {
@@ -819,14 +754,6 @@ fn wake_word_command(
         }
     };
     validate_wake_words(&config.wake_words)?;
-    let bpe = config.model_directory(paths).join(&config.model.bpe_model);
-    if config.backend.kind == "omawake-onnx"
-        && !config.model.bpe_model.trim().is_empty()
-        && bpe.is_file()
-        && config.wake_words.iter().any(|word| word.enabled)
-    {
-        KeywordCompiler::open(&bpe)?.compile(&config.wake_words)?;
-    }
     save_config(path, &config)?;
     println!("{message}");
     Ok(())
@@ -1038,6 +965,40 @@ fn configure_runtime_from_flags(
     apply: bool,
     probe: impl FnOnce(&crate::backend::BackendConfig, &Path) -> crate::runtime_inventory::Probe,
 ) -> Result<()> {
+    configure_runtime_from_flags_with(
+        config_path,
+        paths,
+        runtime,
+        device,
+        directory,
+        apply,
+        probe,
+        app_setup::cache::prepare_for_runtime,
+        prove_setup_candidate,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn configure_runtime_from_flags_with<FC, FP>(
+    config_path: &Path,
+    paths: &AppPaths,
+    runtime: Option<String>,
+    device: Option<String>,
+    directory: Option<PathBuf>,
+    apply: bool,
+    probe: impl FnOnce(&crate::backend::BackendConfig, &Path) -> crate::runtime_inventory::Probe,
+    prepare_cache: FC,
+    prove: FP,
+) -> Result<()>
+where
+    FC: FnOnce(
+        &Config,
+        &Path,
+        &AppPaths,
+        ProgressFormat,
+    ) -> Result<Option<app_setup::cache::CacheReport>>,
+    FP: FnOnce(&Config, &AppPaths) -> Result<()>,
+{
     let current = app_setup::load_config(config_path)?;
     let selected_runtime = runtime
         .as_deref()
@@ -1068,7 +1029,8 @@ fn configure_runtime_from_flags(
             config_path,
             paths,
             ProgressFormat::Human,
-            app_setup::cache::prepare_for_runtime,
+            prepare_cache,
+            prove,
         )?;
     }
     println!(
@@ -1102,6 +1064,9 @@ trait GuidedPrompts {
         candidate: &Config,
         evidence: &crate::runtime_inventory::Probe,
     ) -> Result<bool>;
+    fn prove_runtime(&mut self, candidate: &Config, paths: &AppPaths) -> Result<()> {
+        prove_setup_candidate(candidate, paths)
+    }
     fn model(
         &mut self,
         paths: &AppPaths,
@@ -1140,7 +1105,18 @@ impl GuidedPrompts for TerminalGuidedPrompts {
                 "openvino",
                 current.backend.runtime == Runtime::Openvino && probe.ready,
             ),
-            ("cuda", false),
+            (
+                "cuda",
+                current.backend.runtime == Runtime::Cuda && probe.ready,
+            ),
+            (
+                "vulkan",
+                current.backend.runtime == Runtime::Vulkan && probe.ready,
+            ),
+            (
+                "hip",
+                current.backend.runtime == Runtime::Hip && probe.ready,
+            ),
         ]);
         let provider = probe
             .evidence
@@ -1284,6 +1260,7 @@ fn guided_runtime_with(
         paths,
         ProgressFormat::Human,
         app_setup::cache::prepare_for_runtime,
+        |candidate, paths| prompts.prove_runtime(candidate, paths),
     )?;
     println!(
         "runtime configured: {} / {}",
@@ -1577,12 +1554,13 @@ fn save_runtime_selection_impl_with(
     config.save(config_path)
 }
 
-fn prepare_and_save_runtime_candidate_with<F>(
+fn prepare_and_save_runtime_candidate_with<F, P>(
     config: &Config,
     config_path: &Path,
     paths: &AppPaths,
     progress: ProgressFormat,
     prepare_cache: F,
+    prove: P,
 ) -> Result<()>
 where
     F: FnOnce(
@@ -1591,8 +1569,11 @@ where
         &AppPaths,
         ProgressFormat,
     ) -> Result<Option<app_setup::cache::CacheReport>>,
+    P: FnOnce(&Config, &AppPaths) -> Result<()>,
 {
     prepare_cache(config, config_path, paths, progress)?;
+    prove(config, paths)
+        .context("runtime candidate failed its file-only provider/model proof; config unchanged")?;
     config.save(config_path)
 }
 
@@ -1602,20 +1583,17 @@ fn runtime_selection_candidate(
     selection: &RuntimeSelection,
     runtime_directory: Option<&Path>,
 ) -> Result<Config> {
-    if selection.runtime == Runtime::Cuda {
-        bail!("CUDA is not yet available as a qualified native wake verifier");
-    }
     let mut config = current.clone();
     let backend_kind = match selection.runtime {
-        Runtime::Default => "audiocpp",
+        Runtime::Default | Runtime::Cuda | Runtime::Vulkan | Runtime::Hip => "audiocpp",
         Runtime::Openvino => "openvino-genai",
-        Runtime::Cuda => unreachable!(),
     };
     if crate::catalog::model(&config.model.name).is_none_or(|model| model.backend != backend_kind) {
         let model_id = match selection.runtime {
-            Runtime::Default => crate::catalog::DEFAULT_MODEL_ID,
+            Runtime::Default | Runtime::Cuda | Runtime::Vulkan | Runtime::Hip => {
+                crate::catalog::DEFAULT_MODEL_ID
+            }
             Runtime::Openvino => crate::catalog::OPENVINO_MODEL_ID,
-            Runtime::Cuda => unreachable!(),
         };
         crate::catalog::model(model_id)
             .context("runtime has no compatible catalog model")?
@@ -1629,10 +1607,8 @@ fn runtime_selection_candidate(
     config.backend.runtime = selection.runtime;
     config.backend.device = selection.device.clone();
     config.backend.device_id = 0;
-    config.backend.onnxruntime_library.clear();
-    config.backend.provider_library.clear();
     config.backend.options.remove("audiocpp.asr_family");
-    if selection.runtime == Runtime::Default {
+    if backend_kind == "audiocpp" {
         config
             .backend
             .options
@@ -1654,6 +1630,24 @@ fn native_runtime_probe(
     backend: &crate::backend::BackendConfig,
     config_path: &Path,
 ) -> crate::runtime_inventory::Probe {
+    native_runtime_probe_with(
+        backend,
+        config_path,
+        crate::engine::openvino_genai::probe_runtime,
+        crate::engine::audiocpp::probe_provider,
+    )
+}
+
+fn native_runtime_probe_with<OV, AC>(
+    backend: &crate::backend::BackendConfig,
+    config_path: &Path,
+    openvino_probe: OV,
+    audiocpp_probe: AC,
+) -> crate::runtime_inventory::Probe
+where
+    OV: FnOnce(&Config, &AppPaths) -> Result<crate::engine::openvino_genai::RuntimeEvidence>,
+    AC: FnOnce(&Config, &AppPaths) -> Result<(PathBuf, String)>,
+{
     let config = Config {
         backend: backend.clone(),
         ..Default::default()
@@ -1661,7 +1655,7 @@ fn native_runtime_probe(
     let mut paths = AppPaths::discover();
     paths.config_file = config_path.to_owned();
     if backend.kind == "openvino-genai" && backend.runtime == Runtime::Openvino {
-        return match crate::engine::openvino_genai::probe_runtime(&config, &paths) {
+        return match openvino_probe(&config, &paths) {
             Ok(evidence) => crate::runtime_inventory::Probe {
                 loadable: true,
                 device_accessible: true,
@@ -1683,7 +1677,7 @@ fn native_runtime_probe(
             },
         };
     }
-    match crate::engine::audiocpp::probe_provider(&config, &paths) {
+    match audiocpp_probe(&config, &paths) {
         Ok((library, version)) => crate::runtime_inventory::Probe {
             loadable: true,
             device_accessible: true,
@@ -1691,7 +1685,11 @@ fn native_runtime_probe(
             evidence: crate::runtime_inventory::Evidence {
                 versions: vec![format!("{version} · {}", library.display())],
                 provider_registration: true,
-                available_devices: vec!["cpu".into()],
+                available_devices: vec![
+                    backend
+                        .canonical_device()
+                        .unwrap_or_else(|_| backend.device.clone()),
+                ],
                 selected_device: Some(
                     backend
                         .canonical_device()
@@ -1714,23 +1712,6 @@ fn validate_runtime_candidate_with(
 ) -> Result<()> {
     crate::runtime_inventory::apply_with(config, config_path, false, probe)?;
     Ok(())
-}
-
-#[cfg(test)]
-fn validate_runtime_candidate_report(
-    runtime: Runtime,
-    report: &runtime_paths::RuntimeLibraryReport,
-) -> Result<()> {
-    let name = runtime_name(runtime);
-    if report.runtime_loadable.get(name) == Some(&true) {
-        return Ok(());
-    }
-    let detail = if report.remediation.is_empty() {
-        "runtime ABI, provider registration, or requested device probe failed".to_owned()
-    } else {
-        report.remediation.join("; ")
-    };
-    bail!("{name} runtime validation failed; configuration was not changed: {detail}")
 }
 
 fn configure_runtime_directory(config: &mut Config, directory: &Path) -> Result<()> {
@@ -1775,7 +1756,9 @@ fn configure_runtime_directory(config: &mut Config, directory: &Path) -> Result<
         })
     };
     let provider = match config.backend.runtime {
-        Runtime::Default => find(&["libaudiocpp.so.0.1.0", "libaudiocpp.so.0", "libaudiocpp.so"])?,
+        Runtime::Default | Runtime::Cuda | Runtime::Vulkan | Runtime::Hip => {
+            find(&["libaudiocpp.so.0.1.0", "libaudiocpp.so.0", "libaudiocpp.so"])?
+        }
         Runtime::Openvino => {
             let provider = find(&["libopenvino_genai_c.so"])?;
             find(&["libopenvino_c.so"])?;
@@ -1792,7 +1775,6 @@ fn configure_runtime_directory(config: &mut Config, directory: &Path) -> Result<
             }
             provider
         }
-        Runtime::Cuda => bail!("CUDA is not yet available as a qualified native wake verifier"),
     };
     let selected_parents = std::iter::once(
         provider
@@ -1815,8 +1797,6 @@ fn configure_runtime_directory(config: &mut Config, directory: &Path) -> Result<
     });
     config.backend.library_dirs = selected_parents;
     config.backend.library = provider;
-    config.backend.onnxruntime_library.clear();
-    config.backend.provider_library.clear();
     Ok(())
 }
 
@@ -1825,6 +1805,8 @@ fn runtime_name(runtime: Runtime) -> &'static str {
         Runtime::Default => "default",
         Runtime::Openvino => "openvino",
         Runtime::Cuda => "cuda",
+        Runtime::Vulkan => "vulkan",
+        Runtime::Hip => "hip",
     }
 }
 
@@ -2026,6 +2008,20 @@ fn restore_config_snapshot(path: &Path, bytes: Option<&[u8]>) -> Result<()> {
 }
 
 fn prove_setup_candidate(config: &Config, paths: &AppPaths) -> Result<()> {
+    prove_setup_candidate_with(config, paths, |config, paths, audio| {
+        let detector = Detector::load(config, paths)
+            .context("initialize the selected native provider and its model assets")?;
+        detector
+            .detect_file(audio)
+            .context("run the file-only setup proof through VAD and phrase verification")
+    })
+}
+
+fn prove_setup_candidate_with(
+    config: &Config,
+    paths: &AppPaths,
+    detect: impl FnOnce(&Config, &AppPaths, &Path) -> Result<Vec<Detection>>,
+) -> Result<()> {
     let directory = paths.cache_dir.join("setup-proof");
     fs::create_dir_all(&directory)?;
     let audio = directory.join(format!("silence-{}.wav", std::process::id()));
@@ -2043,11 +2039,7 @@ fn prove_setup_candidate(config: &Config, paths: &AppPaths) -> Result<()> {
             writer.write_sample(0_i16)?;
         }
         writer.finalize()?;
-        let detector = Detector::load(config, paths)
-            .context("initialize the selected native provider and its model assets")?;
-        let detections = detector
-            .detect_file(&audio)
-            .context("run the file-only setup proof through VAD and phrase verification")?;
+        let detections = detect(config, paths, &audio)?;
         if !detections.is_empty() {
             bail!("silent setup proof unexpectedly produced a wake-word detection");
         }
@@ -2243,7 +2235,9 @@ fn parse_runtime(value: &str) -> Result<Runtime> {
         "default" => Ok(Runtime::Default),
         "openvino" => Ok(Runtime::Openvino),
         "cuda" => Ok(Runtime::Cuda),
-        _ => bail!("backend runtime must be default, openvino, or cuda"),
+        "vulkan" => Ok(Runtime::Vulkan),
+        "hip" => Ok(Runtime::Hip),
+        _ => bail!("backend runtime must be default, openvino, cuda, vulkan, or hip"),
     }
 }
 
@@ -2255,47 +2249,12 @@ fn parse_fallback(value: &str) -> Result<Fallback> {
     }
 }
 
-fn parse_evaluation_threshold(value: &str) -> Result<f32, String> {
-    let threshold = value
-        .parse::<f32>()
-        .map_err(|_| "threshold must be a number between 0 and 1".to_owned())?;
-    if !threshold.is_finite() || !(0.0..=1.0).contains(&threshold) {
-        return Err("threshold must be a finite number between 0 and 1".into());
-    }
-    Ok(threshold)
-}
-
-fn evaluation_report(
-    config: &Config,
-    paths: &AppPaths,
-    manifest_path: &Path,
-    thresholds: Vec<f32>,
-) -> Result<Value> {
-    let enabled_keywords = config
-        .wake_words
-        .iter()
-        .filter(|keyword| keyword.enabled)
-        .map(|keyword| keyword.id.clone())
-        .collect::<BTreeSet<_>>();
-    let prepared = evaluation::load_manifest(manifest_path, &enabled_keywords)?;
-    let thresholds = evaluation::normalize_thresholds(thresholds, config.model.keywords_threshold)?;
-    let context = EvaluationContext {
-        config_sha256: evaluation::sha256_bytes(&serde_json::to_vec(config)?),
-        enabled_keyword_ids: enabled_keywords.iter().cloned().collect(),
-        model_name: config.model.name.clone(),
-        model_directory: config.model_directory(paths).display().to_string(),
-        keyword_score: config.model.keywords_score,
-        application_version: env!("CARGO_PKG_VERSION").into(),
-    };
-    let report = evaluation::evaluate_with(
-        &prepared,
-        &thresholds,
-        context,
-        |threshold| {
-            let mut candidate = config.clone();
-            candidate.model.keywords_threshold = threshold;
-            Detector::load(&candidate, paths)
-        },
+fn evaluation_report(config: &Config, paths: &AppPaths, manifest_path: &Path) -> Result<Value> {
+    evaluation_report_with(
+        config,
+        paths,
+        manifest_path,
+        || Detector::load(config, paths),
         |detector, path| detector.detect_file(path),
         |detector| {
             let (placement_verified, placement_evidence) =
@@ -2310,7 +2269,37 @@ fn evaluation_report(
                 placement_evidence: placement_evidence.into(),
             })
         },
-    )?;
+    )
+}
+
+fn evaluation_report_with<D, L, F, I>(
+    config: &Config,
+    paths: &AppPaths,
+    manifest_path: &Path,
+    load: L,
+    detect: F,
+    identity: I,
+) -> Result<Value>
+where
+    L: FnOnce() -> Result<D>,
+    F: FnMut(&D, &Path) -> Result<Vec<Detection>>,
+    I: FnMut(&D) -> Result<RuntimeIdentity>,
+{
+    let enabled_keywords = config
+        .wake_words
+        .iter()
+        .filter(|keyword| keyword.enabled)
+        .map(|keyword| keyword.id.clone())
+        .collect::<BTreeSet<_>>();
+    let prepared = evaluation::load_manifest(manifest_path, &enabled_keywords)?;
+    let context = EvaluationContext {
+        config_sha256: evaluation::sha256_bytes(&serde_json::to_vec(config)?),
+        enabled_keyword_ids: enabled_keywords.iter().cloned().collect(),
+        model_name: config.model.name.clone(),
+        model_directory: config.model_directory(paths).display().to_string(),
+        application_version: env!("CARGO_PKG_VERSION").into(),
+    };
+    let report = evaluation::evaluate_with(&prepared, context, load, detect, identity)?;
     Ok(serde_json::to_value(report)?)
 }
 
@@ -2413,8 +2402,16 @@ fn runtime_placement(runtime: Runtime) -> (bool, &'static str) {
             "CPU fallback was disabled while every model graph initialized on the selected OpenVINO device",
         ),
         Runtime::Cuda => (
-            false,
-            "CUDA executes supported kernels on the GPU and may retain CPU shape helpers",
+            true,
+            "audio.cpp created CUDA sessions for Silero and the phrase verifier",
+        ),
+        Runtime::Vulkan => (
+            true,
+            "audio.cpp created Vulkan sessions for Silero and the phrase verifier",
+        ),
+        Runtime::Hip => (
+            true,
+            "audio.cpp created HIP sessions for Silero and the phrase verifier",
         ),
     }
 }
@@ -2425,6 +2422,9 @@ fn backend_placement(kind: &str, runtime: Runtime) -> (bool, &'static str) {
             true,
             "audio.cpp created explicit CPU Silero and ASR sessions",
         ),
+        ("audiocpp", Runtime::Cuda) => (true, "audio.cpp created explicit CUDA sessions"),
+        ("audiocpp", Runtime::Vulkan) => (true, "audio.cpp created explicit Vulkan sessions"),
+        ("audiocpp", Runtime::Hip) => (true, "audio.cpp created explicit HIP sessions"),
         ("whispercpp", Runtime::Default) => (
             true,
             "whisper.cpp created explicit CPU VAD and verifier contexts",
@@ -2714,6 +2714,15 @@ fn run_daemon_with_shutdown(
     shutdown_requested: Arc<AtomicBool>,
 ) -> Result<()> {
     let detector = Detector::load(config, paths)?;
+    run_loaded_daemon(&detector, config, paths, shutdown_requested)
+}
+
+fn run_loaded_daemon(
+    detector: &Detector,
+    config: &Config,
+    paths: &AppPaths,
+    shutdown_requested: Arc<AtomicBool>,
+) -> Result<()> {
     let listener = bind_socket(paths)?;
     let socket_metadata = fs::symlink_metadata(socket_path(paths)).with_context(|| {
         format!(
@@ -2725,56 +2734,69 @@ fn run_daemon_with_shutdown(
         "loaded wake-word model in {} ms",
         detector.load_time.as_millis()
     );
-    let serve_result = (|| -> Result<()> {
-        let mut paused = false;
-        let mut shutdown = false;
-        while !shutdown && !shutdown_requested.load(Ordering::Relaxed) {
-            if paused {
-                if let Some(command) =
-                    poll_control(&detector, "paused", None, || accept_control(&listener))?
-                {
-                    apply_daemon_command(command, &mut paused, &mut shutdown);
-                }
-                if shutdown_requested.load(Ordering::Relaxed) {
-                    shutdown = true;
-                }
-                thread::sleep(Duration::from_millis(50));
-                continue;
-            }
-
-            let capture = Capture::start(&config.audio.device, config.daemon.queue_capacity)?;
-            eprintln!(
-                "armed on {} ({} Hz, {} channel(s))",
-                capture.device_name, capture.sample_rate, capture.channels
-            );
-            let session = detector.session();
-            let (triggered, command) = collect_armed_detections(
-                &capture.device_name,
-                capture.sample_rate,
-                capture.channels,
-                |audio| {
-                    poll_control(&detector, "armed", Some(audio), || {
-                        accept_control(&listener)
-                    })
-                },
-                |timeout| capture.receiver().recv_timeout(timeout),
-                |sample_rate, samples| session.accept(sample_rate, samples),
-                || shutdown_requested.load(Ordering::Relaxed),
-            )?;
-            if let Some(command) = command {
-                apply_daemon_command(command, &mut paused, &mut shutdown);
-            }
-            drop(session);
-            drop(capture);
-            execute_detected_actions(triggered, |id| detector.run_action(id));
-            if !paused && !shutdown {
-                thread::sleep(Duration::from_millis(config.daemon.cooldown_milliseconds));
-            }
-        }
-        Ok(())
-    })();
+    let mut poll_paused = || poll_control(detector, "paused", None, || accept_control(&listener));
+    let mut armed_cycle = || {
+        let capture = Capture::start(&config.audio.device, config.daemon.queue_capacity)?;
+        eprintln!(
+            "armed on {} ({} Hz, {} channel(s))",
+            capture.device_name, capture.sample_rate, capture.channels
+        );
+        let session = detector.session();
+        collect_armed_detections(
+            &capture.device_name,
+            capture.sample_rate,
+            capture.channels,
+            |audio| poll_control(detector, "armed", Some(audio), || accept_control(&listener)),
+            |timeout| capture.receiver().recv_timeout(timeout),
+            |sample_rate, samples| session.accept(sample_rate, samples),
+            || shutdown_requested.load(Ordering::Relaxed),
+        )
+    };
+    let mut execute = |triggered| execute_detected_actions(triggered, |id| detector.run_action(id));
+    let mut sleep = thread::sleep;
+    let serve_result = run_daemon_state_machine(
+        &shutdown_requested,
+        config.daemon.cooldown_milliseconds,
+        &mut poll_paused,
+        &mut armed_cycle,
+        &mut execute,
+        &mut sleep,
+    );
     drop(listener);
     finish_daemon(paths, Some(&socket_metadata), serve_result)
+}
+
+fn run_daemon_state_machine(
+    shutdown_requested: &AtomicBool,
+    cooldown_milliseconds: u64,
+    poll_paused: &mut dyn FnMut() -> Result<Option<Command>>,
+    armed_cycle: &mut dyn FnMut() -> Result<(Vec<Detection>, Option<Command>)>,
+    execute: &mut dyn FnMut(Vec<Detection>),
+    sleep: &mut dyn FnMut(Duration),
+) -> Result<()> {
+    let mut paused = false;
+    let mut shutdown = false;
+    while !shutdown && !shutdown_requested.load(Ordering::Relaxed) {
+        if paused {
+            if let Some(command) = poll_paused()? {
+                apply_daemon_command(command, &mut paused, &mut shutdown);
+            }
+            if shutdown_requested.load(Ordering::Relaxed) {
+                shutdown = true;
+            }
+            sleep(Duration::from_millis(50));
+            continue;
+        }
+        let (triggered, command) = armed_cycle()?;
+        if let Some(command) = command {
+            apply_daemon_command(command, &mut paused, &mut shutdown);
+        }
+        execute(triggered);
+        if !paused && !shutdown {
+            sleep(Duration::from_millis(cooldown_milliseconds));
+        }
+    }
+    Ok(())
 }
 
 fn finish_daemon(

@@ -16,7 +16,7 @@ use anyhow::{Context, Result, bail};
 
 use self::protocol::{Request, Response, Transcript};
 use self::ring::{EndpointBuffer, FRAME_SAMPLES, Utterance};
-use super::onnx::resample::AudioResampler;
+use super::audio::{AudioResampler, read_wave};
 use super::{Detection, WakeWordBackend, WakeWordStream, detect_samples};
 use crate::backend::Runtime;
 use crate::config::Config;
@@ -78,6 +78,15 @@ struct ClientStream {
 
 impl WhisperCppBackend {
     pub(super) fn load(config: &Config, paths: &AppPaths) -> Result<Self> {
+        let executable = env::current_exe().context("resolve Omawake executable")?;
+        Self::load_with_executable(config, paths, executable)
+    }
+
+    fn load_with_executable(
+        config: &Config,
+        paths: &AppPaths,
+        executable: PathBuf,
+    ) -> Result<Self> {
         if config.backend.runtime != Runtime::Default {
             bail!("whispercpp currently supports only backend.runtime = default");
         }
@@ -100,7 +109,8 @@ impl WhisperCppBackend {
             .collect::<Vec<_>>()
             .join(", ");
         let library_dirs = resolve_library_dirs(config, paths, &library)?;
-        let worker = Worker::spawn(
+        let worker = Worker::spawn_with_executable(
+            executable,
             library,
             library_dirs,
             verifier,
@@ -162,7 +172,7 @@ impl WakeWordBackend for WhisperCppBackend {
     }
 
     fn detect_file(&self, path: &Path) -> Result<Vec<Detection>> {
-        let (sample_rate, samples) = super::onnx::read_wave(path)?;
+        let (sample_rate, samples) = read_wave(path)?;
         let stream = self.stream();
         detect_samples(stream.as_ref(), sample_rate, &samples)
     }
@@ -267,6 +277,20 @@ fn resolve_model_asset(directory: &Path, configured: &str, label: &str) -> Resul
 }
 
 fn resolve_library(config: &Config, paths: &AppPaths) -> Result<PathBuf> {
+    resolve_library_with(
+        config,
+        paths,
+        env::var_os("OMAWAKE_WHISPER_LIBRARY").map(PathBuf::from),
+        &package_library_dirs(),
+    )
+}
+
+fn resolve_library_with(
+    config: &Config,
+    paths: &AppPaths,
+    environment_library: Option<PathBuf>,
+    package_dirs: &[PathBuf],
+) -> Result<PathBuf> {
     if !config.backend.library.as_os_str().is_empty() {
         return resolve_file_beneath(
             &config.backend.library,
@@ -274,13 +298,12 @@ fn resolve_library(config: &Config, paths: &AppPaths) -> Result<PathBuf> {
             "configured whisper.cpp library",
         );
     }
-    if let Some(path) = env::var_os("OMAWAKE_WHISPER_LIBRARY").map(PathBuf::from) {
+    if let Some(path) = environment_library {
         if !path.is_absolute() {
             bail!("OMAWAKE_WHISPER_LIBRARY must be an absolute file path");
         }
         return resolve_file_beneath(&path, Path::new("/"), "OMAWAKE_WHISPER_LIBRARY");
     }
-    let package_dirs = package_library_dirs();
     for directory in package_dirs.iter().map(PathBuf::as_path).chain([
         Path::new("/usr/lib"),
         Path::new("/usr/local/lib"),
@@ -473,6 +496,7 @@ fn wait_for_io(fd: libc::c_int, events: libc::c_short, timeout: Duration) -> io:
 
 #[derive(Clone)]
 struct WorkerSpec {
+    executable: PathBuf,
     library: PathBuf,
     library_dirs: Vec<PathBuf>,
     verifier: PathBuf,
@@ -488,8 +512,7 @@ struct WorkerProcess {
 
 impl WorkerProcess {
     fn launch(spec: &WorkerSpec) -> Result<Self> {
-        let executable = env::current_exe().context("resolve Omawake executable")?;
-        let mut command = Command::new(executable);
+        let mut command = Command::new(&spec.executable);
         command
             .arg("__whisper-worker")
             .arg(&spec.library)
@@ -601,7 +624,8 @@ struct Worker {
 }
 
 impl Worker {
-    fn spawn(
+    fn spawn_with_executable(
+        executable: PathBuf,
         library: PathBuf,
         library_dirs: Vec<PathBuf>,
         verifier: PathBuf,
@@ -609,6 +633,7 @@ impl Worker {
         threads: i32,
     ) -> Result<Self> {
         let spec = WorkerSpec {
+            executable,
             library,
             library_dirs,
             verifier,
@@ -939,9 +964,17 @@ pub(crate) fn worker_main(library: &Path, verifier: &Path, vad: &Path, threads: 
             version: provider.version(),
         },
     )?;
+    worker_loop(&mut provider, &mut input, &mut output)
+}
+
+fn worker_loop(
+    provider: &mut NativeProvider,
+    input: &mut impl io::Read,
+    output: &mut impl io::Write,
+) -> Result<()> {
     let mut stream: Option<WorkerStream> = None;
     loop {
-        let (request, pcm) = protocol::read_request(&mut input)?;
+        let (request, pcm) = protocol::read_request(input)?;
         let response = match request {
             Request::Shutdown => return Ok(()),
             Request::Start { id, prompt } => {
@@ -962,7 +995,7 @@ pub(crate) fn worker_main(library: &Path, verifier: &Path, vad: &Path, threads: 
                         let probability = provider.vad_probability(&pcm)?;
                         let utterance = active.endpoint.push(&pcm, probability);
                         let transcript = utterance
-                            .map(|utterance| active.finish_utterance(&mut provider, utterance))
+                            .map(|utterance| active.finish_utterance(provider, utterance))
                             .transpose()?;
                         if transcript.is_some() {
                             provider.reset_vad();
@@ -991,7 +1024,7 @@ pub(crate) fn worker_main(library: &Path, verifier: &Path, vad: &Path, threads: 
                     let result = active
                         .endpoint
                         .finish()
-                        .map(|utterance| active.finish_utterance(&mut provider, utterance))
+                        .map(|utterance| active.finish_utterance(provider, utterance))
                         .transpose();
                     provider.reset_vad();
                     match result {
@@ -1029,7 +1062,7 @@ pub(crate) fn worker_main(library: &Path, verifier: &Path, vad: &Path, threads: 
                 },
             },
         };
-        protocol::write_response(&mut output, &response)?;
+        protocol::write_response(output, &response)?;
     }
 }
 
@@ -1039,6 +1072,143 @@ mod tests {
     use crate::config::WakeWord;
     use std::fs;
     use std::io::{Read, Write};
+    use std::process::Command;
+    use std::sync::OnceLock;
+
+    const FAKE_WHISPER_C: &str = r#"
+    #include <stdlib.h>
+    #include <string.h>
+    #include "whisper_abi.h"
+
+    struct whisper_context { int segments; };
+    struct whisper_vad_context { float probability; };
+
+    const char *whisper_version(void) { return "1.9.3"; }
+    void whisper_log_set(ggml_log_callback callback, void *data) { (void) callback; (void) data; }
+    struct whisper_context_params whisper_context_default_params(void) {
+    struct whisper_context_params value = {0}; return value;
+    }
+    struct whisper_context *whisper_init_from_file_with_params(
+        const char *path, struct whisper_context_params params) {
+    (void) params; return strstr(path, "reject") ? NULL : calloc(1, sizeof(struct whisper_context));
+    }
+    struct whisper_full_params whisper_full_default_params(enum whisper_sampling_strategy strategy) {
+    struct whisper_full_params value = {0}; value.strategy = strategy; return value;
+    }
+    int whisper_full(struct whisper_context *context, struct whisper_full_params params,
+                 const float *samples, int count) {
+    (void) params; if (!context || !samples || count <= 0 || samples[0] == -2.0f) return -1;
+    context->segments = 1; return 0;
+    }
+    int whisper_full_n_segments(struct whisper_context *context) { return context->segments; }
+    const char *whisper_full_get_segment_text(struct whisper_context *context, int index) {
+    (void) context; return index == 0 ? "  hey computer  " : NULL;
+    }
+    void whisper_free(struct whisper_context *context) { free(context); }
+    struct whisper_vad_context_params whisper_vad_default_context_params(void) {
+    struct whisper_vad_context_params value = {0}; return value;
+    }
+    struct whisper_vad_context *whisper_vad_init_from_file_with_params(
+        const char *path, struct whisper_vad_context_params params) {
+    (void) params; return strstr(path, "reject") ? NULL : calloc(1, sizeof(struct whisper_vad_context));
+    }
+    bool whisper_vad_detect_speech_no_reset(struct whisper_vad_context *context,
+                                        const float *samples, int count) {
+    if (!context || !samples || count != 512 || samples[0] == -1.0f) return false;
+    context->probability = samples[0]; return true;
+    }
+    void whisper_vad_reset_state(struct whisper_vad_context *context) {
+    if (context) context->probability = 0.0f;
+    }
+    int whisper_vad_n_probs(struct whisper_vad_context *context) { (void) context; return 1; }
+    float *whisper_vad_probs(struct whisper_vad_context *context) { return &context->probability; }
+    void whisper_vad_free(struct whisper_vad_context *context) { free(context); }
+    "#;
+
+    fn fake_whisper_library() -> &'static Path {
+        static LIBRARY: OnceLock<PathBuf> = OnceLock::new();
+        LIBRARY
+            .get_or_init(|| {
+                let root = env::temp_dir()
+                    .join(format!("omawake-safe-fake-whisper-{}", std::process::id()));
+                fs::create_dir_all(&root).unwrap();
+                let source = root.join("fake_whisper.c");
+                let library = root.join("libwhisper.so.1");
+                fs::write(&source, FAKE_WHISPER_C).unwrap();
+                let include = Path::new(env!("CARGO_MANIFEST_DIR")).join("vendor/whispercpp-1.9.3");
+                let output = Command::new("cc")
+                    .args(["-shared", "-fPIC", "-O0"])
+                    .arg(format!("-I{}", include.display()))
+                    .arg(&source)
+                    .arg("-o")
+                    .arg(&library)
+                    .output()
+                    .unwrap();
+                assert!(
+                    output.status.success(),
+                    "compile fake whisper.cpp DSO: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                library
+            })
+            .as_path()
+    }
+
+    fn fake_models(name: &str) -> (PathBuf, PathBuf, PathBuf) {
+        let root = env::temp_dir().join(format!(
+            "omawake-whisper-model-{name}-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let verifier = root.join("verifier.bin");
+        let vad = root.join("vad.bin");
+        fs::write(&verifier, b"safe fake verifier").unwrap();
+        fs::write(&vad, b"safe fake vad").unwrap();
+        (root, verifier, vad)
+    }
+
+    fn fake_worker_spec(name: &str) -> (PathBuf, WorkerSpec) {
+        let (root, verifier, vad) = fake_models(name);
+        (
+            root,
+            WorkerSpec {
+                executable: crate::engine::audiocpp::tests::fake_worker().to_path_buf(),
+                library: fake_whisper_library().to_path_buf(),
+                library_dirs: Vec::new(),
+                verifier,
+                vad,
+                threads: 2,
+            },
+        )
+    }
+
+    fn fake_worker(name: &str) -> (PathBuf, Worker) {
+        let (root, spec) = fake_worker_spec(name);
+        let process = WorkerProcess::launch(&spec).unwrap();
+        (
+            root,
+            Worker {
+                spec,
+                process: Some(process),
+                active_id: None,
+            },
+        )
+    }
+
+    fn fake_worker_mode(name: &str, mode: i32) -> (PathBuf, Worker) {
+        let (root, mut spec) = fake_worker_spec(name);
+        spec.threads = mode;
+        let process = WorkerProcess::launch(&spec).unwrap();
+        (
+            root,
+            Worker {
+                spec,
+                process: Some(process),
+                active_id: None,
+            },
+        )
+    }
 
     #[test]
     fn transcript_conversion_uses_whole_phrase_matcher() {
@@ -1061,6 +1231,110 @@ mod tests {
         assert_eq!(detections[0].id, "computer");
         assert_eq!(detections[0].tokens, ["hey", "computer"]);
         assert_eq!(detections[0].start_time, 0.5);
+    }
+
+    #[test]
+    fn supervised_worker_and_high_level_stream_complete_without_native_crashes() {
+        let (root, mut worker) = fake_worker("client-lifecycle");
+        assert!(worker.audio(1, &[0.0; FRAME_SAMPLES]).is_err());
+        worker.cancel(1).unwrap();
+        worker.start(1, "hello oma").unwrap();
+        assert!(worker.start(2, "hello oma").is_err());
+        assert!(worker.audio(1, &[0.0; FRAME_SAMPLES]).unwrap().is_empty());
+        assert_eq!(worker.finish(1).unwrap()[0].text, "hello oma");
+        assert!(worker.finish(1).is_err());
+        worker.start(2, "hello oma").unwrap();
+        worker.cancel(2).unwrap();
+        worker.shutdown();
+
+        let (backend_root, verifier, vad) = fake_models("backend-lifecycle");
+        let paths = AppPaths {
+            config_file: backend_root.join("config/config.toml"),
+            data_dir: backend_root.join("data"),
+            cache_dir: backend_root.join("cache"),
+            state_dir: backend_root.join("state"),
+            runtime_dir: backend_root.join("run"),
+        };
+        let mut config = Config::default();
+        config.backend.kind = "whispercpp".into();
+        config.backend.library = fake_whisper_library().to_path_buf();
+        config.backend.threads = 2;
+        config.model.directory = backend_root.display().to_string();
+        config.model.verifier = verifier.file_name().unwrap().to_string_lossy().into_owned();
+        config.model.vad = vad.file_name().unwrap().to_string_lossy().into_owned();
+        config.wake_words = vec![WakeWord {
+            id: "greeting".into(),
+            phrase: "hello oma".into(),
+            enabled: true,
+            command: vec!["true".into()],
+        }];
+        let backend = WhisperCppBackend::load_with_executable(
+            &config,
+            &paths,
+            crate::engine::audiocpp::tests::fake_worker().to_path_buf(),
+        )
+        .unwrap();
+        assert_eq!(backend.kind(), "whispercpp");
+        let stream = backend.stream();
+        assert!(stream.accept(16_000, &[f32::NAN]).is_err());
+        assert!(
+            stream
+                .accept(16_000, &[0.0; FRAME_SAMPLES])
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(stream.finish().unwrap()[0].id, "greeting");
+        assert!(stream.finish().unwrap().is_empty());
+        assert!(stream.accept(16_000, &[0.0]).is_err());
+        drop(stream);
+
+        let short = backend.stream();
+        short.accept(16_000, &[0.0; 16]).unwrap();
+        assert_eq!(short.finish().unwrap()[0].id, "greeting");
+        drop(short);
+        let abandoned = backend.stream();
+        abandoned.accept(16_000, &[0.0; 16]).unwrap();
+        drop(abandoned);
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(backend_root).unwrap();
+    }
+
+    #[test]
+    fn supervised_worker_rejects_handshake_and_operation_protocol_errors_cleanly() {
+        for (name, mode) in [
+            ("handshake-error", 101),
+            ("handshake-unexpected", 102),
+            ("handshake-eof", 103),
+        ] {
+            let (root, mut spec) = fake_worker_spec(name);
+            spec.threads = mode;
+            assert!(WorkerProcess::launch(&spec).is_err());
+            fs::remove_dir_all(root).unwrap();
+        }
+
+        for (name, mode) in [("start-error", 201), ("start-unexpected", 202)] {
+            let (root, mut worker) = fake_worker_mode(name, mode);
+            assert!(worker.start(7, "hello oma").is_err());
+            fs::remove_dir_all(root).unwrap();
+        }
+        for (name, mode) in [("audio-error", 201), ("audio-unexpected", 202)] {
+            let (root, mut worker) = fake_worker_mode(name, mode);
+            worker.active_id = Some(7);
+            assert!(worker.audio(7, &[0.0; FRAME_SAMPLES]).is_err());
+            fs::remove_dir_all(root).unwrap();
+        }
+        for (name, mode) in [("finish-error", 201), ("finish-unexpected", 202)] {
+            let (root, mut worker) = fake_worker_mode(name, mode);
+            worker.active_id = Some(7);
+            assert!(worker.finish(7).is_err());
+            fs::remove_dir_all(root).unwrap();
+        }
+        for (name, mode) in [("cancel-error", 201), ("cancel-unexpected", 202)] {
+            let (root, mut worker) = fake_worker_mode(name, mode);
+            worker.active_id = Some(7);
+            assert!(worker.cancel(7).is_err());
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]
@@ -1112,9 +1386,41 @@ mod tests {
             model_dir.join("verifier.bin").canonicalize().unwrap()
         );
 
+        config.backend.library.clear();
+        let discovered = root.join("discovered");
+        fs::create_dir_all(&discovered).unwrap();
+        fs::write(discovered.join("libwhisper.so.1"), b"fixture").unwrap();
+        assert_eq!(
+            resolve_library_with(&config, &paths, None, std::slice::from_ref(&discovered)).unwrap(),
+            discovered.join("libwhisper.so.1").canonicalize().unwrap()
+        );
+        assert_eq!(
+            resolve_library_with(
+                &config,
+                &paths,
+                Some(fake_whisper_library().to_path_buf()),
+                &[]
+            )
+            .unwrap(),
+            fake_whisper_library().canonicalize().unwrap()
+        );
+        assert!(
+            resolve_library_with(
+                &config,
+                &paths,
+                Some(PathBuf::from("relative/libwhisper.so")),
+                &[]
+            )
+            .is_err()
+        );
+        assert!(resolve_library_with(&config, &paths, None, &[]).is_err());
+
         config.backend.library = PathBuf::from("../outside.so");
         assert!(resolve_library(&config, &paths).is_err());
+        assert!(resolve_model_asset(&model_dir, "", "verifier").is_err());
         assert!(resolve_model_asset(&model_dir, "../outside.bin", "verifier").is_err());
+        config.backend.library_dirs = vec![root.join("outside.bin")];
+        assert!(resolve_library_dirs(&config, &paths, &library).is_err());
         config.backend.library_dirs = vec![PathBuf::from("../models")];
         assert!(resolve_library_dirs(&config, &paths, &library).is_err());
         let _ = fs::remove_dir_all(root);
@@ -1186,5 +1492,165 @@ mod tests {
         assert_eq!(error.kind(), io::ErrorKind::TimedOut);
         assert!(wait_for_exit(&mut child, Duration::from_secs(1)));
         assert!(child.wait().unwrap().success());
+    }
+
+    #[test]
+    fn fake_provider_loads_real_dso_and_checks_vad_and_transcription_results() {
+        let (root, verifier, vad) = fake_models("provider");
+        let mut provider =
+            NativeProvider::open(fake_whisper_library(), &verifier, &vad, 2).unwrap();
+        assert_eq!(provider.version(), "1.9.3");
+        assert_eq!(
+            provider
+                .vad_probability(&vec![0.75; FRAME_SAMPLES])
+                .unwrap(),
+            0.75
+        );
+        provider.reset_vad();
+        assert_eq!(
+            provider
+                .transcribe(&vec![1.0; FRAME_SAMPLES], "hey computer")
+                .unwrap(),
+            "hey computer"
+        );
+        assert!(provider.vad_probability(&[0.0; 10]).is_err());
+        assert!(
+            provider
+                .vad_probability(&vec![-1.0; FRAME_SAMPLES])
+                .is_err()
+        );
+        assert!(
+            provider
+                .vad_probability(&vec![f32::NAN; FRAME_SAMPLES])
+                .is_err()
+        );
+        assert!(provider.transcribe(&[], "hey computer").is_err());
+        assert!(
+            provider
+                .transcribe(&vec![1.0; FRAME_SAMPLES], "bad\0prompt")
+                .is_err()
+        );
+        assert!(
+            provider
+                .transcribe(&vec![-2.0; FRAME_SAMPLES], "hey computer")
+                .is_err()
+        );
+        drop(provider);
+
+        let rejected = root.join("reject-verifier.bin");
+        fs::write(&rejected, b"reject").unwrap();
+        assert!(NativeProvider::open(fake_whisper_library(), &rejected, &vad, 2).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn in_memory_worker_protocol_covers_stream_lifecycle_without_child_crashes() {
+        let (root, verifier, vad) = fake_models("worker-loop");
+        let mut provider =
+            NativeProvider::open(fake_whisper_library(), &verifier, &vad, 2).unwrap();
+        let mut input = Vec::new();
+        protocol::write_request(
+            &mut input,
+            &Request::Audio {
+                id: 1,
+                samples: FRAME_SAMPLES,
+            },
+            &vec![0.0; FRAME_SAMPLES],
+        )
+        .unwrap();
+        protocol::write_request(
+            &mut input,
+            &Request::Start {
+                id: 1,
+                prompt: "hey computer".into(),
+            },
+            &[],
+        )
+        .unwrap();
+        protocol::write_request(
+            &mut input,
+            &Request::Audio {
+                id: 2,
+                samples: FRAME_SAMPLES,
+            },
+            &vec![0.0; FRAME_SAMPLES],
+        )
+        .unwrap();
+        protocol::write_request(
+            &mut input,
+            &Request::Audio {
+                id: 1,
+                samples: FRAME_SAMPLES,
+            },
+            &vec![f32::NAN; FRAME_SAMPLES],
+        )
+        .unwrap();
+        protocol::write_request(
+            &mut input,
+            &Request::Audio {
+                id: 1,
+                samples: FRAME_SAMPLES,
+            },
+            &vec![1.0; FRAME_SAMPLES],
+        )
+        .unwrap();
+        protocol::write_request(&mut input, &Request::Finish { id: 2 }, &[]).unwrap();
+        protocol::write_request(&mut input, &Request::Finish { id: 1 }, &[]).unwrap();
+        protocol::write_request(&mut input, &Request::Cancel { id: 1 }, &[]).unwrap();
+        protocol::write_request(
+            &mut input,
+            &Request::Start {
+                id: 3,
+                prompt: "cancel".into(),
+            },
+            &[],
+        )
+        .unwrap();
+        protocol::write_request(&mut input, &Request::Cancel { id: 3 }, &[]).unwrap();
+        protocol::write_request(&mut input, &Request::Shutdown, &[]).unwrap();
+
+        let mut output = Vec::new();
+        worker_loop(&mut provider, &mut input.as_slice(), &mut output).unwrap();
+        let mut responses = output.as_slice();
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Error { id: Some(1), .. }
+        ));
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Ack { id: 1 }
+        ));
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Error { id: Some(2), .. }
+        ));
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Error { id: Some(1), .. }
+        ));
+        assert!(
+            matches!(protocol::read_response(&mut responses).unwrap(), Response::Result { id: 1, transcripts } if transcripts.is_empty())
+        );
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Error { id: Some(2), .. }
+        ));
+        assert!(
+            matches!(protocol::read_response(&mut responses).unwrap(), Response::Result { id: 1, transcripts } if transcripts[0].text == "hey computer")
+        );
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Error { id: Some(1), .. }
+        ));
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Ack { id: 3 }
+        ));
+        assert!(matches!(
+            protocol::read_response(&mut responses).unwrap(),
+            Response::Ack { id: 3 }
+        ));
+        assert!(responses.is_empty());
+        fs::remove_dir_all(root).unwrap();
     }
 }

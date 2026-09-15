@@ -1,1 +1,0 @@
-/tmp/omawake-npu-final-validation.7LvLMM/profiles/performance/openvino-gpu/cold-import/profile_2026-09-14_19-33-53_781.json
