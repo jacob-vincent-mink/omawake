@@ -244,13 +244,31 @@ fn isolated_attempt_with_executable(
     response_directory: &Path,
     executable: &Path,
 ) -> Result<AttemptOutcome> {
+    isolated_attempt_with_command(
+        candidate,
+        config_path,
+        library_path,
+        device,
+        response_directory,
+        Command::new(executable),
+    )
+}
+
+fn isolated_attempt_with_command(
+    candidate: &Config,
+    config_path: &Path,
+    library_path: &std::ffi::OsStr,
+    device: &str,
+    response_directory: &Path,
+    command: Command,
+) -> Result<AttemptOutcome> {
     isolated_attempt_with_timeout(
         candidate,
         config_path,
         library_path,
         device,
         response_directory,
-        executable,
+        command,
         PREPARE_TIMEOUT,
     )
 }
@@ -261,11 +279,10 @@ fn isolated_attempt_with_timeout(
     library_path: &std::ffi::OsStr,
     device: &str,
     response_directory: &Path,
-    executable: &Path,
+    mut command: Command,
     timeout: Duration,
 ) -> Result<AttemptOutcome> {
     let response = crate::native_worker::ResponseFile::create(response_directory, "model-cache")?;
-    let mut command = Command::new(executable);
     command
         .arg("--config")
         .arg(config_path)

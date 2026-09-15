@@ -1,9 +1,7 @@
 use super::*;
 
 fn fixture(name: &str) -> AppPaths {
-    let root =
-        std::env::temp_dir().join(format!("omawake-cache-test-{}-{name}", std::process::id()));
-    let _ = fs::remove_dir_all(&root);
+    let root = crate::test_support::unique_directory("cache", name);
     AppPaths {
         config_file: root.join("config/omawake/config.toml"),
         data_dir: root.join("data/omawake"),
@@ -29,6 +27,12 @@ fn report(paths: &AppPaths, device: &str, prepared: bool) -> CacheReport {
         bytes: if prepared { 7 } else { 0 },
         elapsed_milliseconds: Some(2.5),
     }
+}
+
+fn shell_script(path: &Path) -> Command {
+    let mut command = Command::new("/bin/sh");
+    command.arg(path);
+    command
 }
 
 fn placement(
@@ -261,8 +265,6 @@ fn isolated_retries_up_to_five_times_only_for_signal_termination() {
 
 #[test]
 fn isolated_child_protocol_captures_success_failure_and_malformed_output() {
-    use std::os::unix::fs::PermissionsExt;
-
     let paths = fixture("isolated-protocol");
     fs::create_dir_all(&paths.runtime_dir).unwrap();
     let candidate = openvino("npu");
@@ -274,14 +276,13 @@ fn isolated_child_protocol_captures_success_failure_and_malformed_output() {
         "#!/bin/sh\nfor response do :; done\nprintf '%s' '{\"required\":true,\"prepared\":true,\"directory\":null,\"artifacts\":1,\"bytes\":8,\"elapsed_milliseconds\":1.0}' > \"$response\"\n",
     )
     .unwrap();
-    fs::set_permissions(&success, fs::Permissions::from_mode(0o755)).unwrap();
-    match isolated_attempt_with_executable(
+    match isolated_attempt_with_command(
         &candidate,
         &paths.config_file,
         library_path,
         "NPU",
         &paths.runtime_dir,
-        &success,
+        shell_script(&success),
     )
     .unwrap()
     {
@@ -298,14 +299,13 @@ fn isolated_child_protocol_captures_success_failure_and_malformed_output() {
         "#!/bin/sh\necho provider-stdout\necho provider-failed >&2\nexit 7\n",
     )
     .unwrap();
-    fs::set_permissions(&failure, fs::Permissions::from_mode(0o755)).unwrap();
-    match isolated_attempt_with_executable(
+    match isolated_attempt_with_command(
         &candidate,
         &paths.config_file,
         library_path,
         "NPU",
         &paths.runtime_dir,
-        &failure,
+        shell_script(&failure),
     )
     .unwrap()
     {
@@ -323,15 +323,14 @@ fn isolated_child_protocol_captures_success_failure_and_malformed_output() {
         "#!/bin/sh\nfor response do :; done\nprintf not-json > \"$response\"\n",
     )
     .unwrap();
-    fs::set_permissions(&malformed, fs::Permissions::from_mode(0o755)).unwrap();
     assert!(
-        isolated_attempt_with_executable(
+        isolated_attempt_with_command(
             &candidate,
             &paths.config_file,
             library_path,
             "NPU",
             &paths.runtime_dir,
-            &malformed,
+            shell_script(&malformed),
         )
         .is_err()
     );
@@ -339,13 +338,10 @@ fn isolated_child_protocol_captures_success_failure_and_malformed_output() {
 
 #[test]
 fn isolated_child_protocol_terminates_a_stalled_child() {
-    use std::os::unix::fs::PermissionsExt;
-
     let paths = fixture("isolated-timeout");
     fs::create_dir_all(&paths.runtime_dir).unwrap();
     let stalled = paths.runtime_dir.join("stalled.sh");
     fs::write(&stalled, "#!/bin/sh\nsleep 10\n").unwrap();
-    fs::set_permissions(&stalled, fs::Permissions::from_mode(0o755)).unwrap();
 
     let error = match isolated_attempt_with_timeout(
         &openvino("npu"),
@@ -353,7 +349,7 @@ fn isolated_child_protocol_terminates_a_stalled_child() {
         std::ffi::OsStr::new(""),
         "NPU",
         &paths.runtime_dir,
-        &stalled,
+        shell_script(&stalled),
         Duration::from_millis(1),
     ) {
         Ok(_) => panic!("stalled child unexpectedly completed"),

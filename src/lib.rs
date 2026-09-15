@@ -12,3 +12,6 @@ pub mod phrase;
 pub mod protocol;
 pub mod runtime_inventory;
 pub mod setup;
+
+#[cfg(test)]
+mod test_support;

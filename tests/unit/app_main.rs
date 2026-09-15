@@ -2,11 +2,8 @@ use super::*;
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::io::Cursor;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::engine::{WakeWordBackend, WakeWordStream};
-
-static NEXT: AtomicUsize = AtomicUsize::new(0);
 
 struct FakeControl;
 
@@ -658,12 +655,7 @@ impl DetectorControl for FakeControl {
 }
 
 fn test_paths(name: &str) -> AppPaths {
-    let root = std::env::temp_dir().join(format!(
-        "omawake-main-{}-{name}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    ));
-    let _ = fs::remove_dir_all(&root);
+    let root = crate::test_support::unique_directory("main", name);
     AppPaths {
         config_file: root.join("config/config.toml"),
         data_dir: root.join("data"),
@@ -671,6 +663,12 @@ fn test_paths(name: &str) -> AppPaths {
         state_dir: root.join("state"),
         runtime_dir: root.join("run"),
     }
+}
+
+fn shell_script(path: &Path) -> ProcessCommand {
+    let mut command = ProcessCommand::new("/bin/sh");
+    command.arg(path);
+    command
 }
 
 #[test]
@@ -1949,8 +1947,6 @@ fn detection_output_supports_human_and_diagnostic_json_forms() {
 
 #[test]
 fn native_json_worker_suppresses_nonactionable_success_diagnostics() {
-    use std::os::unix::fs::PermissionsExt;
-
     let paths = test_paths("native-json-success");
     fs::create_dir_all(&paths.runtime_dir).unwrap();
     let executable = paths.runtime_dir.join("native-json-success.sh");
@@ -1959,7 +1955,6 @@ fn native_json_worker_suppresses_nonactionable_success_diagnostics() {
         "#!/bin/sh\nfor response do :; done\nprintf '[ERROR] native provider diagnostic\\n'\nprintf 'native warning\\n' >&2\nprintf '%s' '{\"ok\":true}' > \"$response\"\n",
     )
     .unwrap();
-    fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
 
     let mut output = Vec::new();
     let mut diagnostics = Vec::new();
@@ -1971,7 +1966,7 @@ fn native_json_worker_suppresses_nonactionable_success_diagnostics() {
             warmup: 1,
             iterations: 2,
         },
-        &executable,
+        shell_script(&executable),
         &mut output,
         &mut diagnostics,
     )
@@ -1999,8 +1994,6 @@ fn native_json_worker_suppresses_nonactionable_success_diagnostics() {
 
 #[test]
 fn native_json_worker_reports_failure_without_polluting_stdout() {
-    use std::os::unix::fs::PermissionsExt;
-
     let paths = test_paths("native-json-failure");
     fs::create_dir_all(&paths.runtime_dir).unwrap();
     let executable = paths.runtime_dir.join("native-json-failure.sh");
@@ -2009,7 +2002,6 @@ fn native_json_worker_reports_failure_without_polluting_stdout() {
         "#!/bin/sh\nprintf 'provider stdout failure\\n'\nprintf 'provider stderr failure\\n' >&2\nexit 7\n",
     )
     .unwrap();
-    fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
 
     let mut output = Vec::new();
     let mut diagnostics = Vec::new();
@@ -2020,7 +2012,7 @@ fn native_json_worker_reports_failure_without_polluting_stdout() {
             audio: PathBuf::from("probe.wav"),
             execute: false,
         },
-        &executable,
+        shell_script(&executable),
         &mut output,
         &mut diagnostics,
     )
@@ -2035,8 +2027,6 @@ fn native_json_worker_reports_failure_without_polluting_stdout() {
 
 #[test]
 fn native_json_worker_reports_a_missing_response_with_child_diagnostics() {
-    use std::os::unix::fs::PermissionsExt;
-
     let paths = test_paths("native-json-missing-response");
     fs::create_dir_all(&paths.runtime_dir).unwrap();
     let executable = paths.runtime_dir.join("native-json-missing-response.sh");
@@ -2045,7 +2035,6 @@ fn native_json_worker_reports_a_missing_response_with_child_diagnostics() {
         "#!/bin/sh\nprintf 'provider returned no response\\n'\nprintf 'response diagnostic\\n' >&2\n",
     )
     .unwrap();
-    fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
 
     let mut output = Vec::new();
     let mut diagnostics = Vec::new();
@@ -2057,7 +2046,7 @@ fn native_json_worker_reports_a_missing_response_with_child_diagnostics() {
                 audio: PathBuf::from("probe.wav"),
                 execute: false,
             },
-            &executable,
+            shell_script(&executable),
             &mut output,
             &mut diagnostics,
         )

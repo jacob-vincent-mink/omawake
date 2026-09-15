@@ -428,7 +428,7 @@ fn run_native_json_worker(
         config_path,
         paths,
         request,
-        executable,
+        ProcessCommand::new(executable),
         stdout.lock(),
         stderr.lock(),
     )
@@ -438,12 +438,12 @@ fn run_native_json_worker_with(
     config_path: &Path,
     paths: &AppPaths,
     request: &NativeJsonRequest,
-    executable: &Path,
+    mut command: ProcessCommand,
     mut output: impl Write,
     mut diagnostics: impl Write,
 ) -> Result<()> {
     let response = crate::native_worker::ResponseFile::create(&paths.runtime_dir, "native-json")?;
-    let child = ProcessCommand::new(executable)
+    let child = command
         .arg("--config")
         .arg(config_path)
         .arg("__native-json")
