@@ -73,6 +73,14 @@ misses. This is enough to proceed with production integration, but the
 ten-hour negative corpus remains the release gate. The stripped combined
 provider was 4.71 MB and the Moonshine Tiny Q8 GGUF was 60.4 MB.
 
+The Silero safetensors provenance is complete. audio.cpp's bytes are identical
+to the model author's file at `snakers4/silero-vad` tag `v6.2.1`, commit
+`7e30209a3e901f9842f81b225f3e93d8199902b1`: 1,239,748 bytes with SHA-256
+`c59271c284ae9c8335d795d60e0bfdb71aaaceec578d9bd9ffc1b8153c319ea1`.
+All 15 tensor names, dtypes, shapes, and per-tensor hashes were checked. The
+catalog downloads this immutable upstream artifact and retains the Silero MIT
+license; audio.cpp is only its inference engine.
+
 Moonshine's current audio.cpp streaming mode buffers audio until finalization.
 That is suitable for an endpointed wake verifier behind streaming VAD, but it
 must not be described as incremental ASR. The worker keeps residual samples and
