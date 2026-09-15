@@ -123,13 +123,13 @@ fn a_later_non_overlapping_occurrence_can_still_match() {
 
 #[test]
 fn exact_transcript_aliases_map_to_the_same_action_without_fuzzy_matching() {
-    let mut atreyu = wake_word("atreyu", "hey atreyu");
-    atreyu.aliases = vec!["hey a tray you".into(), "hey atre you".into()];
-    let matcher = PhraseMatcher::compile(&[atreyu]).unwrap();
+    let mut jarvis = wake_word("jarvis", "hey jarvis");
+    jarvis.aliases = vec!["hey jar viss".into(), "hey jar viz".into()];
+    let matcher = PhraseMatcher::compile(&[jarvis]).unwrap();
 
-    assert_eq!(matcher.matches("Hey, a tray you! ")[0].id, "atreyu");
-    assert_eq!(matcher.matches("hey atre you")[0].id, "atreyu");
-    assert!(matcher.matches("hey atrium").is_empty());
+    assert_eq!(matcher.matches("Hey, jar viss! ")[0].id, "jarvis");
+    assert_eq!(matcher.matches("hey jar viz")[0].id, "jarvis");
+    assert!(matcher.matches("hey garden").is_empty());
 }
 
 #[test]
@@ -142,8 +142,8 @@ fn rejects_ambiguous_or_empty_enabled_phrases() {
         ])
         .is_err()
     );
-    let mut duplicate_alias = wake_word("atreyu", "hey atreyu");
-    duplicate_alias.aliases = vec!["hey a tre yu".into(), "hey atre yu".into()];
+    let mut duplicate_alias = wake_word("jarvis", "hey jarvis");
+    duplicate_alias.aliases = vec!["hey ja rvis".into(), "hey jar vis".into()];
     assert!(PhraseMatcher::compile(&[duplicate_alias]).is_err());
     assert!(
         PhraseMatcher::compile(&[

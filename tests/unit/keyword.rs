@@ -53,14 +53,24 @@ fn rejects_invalid_entries() {
 
 #[test]
 fn validates_exact_aliases_and_rejects_ambiguous_or_empty_ones() {
-    let mut atreyu = word("atreyu", "hey atreyu", true, &["true"]);
-    atreyu.aliases = vec!["hey a tray you".into()];
-    assert!(validate_wake_words(&[atreyu.clone()]).is_ok());
+    let mut jarvis = word("jarvis", "hey jarvis", true, &["true"]);
+    jarvis.aliases = vec!["hey jar viss".into()];
+    assert!(validate_wake_words(&[jarvis.clone()]).is_ok());
 
-    atreyu.aliases.push(" ".into());
-    assert!(validate_wake_words(&[atreyu]).is_err());
+    jarvis.aliases.push(" ".into());
+    assert!(validate_wake_words(&[jarvis]).is_err());
 
-    let mut duplicate = word("atreyu", "hey atreyu", true, &["true"]);
-    duplicate.aliases = vec!["hey at rey u".into()];
+    let mut duplicate = word("jarvis", "hey jarvis", true, &["true"]);
+    duplicate.aliases = vec!["hey jar vis".into()];
     assert!(validate_wake_words(&[duplicate]).is_err());
+}
+
+#[test]
+fn rejects_variants_that_normalize_to_empty_before_saving() {
+    for text in ["---", "!!!", "\u{200b}"] {
+        assert!(validate_wake_words(&[word("empty", text, true, &["true"])]).is_err());
+        let mut entry = word("valid", "hey jarvis", true, &["true"]);
+        entry.aliases.push(text.into());
+        assert!(validate_wake_words(&[entry]).is_err());
+    }
 }

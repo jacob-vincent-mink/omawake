@@ -103,10 +103,10 @@ action without enabling general fuzzy matching:
 
 ```bash
 omawake test --seconds 5 --show-transcripts
-omawake wake-word add --id atreyu --phrase "Hey Atreyu" \
-  --alias "Hey a tray you" -- notify-send "Atreyu heard"
-omawake wake-word add-alias atreyu "Hey atre you"
-omawake wake-word remove-alias atreyu "Hey atre you"
+omawake wake-word add --id jarvis --phrase "Hey Jarvis" \
+  --alias "Hey jar viss" -- notify-send "Jarvis heard"
+omawake wake-word add-alias jarvis "Hey jar viz"
+omawake wake-word remove-alias jarvis "Hey jar viz"
 ```
 
 Say the phrase during the bounded diagnostic capture, then copy the reported

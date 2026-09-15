@@ -35,15 +35,15 @@ fn validate_entry(wake_word: &WakeWord) -> Result<()> {
     if !valid_id {
         bail!("wake-word id must be a lowercase slug: {}", wake_word.id);
     }
-    if wake_word.phrase.trim().is_empty() {
-        bail!("wake-word phrase must not be empty");
+    if normalize_tokens(&wake_word.phrase).is_empty() {
+        bail!("wake-word phrase must contain letters or numbers");
     }
     if wake_word
         .aliases
         .iter()
-        .any(|alias| alias.trim().is_empty())
+        .any(|alias| normalize_tokens(alias).is_empty())
     {
-        bail!("wake-word aliases must not be empty");
+        bail!("wake-word aliases must contain letters or numbers");
     }
     if wake_word.command.is_empty() || wake_word.command[0].is_empty() {
         bail!("wake-word command must not be empty");
