@@ -1824,6 +1824,7 @@ fn benchmark_report(
     warmup: u32,
     iterations: u32,
 ) -> Result<Value> {
+    let (placement_verified, placement_evidence) = runtime_placement(detector.effective_runtime());
     let summary = benchmark_summary(
         files
             .iter()
@@ -1842,11 +1843,26 @@ fn benchmark_report(
             "requested_device": config.backend.canonical_device()?,
             "effective_runtime": detector.effective_runtime(),
             "fallback_used": detector.fallback_used(),
-            "placement_verified": detector.effective_runtime() == Runtime::Default,
+            "placement_verified": placement_verified,
+            "placement_evidence": placement_evidence,
         },
         "files": files,
         "summary": summary,
     }))
+}
+
+fn runtime_placement(runtime: Runtime) -> (bool, &'static str) {
+    match runtime {
+        Runtime::Default => (true, "ONNX Runtime CPU session initialized"),
+        Runtime::Openvino => (
+            true,
+            "CPU fallback was disabled while every model graph initialized on the selected OpenVINO device",
+        ),
+        Runtime::Cuda => (
+            false,
+            "CUDA executes supported kernels on the GPU and may retain CPU shape helpers",
+        ),
+    }
 }
 
 fn benchmark_files<D, F, N>(

@@ -1492,6 +1492,20 @@ fn file_benchmark_reports_warmups_iterations_percentiles_and_rtf() {
     assert_eq!(report["backend"]["kind"], "fake");
     assert_eq!(report["backend"]["requested_device"], "auto");
     assert_eq!(report["backend"]["placement_verified"], true);
+    assert!(
+        report["backend"]["placement_evidence"]
+            .as_str()
+            .unwrap()
+            .contains("CPU session")
+    );
+    assert_eq!(runtime_placement(Runtime::Openvino).0, true);
+    assert!(
+        runtime_placement(Runtime::Openvino)
+            .1
+            .contains("fallback was disabled")
+    );
+    assert_eq!(runtime_placement(Runtime::Cuda).0, false);
+    assert!(runtime_placement(Runtime::Cuda).1.contains("shape helpers"));
     assert_eq!(report["summary"]["samples"], 4);
     assert_eq!(report["summary"]["p50_milliseconds"], 10.0);
     assert_eq!(report["summary"]["p95_milliseconds"], 20.0);

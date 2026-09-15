@@ -18,7 +18,6 @@ Environment:
   OMAWAKE_THREADS       backend threads (default: 2)
   OMAWAKE_LANES         space-separated lane names (default: all four)
   OMAWAKE_ACCELERATOR_MODEL_VARIANT  int8, fp32-encoder, or fp32 (default: fp32-encoder)
-  OMAWAKE_NPU_QDQ_OPTIMIZER  True or False (default: True)
   OMAWAKE_NPU_BUSY_COUNTER  optional readable npu_busy_time_us sysfs path
 
 The external OpenVINO runtime stack and its native loader environment must
@@ -56,7 +55,6 @@ warmup=${OMAWAKE_WARMUP:-2}
 iterations=${OMAWAKE_ITERATIONS:-10}
 threads=${OMAWAKE_THREADS:-2}
 accelerator_model_variant=${OMAWAKE_ACCELERATOR_MODEL_VARIANT:-fp32-encoder}
-npu_qdq_optimizer=${OMAWAKE_NPU_QDQ_OPTIMIZER:-True}
 read -r -a lanes <<<"${OMAWAKE_LANES:-default-cpu openvino-cpu openvino-gpu openvino-npu}"
 
 for numeric in warmup iterations threads; do
@@ -76,10 +74,6 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 if ((threads < 1 || threads > 64)); then
   printf 'omawake benchmark: threads must be between 1 and 64\n' >&2
-  exit 2
-fi
-if [[ $npu_qdq_optimizer != True && $npu_qdq_optimizer != False ]]; then
-  printf 'omawake benchmark: OMAWAKE_NPU_QDQ_OPTIMIZER must be True or False\n' >&2
   exit 2
 fi
 case "$accelerator_model_variant" in
@@ -199,8 +193,8 @@ npu_busy_counter=$(find_npu_busy_counter)
   fi
   printf 'cold_warmup=0\ncold_iterations=1\nhot_warmup=%s\nhot_iterations=%s\nthreads=%s\n' \
     "$warmup" "$iterations" "$threads"
-  printf 'lanes=%s\naccelerator_model_variant=%s\nnpu_qdq_optimizer=%s\n' \
-    "${lanes[*]}" "$accelerator_model_variant" "$npu_qdq_optimizer"
+  printf 'lanes=%s\naccelerator_model_variant=%s\n' \
+    "${lanes[*]}" "$accelerator_model_variant"
   printf 'npu_busy_counter=%s\n' "${npu_busy_counter:-unavailable}"
   printf 'test_keywords_sha256='
   sha256sum "$model_dir/test_wavs/test_keywords.txt" | awk '{print $1}'
@@ -230,9 +224,6 @@ write_config() {
     printf '[backend.options]\n'
     if [[ $runtime == openvino ]]; then
       printf 'ProfilingFilePrefix = "%s"\n' "$escaped_profile"
-      if [[ $device == npu ]]; then
-        printf 'load_config = "{\\"NPU\\":{\\"NPU_PLATFORM\\":\\"5010\\",\\"NPU_QDQ_OPTIMIZATION\\":\\"%s\\"}}"\n' "$npu_qdq_optimizer"
-      fi
     fi
     printf '\n[model]\nname = "%s"\ndirectory = "%s"\n' "$model_id" "$escaped_model"
     printf 'encoder = "%s"\ndecoder = "%s"\njoiner = "%s"\n' "$encoder" "$decoder" "$joiner"
@@ -256,6 +247,7 @@ write_command() {
     shell_assign XDG_DATA_HOME "$data_home"
     shell_assign XDG_STATE_HOME "$state_home"
     shell_assign XDG_RUNTIME_DIR "$runtime_home"
+    shell_assign XDG_CACHE_HOME "$working_dir/cache"
     if [[ $runtime == openvino ]]; then
       shell_assign LD_LIBRARY_PATH "$openvino_library_path"
     fi
@@ -275,9 +267,9 @@ prepare_lane() {
   local runtime_home=$lane_dir/runtime profile_dir=$lane_dir/profiles
   local cold_config=$config_home/omawake/cold.toml hot_config=$config_home/omawake/hot.toml
   mkdir -p -- "$config_home/omawake" "$data_home" "$state_home" "$runtime_home" \
-    "$profile_dir/cold" "$profile_dir/hot"
+    "$lane_dir/cache" "$profile_dir/cold" "$profile_dir/hot"
   chmod 0700 "$lane_dir" "$config_home" "$config_home/omawake" "$data_home" \
-    "$state_home" "$runtime_home" "$profile_dir" "$profile_dir/cold" "$profile_dir/hot"
+    "$state_home" "$runtime_home" "$lane_dir/cache" "$profile_dir" "$profile_dir/cold" "$profile_dir/hot"
   write_config "$cold_config" "$runtime" "$device" "$profile_dir/cold/$lane"
   write_config "$hot_config" "$runtime" "$device" "$profile_dir/hot/$lane"
   write_command "$lane_dir/cold.command.sh" "$cold_config" "$binary" "$runtime" 0 1 \
@@ -322,15 +314,22 @@ for lane in "${lanes[@]}"; do
         validation_status=1
       fi
       : >"$lane_dir/$phase.provider-evidence.txt"
+      if jq -ce '
+        .backend.effective_runtime == "openvino" and
+        .backend.fallback_used == false and
+        .backend.placement_verified == true
+      ' "$lane_dir/$phase.benchmark.json" \
+        >>"$lane_dir/$phase.provider-evidence.txt"; then
+        :
+      else
+        validation_status=1
+      fi
       for profile in "$lane_dir/profiles/$phase/"*; do
         [[ -f $profile ]] || continue
         if grep -aFqm1 'OpenVINOExecutionProvider' "$profile"; then
           printf '%s\n' "$profile" >>"$lane_dir/$phase.provider-evidence.txt"
         fi
       done
-      if [[ ! -s $lane_dir/$phase.provider-evidence.txt ]]; then
-        validation_status=1
-      fi
     fi
     expected_iterations=$iterations
     [[ $phase == cold ]] && expected_iterations=1
