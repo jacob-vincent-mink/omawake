@@ -2,6 +2,12 @@
 
 The MIT license in `LICENSE` applies to Omawake's project-authored source.
 
+Omawake vendors a minimal set of public whisper.cpp v1.9.3 C ABI declarations
+from commit `371b5a7561823ab2bb32142d2751e35e7534727b`. These declarations let every
+release build load an exact compatible `libwhisper` at runtime; no whisper.cpp
+implementation is copied or statically linked. The declarations remain under
+the upstream MIT license in `vendor/whispercpp-1.9.3/LICENSE`.
+
 Linux release archives include the official ONNX Runtime 1.30.0 CPU library
 under its MIT license. Each archive carries ONNX Runtime's `LICENSE` and
 `ThirdPartyNotices.txt`. Optional OpenVINO and CUDA provider packages retain

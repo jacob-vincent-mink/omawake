@@ -85,6 +85,162 @@ fn stderr(output: &Output) -> String {
 }
 
 #[cfg(unix)]
+fn build_fake_whisper(root: &Path, version: Option<&str>) -> PathBuf {
+    let library = root.join("native/libwhisper.so.1");
+    fs::create_dir_all(library.parent().unwrap()).unwrap();
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut command = Command::new("cc");
+    command
+        .args([
+            "-std=c11", "-shared", "-fPIC", "-Wall", "-Wextra", "-Werror",
+        ])
+        .arg("-I")
+        .arg(manifest.join("vendor/whispercpp-1.9.3"));
+    if let Some(version) = version {
+        command.arg(format!("-DOMAWAKE_FAKE_VERSION=\"{version}\""));
+    }
+    let status = command
+        .arg(manifest.join("tests/fixtures/whisper_fake.c"))
+        .arg("-o")
+        .arg(&library)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    library
+}
+
+#[cfg(unix)]
+fn write_fake_whisper_config(root: &Path, library: PathBuf) -> (PathBuf, PathBuf) {
+    let model = root.join("models/fake-whisper");
+    fs::create_dir_all(&model).unwrap();
+    fs::write(model.join("verifier.bin"), b"safe fake verifier").unwrap();
+    fs::write(model.join("vad.bin"), b"safe fake vad").unwrap();
+    let mut config = Config::default();
+    config.backend.kind = "whispercpp".into();
+    config.backend.device = "cpu".into();
+    config.backend.library_dirs = vec![library.parent().unwrap().to_owned()];
+    config.backend.library = library;
+    config.model.name = "fake-whisper".into();
+    config.model.directory = model.display().to_string();
+    config.model.verifier = "verifier.bin".into();
+    config.model.vad = "vad.bin".into();
+    let config_path = root.join("config/omawake/config.toml");
+    config.save(&config_path).unwrap();
+
+    let wave = root.join("speech.wav");
+    let mut writer = hound::WavWriter::create(
+        &wave,
+        hound::WavSpec {
+            channels: 1,
+            sample_rate: 16_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        },
+    )
+    .unwrap();
+    for _ in 0..16_000 {
+        writer.write_sample(1_000_i16).unwrap();
+    }
+    writer.finalize().unwrap();
+    (config_path, wave)
+}
+
+#[cfg(unix)]
+#[test]
+fn whisper_library_worker_reuses_one_model_and_session_for_file_requests() {
+    let root = sandbox();
+    let library = build_fake_whisper(&root, None);
+    let (_, wave) = write_fake_whisper_config(&root, library);
+    let log = root.join("whisper.log");
+    let output = Command::new(env!("CARGO_BIN_EXE_omawake"))
+        .args([
+            "benchmark",
+            wave.to_str().unwrap(),
+            "--warmup",
+            "0",
+            "--iterations",
+            "2",
+        ])
+        .env("HOME", &root)
+        .env("XDG_CONFIG_HOME", root.join("config"))
+        .env("XDG_DATA_HOME", root.join("data"))
+        .env("XDG_CACHE_HOME", root.join("cache"))
+        .env("XDG_STATE_HOME", root.join("state"))
+        .env("XDG_RUNTIME_DIR", root.join("run"))
+        .env("OMAWAKE_FAKE_WHISPER_LOG", &log)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", stderr(&output));
+    let events = fs::read_to_string(log).unwrap();
+    assert_eq!(
+        events
+            .lines()
+            .filter(|line| *line == "verifier-load")
+            .count(),
+        1
+    );
+    assert_eq!(events.lines().filter(|line| *line == "vad-load").count(), 1);
+    assert_eq!(
+        events.lines().filter(|line| *line == "transcribe").count(),
+        2
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn whisper_library_worker_reaps_and_restarts_after_a_normal_pre_stream_exit() {
+    let root = sandbox();
+    let library = build_fake_whisper(&root, None);
+    let (_, wave) = write_fake_whisper_config(&root, library);
+    let log = root.join("whisper.log");
+    let exit_marker = root.join("worker-exited-once");
+    let output = Command::new(env!("CARGO_BIN_EXE_omawake"))
+        .args(["test", "--audio", wave.to_str().unwrap(), "--json"])
+        .env("HOME", &root)
+        .env("XDG_CONFIG_HOME", root.join("config"))
+        .env("XDG_DATA_HOME", root.join("data"))
+        .env("XDG_CACHE_HOME", root.join("cache"))
+        .env("XDG_STATE_HOME", root.join("state"))
+        .env("XDG_RUNTIME_DIR", root.join("run"))
+        .env("OMAWAKE_FAKE_WHISPER_LOG", &log)
+        .env("OMAWAKE_FAKE_WHISPER_EXIT_ONCE", &exit_marker)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(exit_marker.is_file());
+    let events = fs::read_to_string(log).unwrap();
+    assert_eq!(
+        events
+            .lines()
+            .filter(|line| *line == "verifier-load")
+            .count(),
+        2
+    );
+    assert_eq!(events.lines().filter(|line| *line == "vad-load").count(), 2);
+    assert_eq!(
+        events.lines().filter(|line| *line == "transcribe").count(),
+        1
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn whisper_library_worker_rejects_development_abi_with_a_normal_error() {
+    let root = sandbox();
+    let library = build_fake_whisper(&root, Some("1.9.3-dev"));
+    let (_, wave) = write_fake_whisper_config(&root, library);
+    let output = run(&root, &["test", "--audio", wave.to_str().unwrap()]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("unsupported libwhisper ABI version 1.9.3-dev"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[cfg(unix)]
 #[test]
 fn word_alias_add_remove_and_empty_configuration_round_trip() {
     let root = sandbox();

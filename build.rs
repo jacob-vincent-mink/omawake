@@ -1,7 +1,9 @@
 use std::env;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
+
+const WHISPER_VERSION: &str = "1.9.3";
+const WHISPER_ABI_HEADER: &str = "vendor/whispercpp-1.9.3/whisper_abi.h";
 
 fn run(command: &mut Command, description: &str) {
     let status = command
@@ -10,45 +12,10 @@ fn run(command: &mut Command, description: &str) {
     assert!(status.success(), "{description} failed with {status}");
 }
 
-fn whisper_root() -> Option<PathBuf> {
-    env::var_os("WHISPER_CPP_ROOT").map(PathBuf::from)
-}
-
-fn version(root: &Path) -> String {
-    let cmake = fs::read_to_string(root.join("CMakeLists.txt"))
-        .expect("read upstream whisper.cpp CMakeLists.txt");
-    ["MAJOR", "MINOR", "PATCH"]
-        .map(|part| {
-            let prefix = format!("set(WHISPER_VERSION_{part} ");
-            cmake
-                .lines()
-                .find_map(|line| line.strip_prefix(&prefix))
-                .and_then(|value| value.strip_suffix(')'))
-                .expect("parse upstream whisper.cpp version")
-        })
-        .join(".")
-}
-
 fn main() {
-    println!("cargo:rustc-check-cfg=cfg(omawake_whisper_adapter)");
-    println!("cargo:rerun-if-env-changed=WHISPER_CPP_ROOT");
     println!("cargo:rerun-if-changed=src/engine/whisper/adapter.c");
-    let Some(root) = whisper_root() else {
-        println!(
-            "cargo:warning=WHISPER_CPP_ROOT is unset; whisper.cpp provider support is disabled"
-        );
-        return;
-    };
-    for required in [
-        root.join("include/whisper.h"),
-        root.join("ggml/include/ggml.h"),
-    ] {
-        assert!(
-            required.is_file(),
-            "missing upstream header {}",
-            required.display()
-        );
-    }
+    println!("cargo:rerun-if-changed={WHISPER_ABI_HEADER}");
+    println!("cargo:rerun-if-changed=vendor/whispercpp-1.9.3/LICENSE");
     let output = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR is set by Cargo"));
     let object = output.join("whisper_adapter.o");
     let archive = output.join("libomawake_whisper_adapter.a");
@@ -59,11 +26,9 @@ fn main() {
             .arg("-Wall")
             .arg("-Wextra")
             .arg("-Werror")
-            .arg(format!("-DOMA_WHISPER_ABI_VERSION=\"{}\"", version(&root)))
+            .arg(format!("-DOMA_WHISPER_ABI_VERSION=\"{WHISPER_VERSION}\""))
             .arg("-I")
-            .arg(root.join("include"))
-            .arg("-I")
-            .arg(root.join("ggml/include"))
+            .arg("vendor/whispercpp-1.9.3")
             .arg("-c")
             .arg("src/engine/whisper/adapter.c")
             .arg("-o")
@@ -77,12 +42,7 @@ fn main() {
             .arg(&object),
         "whisper.cpp adapter archive",
     );
-    println!("cargo:rustc-cfg=omawake_whisper_adapter");
     println!("cargo:rustc-link-search=native={}", output.display());
     println!("cargo:rustc-link-lib=static=omawake_whisper_adapter");
     println!("cargo:rustc-link-lib=dl");
-    println!(
-        "cargo:rerun-if-changed={}",
-        root.join("CMakeLists.txt").display()
-    );
 }

@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "whisper.h"
+#include "whisper_abi.h"
 
 #ifndef OMA_WHISPER_ABI_VERSION
 #error "OMA_WHISPER_ABI_VERSION must match the whisper.h used to build this adapter"
@@ -148,9 +148,7 @@ int oma_whisper_open(
         return -1;
     }
     const char * version = provider->api.version();
-    const size_t expected_length = strlen(OMA_WHISPER_ABI_VERSION);
-    if (version == NULL || strncmp(version, OMA_WHISPER_ABI_VERSION, expected_length) != 0 ||
-            (version[expected_length] != '\0' && version[expected_length] != '-')) {
+    if (version == NULL || strcmp(version, OMA_WHISPER_ABI_VERSION) != 0) {
         char message[512];
         snprintf(message, sizeof(message), "unsupported libwhisper ABI version %s; adapter was built for %s",
                  version == NULL ? "<null>" : version, OMA_WHISPER_ABI_VERSION);

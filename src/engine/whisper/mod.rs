@@ -2,12 +2,16 @@ mod protocol;
 mod ring;
 
 use std::cell::{Cell, RefCell};
+use std::collections::VecDeque;
 use std::env;
-#[cfg(omawake_whisper_adapter)]
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
-use std::io::{self, BufReader};
+use std::io;
+use std::os::fd::OwnedFd;
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Child, Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 
@@ -20,7 +24,6 @@ use crate::config::Config;
 use crate::paths::AppPaths;
 use crate::phrase::{PhraseMatcher, normalize_tokens};
 
-#[cfg(omawake_whisper_adapter)]
 unsafe extern "C" {
     fn oma_whisper_open(
         library_path: *const c_char,
@@ -71,7 +74,7 @@ struct ClientStream {
     started: bool,
     finished: bool,
     resampler: AudioResampler,
-    pending: Vec<f32>,
+    pending: VecDeque<f32>,
 }
 
 impl WhisperCppBackend {
@@ -97,7 +100,14 @@ impl WhisperCppBackend {
             .map(|word| word.phrase.trim())
             .collect::<Vec<_>>()
             .join(", ");
-        let worker = Worker::spawn(&library, &verifier, &vad, i32::from(config.backend.threads))?;
+        let library_dirs = resolve_library_dirs(config, paths, &library)?;
+        let worker = Worker::spawn(
+            library,
+            library_dirs,
+            verifier,
+            vad,
+            i32::from(config.backend.threads),
+        )?;
         Ok(Self {
             worker: RefCell::new(worker),
             matcher,
@@ -147,7 +157,7 @@ impl WakeWordBackend for WhisperCppBackend {
                 started: false,
                 finished: false,
                 resampler: AudioResampler::new(),
-                pending: Vec::new(),
+                pending: VecDeque::new(),
             }),
         })
     }
@@ -250,131 +260,336 @@ fn resolve_model_asset(directory: &Path, configured: &str, label: &str) -> Resul
     if configured.trim().is_empty() {
         bail!("model.{label} must name a model file");
     }
-    let configured = Path::new(configured);
-    let path = if configured.is_absolute() {
-        configured.to_owned()
-    } else {
-        directory.join(configured)
-    };
-    if !path.is_file() {
-        bail!("whisper.cpp {label} model is missing: {}", path.display());
-    }
-    Ok(path)
+    resolve_file_beneath(
+        Path::new(configured),
+        directory,
+        &format!("whisper.cpp {label} model"),
+    )
 }
 
 fn resolve_library(config: &Config, paths: &AppPaths) -> Result<PathBuf> {
     if !config.backend.library.as_os_str().is_empty() {
-        let path = if config.backend.library.is_absolute() {
-            config.backend.library.clone()
-        } else {
-            paths
-                .config_file
-                .parent()
-                .unwrap_or(Path::new("."))
-                .join(&config.backend.library)
-        };
-        if path.is_file() {
-            return Ok(path);
-        }
-        bail!(
-            "configured whisper.cpp library is missing: {}",
-            path.display()
+        return resolve_file_beneath(
+            &config.backend.library,
+            paths.config_file.parent().unwrap_or(Path::new(".")),
+            "configured whisper.cpp library",
         );
     }
     if let Some(path) = env::var_os("OMAWAKE_WHISPER_LIBRARY").map(PathBuf::from) {
-        if path.is_file() {
-            return Ok(path);
+        if !path.is_absolute() {
+            bail!("OMAWAKE_WHISPER_LIBRARY must be an absolute file path");
         }
-        bail!(
-            "OMAWAKE_WHISPER_LIBRARY does not name a file: {}",
-            path.display()
-        );
+        return resolve_file_beneath(&path, Path::new("/"), "OMAWAKE_WHISPER_LIBRARY");
     }
-    for path in [
-        "/usr/lib/libwhisper.so.1",
-        "/usr/local/lib/libwhisper.so.1",
-        "/usr/lib64/libwhisper.so.1",
-    ] {
-        let path = PathBuf::from(path);
-        if path.is_file() {
-            return Ok(path);
+    let package_dirs = package_library_dirs();
+    for directory in package_dirs.iter().map(PathBuf::as_path).chain([
+        Path::new("/usr/lib"),
+        Path::new("/usr/local/lib"),
+        Path::new("/usr/lib64"),
+    ]) {
+        for name in ["libwhisper.so.1", "libwhisper.so"] {
+            let path = directory.join(name);
+            if path.is_file() {
+                return path
+                    .canonicalize()
+                    .with_context(|| format!("resolve whisper.cpp library {}", path.display()));
+            }
         }
     }
     bail!("libwhisper was not found; set backend.library or OMAWAKE_WHISPER_LIBRARY")
 }
 
-struct Worker {
-    child: Child,
-    input: Option<ChildStdin>,
-    output: BufReader<ChildStdout>,
-    active_id: Option<u64>,
+fn package_library_dirs() -> Vec<PathBuf> {
+    let Some(binary) = env::current_exe().ok() else {
+        return Vec::new();
+    };
+    package_library_dirs_from(&binary)
 }
 
-impl Worker {
-    fn spawn(library: &Path, verifier: &Path, vad: &Path, threads: i32) -> Result<Self> {
+fn package_library_dirs_from(binary: &Path) -> Vec<PathBuf> {
+    let Some(binary_dir) = binary.parent() else {
+        return Vec::new();
+    };
+    let mut candidates = vec![binary_dir.join("lib")];
+    if matches!(
+        binary_dir.file_name().and_then(|name| name.to_str()),
+        Some("bin" | "sbin")
+    ) && let Some(prefix) = binary_dir.parent()
+    {
+        candidates.push(prefix.join("lib/omawake"));
+    }
+    candidates
+        .into_iter()
+        .filter(|path| path.is_dir())
+        .map(|path| path.canonicalize().unwrap_or(path))
+        .collect()
+}
+
+fn resolve_library_dirs(config: &Config, paths: &AppPaths, library: &Path) -> Result<Vec<PathBuf>> {
+    let base = paths.config_file.parent().unwrap_or(Path::new("."));
+    let mut directories = Vec::with_capacity(config.backend.library_dirs.len() + 1);
+    for configured in &config.backend.library_dirs {
+        let explicit_absolute = configured.is_absolute();
+        let candidate = if explicit_absolute {
+            configured.clone()
+        } else {
+            base.join(configured)
+        };
+        let resolved = candidate.canonicalize().with_context(|| {
+            format!("resolve backend.library_dirs entry {}", candidate.display())
+        })?;
+        if !resolved.is_dir() {
+            bail!(
+                "backend.library_dirs entry is not a directory: {}",
+                resolved.display()
+            );
+        }
+        if !explicit_absolute {
+            let canonical_base = base
+                .canonicalize()
+                .with_context(|| format!("resolve config directory {}", base.display()))?;
+            if !resolved.starts_with(&canonical_base) {
+                bail!(
+                    "backend.library_dirs entry escapes config directory {}",
+                    canonical_base.display()
+                );
+            }
+        }
+        if !directories.contains(&resolved) {
+            directories.push(resolved);
+        }
+    }
+    let parent = library
+        .parent()
+        .context("configured whisper.cpp library has no parent directory")?
+        .to_path_buf();
+    if !directories.contains(&parent) {
+        directories.push(parent);
+    }
+    Ok(directories)
+}
+
+fn resolve_file_beneath(path: &Path, base: &Path, label: &str) -> Result<PathBuf> {
+    let explicit_absolute = path.is_absolute();
+    let candidate = if explicit_absolute {
+        path.to_owned()
+    } else {
+        base.join(path)
+    };
+    let resolved = candidate
+        .canonicalize()
+        .with_context(|| format!("resolve {label} {}", candidate.display()))?;
+    if !resolved.is_file() {
+        bail!("{label} is not a regular file: {}", resolved.display());
+    }
+    if !explicit_absolute {
+        let canonical_base = base
+            .canonicalize()
+            .with_context(|| format!("resolve {label} base {}", base.display()))?;
+        if !resolved.starts_with(&canonical_base) {
+            bail!(
+                "{label} escapes base directory {}",
+                canonical_base.display()
+            );
+        }
+    }
+    Ok(resolved)
+}
+
+const WORKER_STARTUP_TIMEOUT: Duration = Duration::from_secs(120);
+const WORKER_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+const WORKER_STOP_TIMEOUT: Duration = Duration::from_secs(2);
+
+#[derive(Clone)]
+struct WorkerSpec {
+    library: PathBuf,
+    library_dirs: Vec<PathBuf>,
+    verifier: PathBuf,
+    vad: PathBuf,
+    threads: i32,
+}
+
+struct WorkerProcess {
+    child: Child,
+    stream: UnixStream,
+}
+
+impl WorkerProcess {
+    fn launch(spec: &WorkerSpec) -> Result<Self> {
+        let (stream, child_stream) = UnixStream::pair().context("create whisper.cpp worker IPC")?;
+        stream.set_read_timeout(Some(WORKER_STARTUP_TIMEOUT))?;
+        stream.set_write_timeout(Some(WORKER_STARTUP_TIMEOUT))?;
+        let child_input: OwnedFd = child_stream
+            .try_clone()
+            .context("clone whisper.cpp worker IPC")?
+            .into();
+        let child_output: OwnedFd = child_stream.into();
         let executable = env::current_exe().context("resolve Omawake executable")?;
         let mut command = Command::new(executable);
         command
             .arg("__whisper-worker")
-            .arg(library)
-            .arg(verifier)
-            .arg(vad)
-            .arg(threads.to_string())
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
+            .arg(&spec.library)
+            .arg(&spec.verifier)
+            .arg(&spec.vad)
+            .arg(spec.threads.to_string())
+            .stdin(Stdio::from(child_input))
+            .stdout(Stdio::from(child_output))
             .stderr(Stdio::null());
-        prepend_library_directory(&mut command, library);
-        let mut child = command
+        configure_library_path(&mut command, &spec.library_dirs)?;
+        let child = command
             .spawn()
             .context("spawn isolated whisper.cpp worker")?;
-        let input = child.stdin.take().context("worker stdin is unavailable")?;
-        let output = child
-            .stdout
-            .take()
-            .context("worker stdout is unavailable")?;
-        let mut worker = Self {
-            child,
-            input: Some(input),
-            output: BufReader::new(output),
-            active_id: None,
-        };
-        match protocol::read_response(&mut worker.output).context("read worker handshake")? {
-            Response::Ready { .. } => Ok(worker),
-            Response::Error { message, .. } => {
-                let _ = worker.child.wait();
+        let mut process = Self { child, stream };
+        let handshake =
+            protocol::read_response(&mut process.stream).context("read worker handshake");
+        match handshake {
+            Ok(Response::Ready { .. }) => {
+                if let Err(error) = process
+                    .stream
+                    .set_read_timeout(Some(WORKER_REQUEST_TIMEOUT))
+                    .and_then(|()| {
+                        process
+                            .stream
+                            .set_write_timeout(Some(WORKER_REQUEST_TIMEOUT))
+                    })
+                {
+                    process.stop(false);
+                    return Err(error).context("configure whisper.cpp worker IPC timeout");
+                }
+                Ok(process)
+            }
+            Ok(Response::Error { message, .. }) => {
+                process.stop(false);
                 bail!(message)
             }
-            response => bail!("unexpected worker handshake: {response:?}"),
+            Ok(response) => {
+                process.stop(false);
+                bail!("unexpected worker handshake: {response:?}")
+            }
+            Err(error) => {
+                process.stop(false);
+                Err(error)
+            }
         }
     }
 
+    fn stop(&mut self, graceful: bool) {
+        if graceful {
+            let _ = self.stream.set_write_timeout(Some(Duration::from_secs(1)));
+            let _ = protocol::write_request(&mut self.stream, &Request::Shutdown, &[]);
+        }
+        let _ = self.stream.shutdown(std::net::Shutdown::Both);
+        if !wait_for_exit(&mut self.child, WORKER_STOP_TIMEOUT) {
+            let _ = self.child.kill();
+            let _ = wait_for_exit(&mut self.child, WORKER_STOP_TIMEOUT);
+        }
+    }
+}
+
+fn wait_for_exit(child: &mut Child, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return true,
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
+            Ok(None) | Err(_) => return false,
+        }
+    }
+}
+
+struct Worker {
+    spec: WorkerSpec,
+    process: Option<WorkerProcess>,
+    active_id: Option<u64>,
+}
+
+impl Worker {
+    fn spawn(
+        library: PathBuf,
+        library_dirs: Vec<PathBuf>,
+        verifier: PathBuf,
+        vad: PathBuf,
+        threads: i32,
+    ) -> Result<Self> {
+        let spec = WorkerSpec {
+            library,
+            library_dirs,
+            verifier,
+            vad,
+            threads,
+        };
+        let process = WorkerProcess::launch(&spec)?;
+        Ok(Self {
+            spec,
+            process: Some(process),
+            active_id: None,
+        })
+    }
+
+    fn ensure_process(&mut self) -> Result<()> {
+        if self.process.is_none() {
+            self.process = Some(WorkerProcess::launch(&self.spec)?);
+        }
+        Ok(())
+    }
+
+    fn disconnect(&mut self) {
+        if let Some(mut process) = self.process.take() {
+            process.stop(false);
+        }
+        self.active_id = None;
+    }
+
     fn exchange(&mut self, request: &Request, pcm: &[f32]) -> Result<Response> {
-        let input = self.input.as_mut().context("worker stdin is closed")?;
-        protocol::write_request(input, request, pcm).context("write worker request")?;
-        protocol::read_response(&mut self.output).context("read worker response")
+        self.ensure_process()?;
+        let result = (|| {
+            let process = self
+                .process
+                .as_mut()
+                .context("whisper.cpp worker is unavailable")?;
+            protocol::write_request(&mut process.stream, request, pcm)
+                .context("write worker request")?;
+            protocol::read_response(&mut process.stream).context("read worker response")
+        })();
+        if result.is_err() {
+            self.disconnect();
+        }
+        result
+    }
+
+    fn invalid_response<T>(&mut self, operation: &str, response: Response) -> Result<T> {
+        self.disconnect();
+        bail!("unexpected {operation} response: {response:?}")
     }
 
     fn start(&mut self, id: u64, prompt: &str) -> Result<()> {
         if let Some(active) = self.active_id {
             bail!("whisper.cpp worker is already serving stream {active}");
         }
-        match self.exchange(
-            &Request::Start {
-                id,
-                prompt: prompt.to_owned(),
-            },
-            &[],
-        )? {
+        let request = Request::Start {
+            id,
+            prompt: prompt.to_owned(),
+        };
+        let response = match self.exchange(&request, &[]) {
+            Ok(response) => response,
+            Err(first_error) => self.exchange(&request, &[]).with_context(|| {
+                format!("restart whisper.cpp worker after startup IPC failure: {first_error:#}")
+            })?,
+        };
+        match response {
             Response::Ack { id: response } if response == id => {
                 self.active_id = Some(id);
                 Ok(())
             }
             Response::Error { message, .. } => bail!(message),
-            response => bail!("unexpected start response: {response:?}"),
+            response => self.invalid_response("start", response),
         }
     }
 
     fn audio(&mut self, id: u64, pcm: &[f32]) -> Result<Vec<Transcript>> {
+        if self.active_id != Some(id) {
+            bail!("whisper.cpp worker is not serving stream {id}");
+        }
         match self.exchange(
             &Request::Audio {
                 id,
@@ -387,11 +602,14 @@ impl Worker {
                 transcripts,
             } if response == id => Ok(transcripts),
             Response::Error { message, .. } => bail!(message),
-            response => bail!("unexpected audio response: {response:?}"),
+            response => self.invalid_response("audio", response),
         }
     }
 
     fn finish(&mut self, id: u64) -> Result<Vec<Transcript>> {
+        if self.active_id != Some(id) {
+            bail!("whisper.cpp worker is not serving stream {id}");
+        }
         let response = self.exchange(&Request::Finish { id }, &[])?;
         self.active_id = None;
         match response {
@@ -400,26 +618,28 @@ impl Worker {
                 transcripts,
             } if response == id => Ok(transcripts),
             Response::Error { message, .. } => bail!(message),
-            response => bail!("unexpected finish response: {response:?}"),
+            response => self.invalid_response("finish", response),
         }
     }
 
     fn cancel(&mut self, id: u64) -> Result<()> {
+        if self.active_id != Some(id) {
+            return Ok(());
+        }
         let response = self.exchange(&Request::Cancel { id }, &[])?;
         self.active_id = None;
         match response {
             Response::Ack { id: response } if response == id => Ok(()),
             Response::Error { message, .. } => bail!(message),
-            response => bail!("unexpected cancel response: {response:?}"),
+            response => self.invalid_response("cancel", response),
         }
     }
 
     fn shutdown(&mut self) {
-        if let Some(input) = self.input.as_mut() {
-            let _ = protocol::write_request(input, &Request::Shutdown, &[]);
+        if let Some(mut process) = self.process.take() {
+            process.stop(true);
         }
-        self.input.take();
-        let _ = self.child.wait();
+        self.active_id = None;
     }
 }
 
@@ -429,17 +649,22 @@ impl Drop for Worker {
     }
 }
 
-fn prepend_library_directory(command: &mut Command, library: &Path) {
-    let Some(directory) = library.parent().filter(|path| !path.as_os_str().is_empty()) else {
-        return;
-    };
-    let mut paths = vec![directory.to_owned()];
+fn configure_library_path(command: &mut Command, configured: &[PathBuf]) -> Result<()> {
+    let mut paths = configured.to_vec();
     if let Some(existing) = env::var_os("LD_LIBRARY_PATH") {
-        paths.extend(env::split_paths(&existing));
+        for path in env::split_paths(&existing) {
+            if !path.is_absolute() || !path.is_dir() {
+                continue;
+            }
+            let path = path.canonicalize().unwrap_or(path);
+            if !paths.contains(&path) {
+                paths.push(path);
+            }
+        }
     }
-    if let Ok(joined) = env::join_paths(paths) {
-        command.env("LD_LIBRARY_PATH", joined);
-    }
+    let joined = env::join_paths(paths).context("encode whisper.cpp worker library path")?;
+    command.env("LD_LIBRARY_PATH", joined);
+    Ok(())
 }
 
 fn harden_worker_process() -> Result<()> {
@@ -461,10 +686,8 @@ fn harden_worker_process() -> Result<()> {
     )
 }
 
-#[cfg(omawake_whisper_adapter)]
 struct NativeProvider(*mut c_void);
 
-#[cfg(omawake_whisper_adapter)]
 impl NativeProvider {
     fn open(library: &Path, verifier: &Path, vad: &Path, threads: i32) -> Result<Self> {
         let library = path_to_c_string(library)?;
@@ -551,43 +774,16 @@ impl NativeProvider {
     }
 }
 
-#[cfg(omawake_whisper_adapter)]
 impl Drop for NativeProvider {
     fn drop(&mut self) {
         unsafe { oma_whisper_close(self.0) };
     }
 }
 
-#[cfg(not(omawake_whisper_adapter))]
-struct NativeProvider;
-
-#[cfg(not(omawake_whisper_adapter))]
-impl NativeProvider {
-    fn open(_: &Path, _: &Path, _: &Path, _: i32) -> Result<Self> {
-        bail!("this Omawake build has no whisper.cpp adapter; build with WHISPER_CPP_ROOT set")
-    }
-
-    fn version(&self) -> String {
-        "unavailable".into()
-    }
-
-    fn vad_probability(&mut self, _: &[f32]) -> Result<f32> {
-        bail!("whisper.cpp adapter is unavailable")
-    }
-
-    fn reset_vad(&mut self) {}
-
-    fn transcribe(&mut self, _: &[f32], _: &str) -> Result<String> {
-        bail!("whisper.cpp adapter is unavailable")
-    }
-}
-
-#[cfg(omawake_whisper_adapter)]
 fn path_to_c_string(path: &Path) -> Result<CString> {
     CString::new(path.as_os_str().as_encoded_bytes()).context("native path contains NUL")
 }
 
-#[cfg(omawake_whisper_adapter)]
 fn c_buffer(buffer: &[i8]) -> String {
     unsafe { CStr::from_ptr(buffer.as_ptr()) }
         .to_string_lossy()
@@ -745,6 +941,7 @@ pub(crate) fn worker_main(library: &Path, verifier: &Path, vad: &Path, threads: 
 mod tests {
     use super::*;
     use crate::config::WakeWord;
+    use std::fs;
 
     #[test]
     fn transcript_conversion_uses_whole_phrase_matcher() {
@@ -778,5 +975,75 @@ mod tests {
             .err()
             .expect("unsupported runtime should fail");
         assert!(error.to_string().contains("only backend.runtime = default"));
+    }
+
+    #[test]
+    fn native_paths_are_canonical_and_relative_paths_cannot_escape() {
+        let root = env::temp_dir().join(format!("omawake-whisper-paths-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let config_dir = root.join("config");
+        let library_dir = config_dir.join("lib");
+        let model_dir = root.join("models");
+        fs::create_dir_all(&library_dir).unwrap();
+        fs::create_dir_all(&model_dir).unwrap();
+        fs::write(library_dir.join("libwhisper.so"), b"fixture").unwrap();
+        fs::write(model_dir.join("verifier.bin"), b"fixture").unwrap();
+        fs::write(root.join("outside.bin"), b"fixture").unwrap();
+        fs::write(root.join("outside.so"), b"fixture").unwrap();
+
+        let paths = AppPaths {
+            config_file: config_dir.join("config.toml"),
+            data_dir: root.join("data"),
+            cache_dir: root.join("cache"),
+            state_dir: root.join("state"),
+            runtime_dir: root.join("run"),
+        };
+        let mut config = Config::default();
+        config.backend.library = PathBuf::from("lib/libwhisper.so");
+        config.backend.library_dirs = vec![PathBuf::from("lib")];
+        let library = resolve_library(&config, &paths).unwrap();
+        assert_eq!(
+            library,
+            library_dir.join("libwhisper.so").canonicalize().unwrap()
+        );
+        assert_eq!(
+            resolve_library_dirs(&config, &paths, &library).unwrap(),
+            [library_dir.canonicalize().unwrap()]
+        );
+        assert_eq!(
+            resolve_model_asset(&model_dir, "verifier.bin", "verifier").unwrap(),
+            model_dir.join("verifier.bin").canonicalize().unwrap()
+        );
+
+        config.backend.library = PathBuf::from("../outside.so");
+        assert!(resolve_library(&config, &paths).is_err());
+        assert!(resolve_model_asset(&model_dir, "../outside.bin", "verifier").is_err());
+        config.backend.library_dirs = vec![PathBuf::from("../models")];
+        assert!(resolve_library_dirs(&config, &paths, &library).is_err());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn package_discovery_stays_with_the_archive_or_installed_prefix() {
+        let root = env::temp_dir().join(format!("omawake-whisper-package-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("archive/lib")).unwrap();
+        fs::create_dir_all(root.join("prefix/bin")).unwrap();
+        fs::create_dir_all(root.join("prefix/lib/omawake")).unwrap();
+        assert_eq!(
+            package_library_dirs_from(&root.join("archive/omawake")),
+            [root.join("archive/lib").canonicalize().unwrap()]
+        );
+        assert_eq!(
+            package_library_dirs_from(&root.join("prefix/bin/omawake")),
+            [root.join("prefix/lib/omawake").canonicalize().unwrap()]
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn bounded_wait_reaps_a_normal_child_exit() {
+        let mut child = Command::new("true").spawn().unwrap();
+        assert!(wait_for_exit(&mut child, Duration::from_secs(1)));
     }
 }
