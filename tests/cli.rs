@@ -133,6 +133,74 @@ fn setup_all_help_keeps_service_installation_explicit() {
 }
 
 #[test]
+fn setup_inspection_recovers_invalid_pre_release_config_without_weakening_normal_parsing() {
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    let invalid = b"[backend]\nprovider_config = \"\"\n";
+    fs::write(&config_path, invalid).unwrap();
+
+    for args in [
+        &["setup", "runtime", "--json"][..],
+        &["setup", "model", "--json"],
+    ] {
+        let output = run(&root, args);
+        assert!(output.status.success(), "{args:?}: {}", stderr(&output));
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap();
+        assert!(stderr(&output).contains("successful setup apply will replace it"));
+        assert_eq!(fs::read(&config_path).unwrap(), invalid);
+    }
+
+    let check = run(&root, &["setup", "check", "--json"]);
+    assert!(!check.status.success());
+    let checks: serde_json::Value = serde_json::from_slice(&check.stdout).unwrap();
+    assert_eq!(checks[0]["name"], "config");
+    assert_eq!(checks[0]["ok"], false);
+    assert_eq!(fs::read(&config_path).unwrap(), invalid);
+
+    let normal = run(&root, &["config", "get", "--json"]);
+    assert!(!normal.status.success());
+    assert!(stderr(&normal).contains("unknown field `provider_config`"));
+    assert_eq!(fs::read(&config_path).unwrap(), invalid);
+}
+
+#[test]
+fn successful_explicit_setup_repairs_invalid_config_and_failure_restores_it() {
+    let invalid = b"[backend]\nprovider_config = \"\"\n";
+
+    let failed_root = sandbox();
+    let failed_config = failed_root.join("config/omawake/config.toml");
+    fs::create_dir_all(failed_config.parent().unwrap()).unwrap();
+    fs::write(&failed_config, invalid).unwrap();
+    let failed_bin = fake_systemctl(&failed_root, 1);
+    let failed = run_with_path(
+        &failed_root,
+        &["setup", "systemd", "--no-start"],
+        &failed_bin,
+    );
+    assert!(!failed.status.success());
+    assert_eq!(fs::read(&failed_config).unwrap(), invalid);
+
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    fs::write(&config_path, invalid).unwrap();
+    let bin = fake_systemctl(&root, 0);
+    let applied = run_with_path(&root, &["setup", "systemd", "--no-start"], &bin);
+    assert!(applied.status.success(), "{}", stderr(&applied));
+    assert!(stderr(&applied).contains("successful setup apply will replace it"));
+    assert_eq!(
+        Config::load(&config_path).unwrap().backend.kind,
+        "omawake-onnx"
+    );
+    assert!(
+        !fs::read_to_string(config_path)
+            .unwrap()
+            .contains("provider_config")
+    );
+}
+
+#[test]
 fn config_commands_cover_supported_keys_and_errors() {
     let root = sandbox();
     assert_eq!(

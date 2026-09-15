@@ -4,9 +4,10 @@ pub mod model;
 pub mod systemd;
 pub mod wizard;
 
+use std::fs;
 use std::path::Path;
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use serde::Serialize;
 
 use crate::catalog;
@@ -21,14 +22,47 @@ pub struct Check {
     pub remediation: Option<String>,
 }
 
-pub fn ensure_config(path: &Path) -> Result<Config> {
-    if path.exists() {
-        Config::load(path)
-    } else {
-        let config = Config::default();
-        config.save(path)?;
-        Ok(config)
+/// Load configuration for setup without making obsolete pre-release files a
+/// dead end. Invalid contents are represented by current defaults until an
+/// explicit setup action succeeds and atomically saves the current schema.
+/// Read-only setup paths therefore leave the original bytes untouched.
+pub fn load_config(path: &Path) -> Result<Config> {
+    setup_config(path).map(|(config, _)| config)
+}
+
+/// Report that setup is recovering from an obsolete configuration. I/O
+/// failures remain fatal so an unreadable file is never mistaken for one that
+/// setup may safely replace.
+pub fn config_recovery(path: &Path) -> Result<Option<String>> {
+    setup_config(path).map(|(_, error)| error)
+}
+
+fn setup_config(path: &Path) -> Result<(Config, Option<String>)> {
+    let input = match fs::read_to_string(path) {
+        Ok(input) => input,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok((Config::default(), None));
+        }
+        Err(error) => {
+            return Err(error).with_context(|| format!("read config {}", path.display()));
+        }
+    };
+    match toml::from_str(&input) {
+        Ok(config) => Ok((config, None)),
+        Err(error) => Ok((
+            Config::default(),
+            Some(format!("parse config {}: {error}", path.display())),
+        )),
     }
+}
+
+pub fn ensure_config(path: &Path) -> Result<Config> {
+    let exists = path.exists();
+    let config = load_config(path)?;
+    if !exists {
+        config.save(path)?;
+    }
+    Ok(config)
 }
 
 pub fn checks(path: &Path, paths: &AppPaths) -> Vec<Check> {

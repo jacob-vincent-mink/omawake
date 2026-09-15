@@ -1135,6 +1135,72 @@ fn runtime_candidate_validation_failure_preserves_the_original_config() {
 }
 
 #[test]
+fn focused_runtime_preview_failure_and_apply_recover_invalid_config_transactionally() {
+    let paths = test_paths("runtime-invalid-config-recovery");
+    fs::create_dir_all(paths.config_file.parent().unwrap()).unwrap();
+    let invalid = b"# obsolete pre-release config\n[backend]\nprovider_config = \"\"\n";
+    fs::write(&paths.config_file, invalid).unwrap();
+
+    let ready = |_: &crate::backend::BackendConfig, _: &Path| crate::runtime_inventory::Probe {
+        loadable: true,
+        device_accessible: true,
+        ready: true,
+        ..Default::default()
+    };
+    configure_runtime_from_flags(
+        &paths.config_file,
+        &paths,
+        Some("default".into()),
+        Some("cpu".into()),
+        None,
+        false,
+        ready,
+    )
+    .unwrap();
+    assert_eq!(fs::read(&paths.config_file).unwrap(), invalid);
+
+    let rejected = |_: &crate::backend::BackendConfig, _: &Path| crate::runtime_inventory::Probe {
+        errors: vec!["injected runtime validation failure".into()],
+        ..Default::default()
+    };
+    let error = configure_runtime_from_flags(
+        &paths.config_file,
+        &paths,
+        Some("default".into()),
+        Some("cpu".into()),
+        None,
+        true,
+        rejected,
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("injected runtime validation failure")
+    );
+    assert_eq!(fs::read(&paths.config_file).unwrap(), invalid);
+
+    configure_runtime_from_flags(
+        &paths.config_file,
+        &paths,
+        Some("default".into()),
+        Some("cpu".into()),
+        None,
+        true,
+        ready,
+    )
+    .unwrap();
+    let repaired = Config::load(&paths.config_file).unwrap();
+    assert_eq!(repaired.backend.kind, "omawake-onnx");
+    assert_eq!(repaired.backend.device, "cpu");
+    assert!(
+        !fs::read_to_string(&paths.config_file)
+            .unwrap()
+            .contains("provider_config")
+    );
+}
+
+#[test]
 fn npu_runtime_cache_preparation_finishes_before_config_commit() {
     let paths = test_paths("runtime-cache-transaction");
     let original = Config::default();
@@ -1203,6 +1269,132 @@ fn guided_runtime_apply_and_cancel_share_the_review_step() {
     assert_eq!(
         Config::load(&paths.config_file).unwrap().backend.device,
         "cpu"
+    );
+}
+
+#[test]
+fn guided_cancellation_preserves_invalid_config_bytes() {
+    let paths = test_paths("guided-invalid-config-cancel");
+    fs::create_dir_all(paths.config_file.parent().unwrap()).unwrap();
+    let invalid = b"# keep exactly\n[backend]\nprovider_config = \"\"\n";
+    fs::write(&paths.config_file, invalid).unwrap();
+
+    let mut runtime = ScriptedGuidedPrompts {
+        runtime: Some(RuntimeSelection {
+            runtime: Runtime::Default,
+            device: "cpu".into(),
+        }),
+        confirm: false,
+        ..Default::default()
+    };
+    guided_runtime_with(&paths.config_file, &paths, &mut runtime).unwrap();
+    assert_eq!(fs::read(&paths.config_file).unwrap(), invalid);
+
+    let mut model = ScriptedGuidedPrompts::default();
+    guided_model_with(&paths.config_file, &paths, &mut model).unwrap();
+    assert_eq!(fs::read(&paths.config_file).unwrap(), invalid);
+
+    let mut full = ScriptedGuidedPrompts {
+        runtime: Some(RuntimeSelection {
+            runtime: Runtime::Default,
+            device: "cpu".into(),
+        }),
+        ..Default::default()
+    };
+    guided_all_with_services_and_validator(
+        &paths.config_file,
+        &paths,
+        &mut full,
+        |_, _| Ok(()),
+        |_, _, _, _| unreachable!(),
+        |_| unreachable!(),
+        |_| false,
+        |_| unreachable!(),
+        |_, _| unreachable!(),
+        |_, _| unreachable!(),
+    )
+    .unwrap();
+    assert_eq!(fs::read(&paths.config_file).unwrap(), invalid);
+}
+
+#[test]
+fn full_setup_replaces_invalid_config_only_after_transaction_success() {
+    let spec = &crate::catalog::models()[0];
+    let invalid = b"[backend]\nprovider_config = \"\"\n";
+
+    let failed = test_paths("full-invalid-config-failure");
+    fs::create_dir_all(failed.config_file.parent().unwrap()).unwrap();
+    fs::write(&failed.config_file, invalid).unwrap();
+    let validation_error = install_everything(
+        spec,
+        &failed.config_file,
+        &failed,
+        None,
+        ProgressFormat::Human,
+        false,
+        |candidate, _| {
+            assert_eq!(candidate.backend.kind, "omawake-onnx");
+            bail!("injected full runtime validation failure")
+        },
+        |_, _, _, _| unreachable!(),
+        |_| unreachable!(),
+        |_| unreachable!(),
+        |_, _| unreachable!(),
+        |_, _| unreachable!(),
+    )
+    .unwrap_err();
+    assert!(
+        validation_error
+            .to_string()
+            .contains("injected full runtime validation failure")
+    );
+    assert_eq!(fs::read(&failed.config_file).unwrap(), invalid);
+
+    let error = install_everything(
+        spec,
+        &failed.config_file,
+        &failed,
+        None,
+        ProgressFormat::Human,
+        false,
+        |_, _| Ok(()),
+        |_, _, _, _| Ok(failed.data_dir.join("model")),
+        |_| bail!("injected launcher failure"),
+        |_| unreachable!(),
+        |_, _| unreachable!(),
+        |_, _| unreachable!(),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("injected launcher failure"));
+    assert_eq!(fs::read(&failed.config_file).unwrap(), invalid);
+
+    let applied = test_paths("full-invalid-config-success");
+    fs::create_dir_all(applied.config_file.parent().unwrap()).unwrap();
+    fs::write(&applied.config_file, invalid).unwrap();
+    install_everything(
+        spec,
+        &applied.config_file,
+        &applied,
+        None,
+        ProgressFormat::Json,
+        false,
+        |candidate, _| {
+            assert_eq!(candidate.backend.kind, "omawake-onnx");
+            Ok(())
+        },
+        |_, _, _, _| Ok(applied.data_dir.join("model")),
+        |_| Ok(applied.data_dir.join("omawake-settings.desktop")),
+        |_| Ok(false),
+        |_, _| unreachable!(),
+        |_, _| Ok(()),
+    )
+    .unwrap();
+    let repaired = Config::load(&applied.config_file).unwrap();
+    assert_eq!(repaired.model.name, spec.id);
+    assert!(
+        !fs::read_to_string(&applied.config_file)
+            .unwrap()
+            .contains("provider_config")
     );
 }
 
@@ -1401,6 +1593,45 @@ fn model_activation_prepares_npu_cache_before_saving() {
     .unwrap_err();
     assert!(error.to_string().contains("model cache failed"));
     assert_eq!(fs::read(&paths.config_file).unwrap(), original_bytes);
+}
+
+#[test]
+fn focused_model_apply_replaces_invalid_config_only_after_cache_success() {
+    let spec = &crate::catalog::models()[0];
+
+    let failed = test_paths("model-invalid-config-failure");
+    fs::create_dir_all(failed.config_file.parent().unwrap()).unwrap();
+    let invalid = b"[backend]\nprovider_config = \"\"\n";
+    fs::write(&failed.config_file, invalid).unwrap();
+    let error = activate_model_with_cache(
+        &failed.config_file,
+        &failed,
+        spec,
+        ProgressFormat::Human,
+        |_, _, _, _| bail!("injected cache failure"),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("injected cache failure"));
+    assert_eq!(fs::read(&failed.config_file).unwrap(), invalid);
+
+    let applied = test_paths("model-invalid-config-success");
+    fs::create_dir_all(applied.config_file.parent().unwrap()).unwrap();
+    fs::write(&applied.config_file, invalid).unwrap();
+    activate_model_with_cache(
+        &applied.config_file,
+        &applied,
+        spec,
+        ProgressFormat::Human,
+        |_, _, _, _| Ok(None),
+    )
+    .unwrap();
+    let repaired = Config::load(&applied.config_file).unwrap();
+    assert_eq!(repaired.model.name, spec.id);
+    assert!(
+        !fs::read_to_string(&applied.config_file)
+            .unwrap()
+            .contains("provider_config")
+    );
 }
 
 #[test]

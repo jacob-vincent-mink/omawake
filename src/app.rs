@@ -534,6 +534,11 @@ fn save_config(path: &Path, config: &Config) -> Result<()> {
 }
 
 fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) -> Result<()> {
+    if let Some(error) = app_setup::config_recovery(config_path)? {
+        eprintln!(
+            "omawake setup: the existing configuration is invalid; a successful setup apply will replace it with the current schema\n  {error}"
+        );
+    }
     if command.is_none() && setup_is_interactive() {
         return guided_setup(config_path, paths);
     }
@@ -570,7 +575,7 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
                 )?;
                 return Ok(());
             }
-            app_setup::print_runtime(&Config::load(config_path)?, config_path, json)
+            app_setup::print_runtime(&app_setup::load_config(config_path)?, config_path, json)
         }
         SetupCommand::Model {
             list,
@@ -646,9 +651,18 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
             } else if uninstall {
                 app_setup::systemd::uninstall(paths)
             } else {
-                app_setup::ensure_config(config_path)?;
-                let path = app_setup::systemd::install(paths, config_path, !no_start)?;
-                println!("installed: {}", path.display());
+                let original = config_snapshot(config_path)?;
+                let result = (|| {
+                    let config = app_setup::ensure_config(config_path)?;
+                    config.save(config_path)?;
+                    let path = app_setup::systemd::install(paths, config_path, !no_start)?;
+                    println!("installed: {}", path.display());
+                    Ok(())
+                })();
+                if let Err(error) = result {
+                    restore_config_snapshot(config_path, original.as_deref())?;
+                    return Err(error);
+                }
                 Ok(())
             }
         }
@@ -705,7 +719,7 @@ fn configure_runtime_from_flags(
     apply: bool,
     probe: impl FnOnce(&crate::backend::BackendConfig, &Path) -> crate::runtime_inventory::Probe,
 ) -> Result<()> {
-    let current = Config::load(config_path)?;
+    let current = app_setup::load_config(config_path)?;
     let selected_runtime = runtime
         .as_deref()
         .map(parse_runtime)
@@ -914,7 +928,7 @@ fn guided_runtime_with(
     paths: &AppPaths,
     prompts: &mut impl GuidedPrompts,
 ) -> Result<()> {
-    let current = Config::load(config_path)?;
+    let current = app_setup::load_config(config_path)?;
     let Some(selection) = prompts.runtime(&current)? else {
         println!("Setup cancelled.");
         return Ok(());
@@ -986,7 +1000,7 @@ where
         ProgressFormat,
     ) -> Result<PathBuf>,
 {
-    let current = Config::load(config_path)?;
+    let current = app_setup::load_config(config_path)?;
     let Some(spec) = prompts.model(paths, &current)? else {
         println!("Setup cancelled.");
         return Ok(());
@@ -1096,7 +1110,7 @@ where
     CJ: FnOnce(&Path, &AppPaths) -> Result<()>,
     FV: FnOnce(&Config, &Path) -> Result<()>,
 {
-    let current = Config::load(config_path)?;
+    let current = app_setup::load_config(config_path)?;
     let Some(selection) = prompts.runtime(&current)? else {
         println!("Setup cancelled.");
         return Ok(());
@@ -1214,7 +1228,7 @@ fn save_runtime_selection_impl_with(
     runtime_directory: Option<&Path>,
     validate: impl FnOnce(&Config, &Path) -> Result<()>,
 ) -> Result<()> {
-    let current = Config::load(config_path)?;
+    let current = app_setup::load_config(config_path)?;
     let config = runtime_selection_candidate(&current, config_path, selection, runtime_directory)?;
     validate(&config, config_path)?;
     config.save(config_path)
@@ -1429,7 +1443,7 @@ where
     CH: FnOnce(&Path, &AppPaths) -> Result<()>,
     CJ: FnOnce(&Path, &AppPaths) -> Result<()>,
 {
-    let config = Config::load(config_path)?;
+    let config = app_setup::load_config(config_path)?;
     validate_runtime(&config, config_path)?;
     install_everything_with_config(
         spec,
