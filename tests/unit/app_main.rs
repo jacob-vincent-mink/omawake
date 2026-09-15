@@ -751,6 +751,15 @@ fn command_line_surface_parses_representative_forms() {
         vec!["omawake", "pause"],
         vec!["omawake", "resume"],
         vec!["omawake", "stop"],
+        vec![
+            "omawake",
+            "__audiocpp-worker",
+            "libaudiocpp.so.0.1.0",
+            "moonshine.gguf",
+            "silero.safetensors",
+            "2",
+            "moonshine_asr",
+        ],
         vec!["omawake", "setup", "check", "--json"],
         vec!["omawake", "setup", "runtime", "--json"],
         vec!["omawake", "setup", "systemd", "--no-start"],
@@ -1909,6 +1918,11 @@ fn file_benchmark_reports_warmups_iterations_percentiles_and_rtf() {
     );
     assert!(!runtime_placement(Runtime::Cuda).0);
     assert!(runtime_placement(Runtime::Cuda).1.contains("shape helpers"));
+    assert!(
+        backend_placement("audiocpp", Runtime::Default)
+            .1
+            .contains("Silero and ASR")
+    );
     assert_eq!(report["summary"]["samples"], 4);
     assert_eq!(report["summary"]["p50_milliseconds"], 10.0);
     assert_eq!(report["summary"]["p95_milliseconds"], 20.0);

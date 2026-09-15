@@ -11,8 +11,10 @@ use crate::config::{Config, WakeWord};
 use crate::keyword::KeywordCompiler;
 use crate::paths::AppPaths;
 
+pub(crate) mod audiocpp;
 pub(crate) mod onnx;
 pub(crate) mod whisper;
+use self::audiocpp::AudioCppBackend;
 use self::onnx::{OmaOnnxBackend, read_wave};
 use self::whisper::WhisperCppBackend;
 
@@ -71,6 +73,26 @@ pub fn wav_duration(path: &Path) -> Result<Duration> {
 
 impl Detector {
     pub fn load(config: &Config, paths: &AppPaths) -> Result<Self> {
+        if config.backend.kind == "audiocpp" {
+            config.backend.validate_shape()?;
+            let keywords_buffer = config
+                .wake_words
+                .iter()
+                .filter(|entry| entry.enabled)
+                .map(|entry| entry.phrase.trim())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let started = Instant::now();
+            let backend = Box::new(AudioCppBackend::load(config, paths)?);
+            return Self::from_backend(
+                config,
+                backend,
+                keywords_buffer,
+                Runtime::Default,
+                false,
+                started.elapsed(),
+            );
+        }
         if config.backend.kind == "whispercpp" {
             config.backend.validate_shape()?;
             let keywords_buffer = config

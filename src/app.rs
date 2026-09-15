@@ -65,6 +65,14 @@ enum TopCommand {
         vad: PathBuf,
         threads: i32,
     },
+    #[command(name = "__audiocpp-worker", hide = true)]
+    AudioCppWorker {
+        library: PathBuf,
+        verifier: PathBuf,
+        vad: PathBuf,
+        threads: i32,
+        asr_family: String,
+    },
     Test {
         #[arg(long, conflicts_with = "seconds")]
         audio: Option<PathBuf>,
@@ -265,6 +273,16 @@ pub fn entry() -> ExitCode {
 
 fn run_entry(cli: Cli) -> Result<()> {
     let paths = AppPaths::discover();
+    if let TopCommand::AudioCppWorker {
+        library,
+        verifier,
+        vad,
+        threads,
+        asr_family,
+    } = &cli.command
+    {
+        return crate::engine::audiocpp::worker_main(library, verifier, vad, *threads, asr_family);
+    }
     if let TopCommand::WhisperWorker {
         library,
         verifier,
@@ -584,6 +602,7 @@ where
         TopCommand::InventoryProbe { .. }
         | TopCommand::ModelCachePrepare { .. }
         | TopCommand::NativeJson { .. }
+        | TopCommand::AudioCppWorker { .. }
         | TopCommand::WhisperWorker { .. }
         | TopCommand::Setup { .. } => unreachable!(),
         TopCommand::Config { command } => config_mutation(command, config, &config_path),
@@ -2084,7 +2103,7 @@ fn evaluation_report(
         |detector, path| detector.detect_file(path),
         |detector| {
             let (placement_verified, placement_evidence) =
-                runtime_placement(detector.effective_runtime);
+                backend_placement(detector.backend_kind, detector.effective_runtime);
             Ok(RuntimeIdentity {
                 backend_kind: detector.backend_kind.into(),
                 requested_runtime: runtime_name(config.backend.runtime).into(),
@@ -2162,7 +2181,8 @@ fn benchmark_report(
     warmup: u32,
     iterations: u32,
 ) -> Result<Value> {
-    let (placement_verified, placement_evidence) = runtime_placement(detector.effective_runtime());
+    let (placement_verified, placement_evidence) =
+        backend_placement(detector.backend_kind(), detector.effective_runtime());
     let summary = benchmark_summary(
         files
             .iter()
@@ -2200,6 +2220,20 @@ fn runtime_placement(runtime: Runtime) -> (bool, &'static str) {
             false,
             "CUDA executes supported kernels on the GPU and may retain CPU shape helpers",
         ),
+    }
+}
+
+fn backend_placement(kind: &str, runtime: Runtime) -> (bool, &'static str) {
+    match (kind, runtime) {
+        ("audiocpp", Runtime::Default) => (
+            true,
+            "audio.cpp created explicit CPU Silero and ASR sessions",
+        ),
+        ("whispercpp", Runtime::Default) => (
+            true,
+            "whisper.cpp created explicit CPU VAD and verifier contexts",
+        ),
+        _ => runtime_placement(runtime),
     }
 }
 
@@ -3010,10 +3044,10 @@ fn stopped_status(config: &Config, paths: &AppPaths) -> serde_json::Value {
 fn schema(config: &Config, config_path: &Path, paths: &AppPaths) -> serde_json::Value {
     json!({"schema_version":1,"app":"omawake","app_version":env!("CARGO_PKG_VERSION"),"daemon_version":env!("CARGO_PKG_VERSION"),"config_path":config_path,
         "keys":[
-            {"key":"backend.kind","type":"enum","section":"Backend","label":"Backend","description":"Inference engine","value":config.backend.kind,"file_value":null,"supported":true,"restart_required":true,"choices":["omawake-onnx","whispercpp"]},
+            {"key":"backend.kind","type":"enum","section":"Backend","label":"Backend","description":"Inference engine","value":config.backend.kind,"file_value":null,"supported":true,"restart_required":true,"choices":["omawake-onnx","audiocpp","whispercpp"]},
             {"key":"backend.runtime","type":"enum","section":"Backend","label":"Runtime","description":"ONNX Runtime provider","value":config.backend.runtime,"file_value":null,"supported":true,"restart_required":true,"choices":[{"value":"default","available":true,"capability":"cpu"},{"value":"openvino","available":supported_capabilities().contains(&"openvino"),"capability":"openvino"},{"value":"cuda","available":supported_capabilities().contains(&"cuda"),"capability":"cuda"}]},
             {"key":"backend.device","type":"string","section":"Backend","label":"Device","description":"Runtime-specific device","value":config.backend.device,"file_value":null,"supported":true,"restart_required":true},
-            {"key":"backend.library","type":"path","section":"Backend","label":"Provider library","description":"Exact libwhisper shared library for the whispercpp backend","value":config.backend.library,"file_value":null,"supported":true,"restart_required":true},
+            {"key":"backend.library","type":"path","section":"Backend","label":"Provider library","description":"Exact shared library for the selected native backend","value":config.backend.library,"file_value":null,"supported":true,"restart_required":true},
             {"key":"backend.library_dirs","type":"path-list","section":"Backend","label":"Native library directories","description":"App-owned vendor runtime search paths","value":config.backend.library_dirs,"file_value":null,"supported":true,"restart_required":true},
             {"key":"backend.onnxruntime_library","type":"path","section":"Backend","label":"ONNX Runtime library","description":"Exact app-owned ONNX Runtime shared library","value":config.backend.onnxruntime_library,"file_value":null,"supported":true,"restart_required":true},
             {"key":"backend.provider_library","type":"path","section":"Backend","label":"Provider library","description":"Exact OpenVINO or CUDA execution-provider plugin","value":config.backend.provider_library,"file_value":null,"supported":true,"restart_required":true},
