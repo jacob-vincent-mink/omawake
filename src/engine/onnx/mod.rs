@@ -225,3 +225,187 @@ pub(super) fn read_wave(path: &Path) -> Result<(i32, Vec<f32>)> {
     };
     Ok((spec.sample_rate as i32, samples))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{config::WakeWord, engine::Detector};
+    use std::{env, path::PathBuf};
+
+    fn fixture_paths(name: &str) -> AppPaths {
+        let root = env::temp_dir().join(format!("omawake-onnx-test-{}-{name}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        AppPaths {
+            config_file: root.join("config.toml"),
+            data_dir: root.join("data"),
+            cache_dir: root.join("cache"),
+            state_dir: root.join("state"),
+            runtime_dir: root.join("run"),
+        }
+    }
+
+    #[test]
+    fn wav_reader_covers_float_wide_integer_and_rejection_paths() {
+        let paths = fixture_paths("wav-formats");
+        fs::create_dir_all(&paths.data_dir).unwrap();
+
+        let float_path = paths.data_dir.join("float.wav");
+        let mut writer = hound::WavWriter::create(
+            &float_path,
+            hound::WavSpec {
+                channels: 1,
+                sample_rate: 8_000,
+                bits_per_sample: 32,
+                sample_format: hound::SampleFormat::Float,
+            },
+        )
+        .unwrap();
+        writer.write_sample(-0.25f32).unwrap();
+        writer.write_sample(0.5f32).unwrap();
+        writer.finalize().unwrap();
+        let (rate, samples) = read_wave(&float_path).unwrap();
+        assert_eq!(rate, 8_000);
+        assert_eq!(samples, [-0.25, 0.5]);
+
+        let wide_path = paths.data_dir.join("wide.wav");
+        let mut writer = hound::WavWriter::create(
+            &wide_path,
+            hound::WavSpec {
+                channels: 1,
+                sample_rate: 16_000,
+                bits_per_sample: 24,
+                sample_format: hound::SampleFormat::Int,
+            },
+        )
+        .unwrap();
+        writer.write_sample(-(1i32 << 22)).unwrap();
+        writer.write_sample(1i32 << 21).unwrap();
+        writer.finalize().unwrap();
+        let (_, samples) = read_wave(&wide_path).unwrap();
+        assert_eq!(samples, [-0.5, 0.25]);
+
+        let stereo_path = paths.data_dir.join("stereo.wav");
+        let mut writer = hound::WavWriter::create(
+            &stereo_path,
+            hound::WavSpec {
+                channels: 2,
+                sample_rate: 16_000,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+        )
+        .unwrap();
+        writer.write_sample(0i16).unwrap();
+        writer.write_sample(0i16).unwrap();
+        writer.finalize().unwrap();
+        assert!(
+            read_wave(&stereo_path)
+                .unwrap_err()
+                .to_string()
+                .contains("mono")
+        );
+        assert!(read_wave(&paths.data_dir.join("missing.wav")).is_err());
+    }
+
+    #[test]
+    fn real_model_fixtures_preserve_direct_streaming_parity() {
+        let Some((ort, model)) = real_fixture() else {
+            return;
+        };
+        let paths = fixture_paths("real-model");
+        let mut config = Config::default();
+        config.backend.onnxruntime_library = ort;
+        config.model.directory = model.to_string_lossy().into_owned();
+        config.wake_words = [
+            ("light-up", "Light up"),
+            ("lovely-child", "Lovely child"),
+            ("forever", "Forever"),
+        ]
+        .into_iter()
+        .map(|(id, phrase)| WakeWord {
+            id: id.into(),
+            phrase: phrase.into(),
+            enabled: true,
+            command: vec!["true".into()],
+        })
+        .collect();
+
+        let detector = Detector::load(&config, &paths).unwrap();
+        assert_eq!(detector.backend_kind, "omawake-onnx");
+        let zero = detector
+            .detect_file(&model.join("test_wavs/0.wav"))
+            .unwrap();
+        assert_eq!(
+            zero.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(),
+            ["light-up"]
+        );
+        let one = detector
+            .detect_file(&model.join("test_wavs/1.wav"))
+            .unwrap();
+        assert_eq!(
+            one.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(),
+            ["lovely-child", "forever"]
+        );
+
+        let stream = detector.session();
+        assert!(stream.accept(16_000, &[f32::NAN]).is_err());
+        assert!(stream.finish().unwrap().is_empty());
+        assert!(stream.finish().unwrap().is_empty());
+        assert!(stream.accept(16_000, &[0.0]).is_err());
+    }
+
+    #[test]
+    fn real_openvino_cpu_plugin_preserves_detection_when_available() {
+        let Some((ort, model)) = real_fixture() else {
+            return;
+        };
+        let Some(provider) = env::var_os("OMAWAKE_TEST_OPENVINO_PROVIDER").map(PathBuf::from)
+        else {
+            return;
+        };
+        assert!(
+            provider.is_file(),
+            "OMAWAKE_TEST_OPENVINO_PROVIDER is not a file"
+        );
+        let paths = fixture_paths("real-openvino");
+        let mut config = Config::default();
+        config.backend.runtime = Runtime::Openvino;
+        config.backend.device = "cpu".into();
+        config.backend.fallback = crate::backend::Fallback::Error;
+        config.backend.onnxruntime_library = ort;
+        config.backend.provider_library = provider.clone();
+        config.backend.library_dirs = vec![provider.parent().unwrap().to_owned()];
+        config.model.directory = model.to_string_lossy().into_owned();
+        config.wake_words = vec![WakeWord {
+            id: "light-up".into(),
+            phrase: "Light up".into(),
+            enabled: true,
+            command: vec!["true".into()],
+        }];
+
+        let detector = Detector::load(&config, &paths).unwrap();
+        assert_eq!(detector.effective_runtime, Runtime::Openvino);
+        assert!(!detector.fallback_used);
+        assert_eq!(
+            detector
+                .detect_file(&model.join("test_wavs/0.wav"))
+                .unwrap()[0]
+                .id,
+            "light-up"
+        );
+    }
+
+    fn real_fixture() -> Option<(PathBuf, PathBuf)> {
+        let ort = env::var_os("OMAWAKE_TEST_ONNXRUNTIME").map(PathBuf::from);
+        let model = env::var_os("OMAWAKE_TEST_MODEL").map(PathBuf::from);
+        match (ort, model) {
+            (None, None) => None,
+            (Some(ort), Some(model)) => {
+                assert!(ort.is_file(), "OMAWAKE_TEST_ONNXRUNTIME is not a file");
+                assert!(model.is_dir(), "OMAWAKE_TEST_MODEL is not a directory");
+                Some((ort, model))
+            }
+            _ => panic!("set both OMAWAKE_TEST_ONNXRUNTIME and OMAWAKE_TEST_MODEL"),
+        }
+    }
+}

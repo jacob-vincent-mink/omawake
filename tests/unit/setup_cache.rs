@@ -244,3 +244,173 @@ fn isolated_retries_up_to_five_times_only_for_signal_termination() {
     assert!(error.to_string().contains("signal 11"));
     assert!(error.to_string().contains("attempt 5/5"));
 }
+
+#[test]
+fn isolated_child_protocol_captures_success_failure_and_malformed_output() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let paths = fixture("isolated-protocol");
+    fs::create_dir_all(&paths.runtime_dir).unwrap();
+    let candidate = openvino("npu");
+    let library_path = std::ffi::OsStr::new("");
+
+    let success = paths.runtime_dir.join("success.sh");
+    fs::write(
+        &success,
+        "#!/bin/sh\nprintf '%s' '{\"required\":true,\"prepared\":true,\"directory\":null,\"artifacts\":1,\"bytes\":8,\"elapsed_milliseconds\":1.0}'\n",
+    )
+    .unwrap();
+    fs::set_permissions(&success, fs::Permissions::from_mode(0o755)).unwrap();
+    match isolated_attempt_with_executable(
+        &candidate,
+        &paths.config_file,
+        library_path,
+        "NPU",
+        &success,
+    )
+    .unwrap()
+    {
+        AttemptOutcome::Complete(report) => {
+            assert!(report.prepared);
+            assert_eq!(report.artifacts, 1);
+        }
+        AttemptOutcome::Failed { .. } => panic!("successful child was reported as failed"),
+    }
+
+    let failure = paths.runtime_dir.join("failure.sh");
+    fs::write(&failure, "#!/bin/sh\necho provider-failed >&2\nexit 7\n").unwrap();
+    fs::set_permissions(&failure, fs::Permissions::from_mode(0o755)).unwrap();
+    match isolated_attempt_with_executable(
+        &candidate,
+        &paths.config_file,
+        library_path,
+        "NPU",
+        &failure,
+    )
+    .unwrap()
+    {
+        AttemptOutcome::Failed { status, stderr, .. } => {
+            assert!(status.contains('7'));
+            assert!(stderr.contains("provider-failed"));
+        }
+        AttemptOutcome::Complete(_) => panic!("failed child was reported as successful"),
+    }
+
+    let malformed = paths.runtime_dir.join("malformed.sh");
+    fs::write(&malformed, "#!/bin/sh\nprintf not-json\n").unwrap();
+    fs::set_permissions(&malformed, fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(
+        isolated_attempt_with_executable(
+            &candidate,
+            &paths.config_file,
+            library_path,
+            "NPU",
+            &malformed,
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn isolated_child_protocol_terminates_a_stalled_child() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let paths = fixture("isolated-timeout");
+    fs::create_dir_all(&paths.runtime_dir).unwrap();
+    let stalled = paths.runtime_dir.join("stalled.sh");
+    fs::write(&stalled, "#!/bin/sh\nsleep 10\n").unwrap();
+    fs::set_permissions(&stalled, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let error = match isolated_attempt_with_timeout(
+        &openvino("npu"),
+        &paths.config_file,
+        std::ffi::OsStr::new(""),
+        "NPU",
+        &stalled,
+        Duration::from_millis(1),
+    ) {
+        Ok(_) => panic!("stalled child unexpectedly completed"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("timed out"));
+}
+
+#[test]
+fn isolated_preparation_forces_error_fallback_and_resolves_child_environment() {
+    let paths = fixture("isolated-plan");
+    let libraries = paths.data_dir.join("runtime");
+    fs::create_dir_all(&libraries).unwrap();
+    let core = libraries.join("libonnxruntime.so.1.30.0");
+    let provider = libraries.join("libonnxruntime_providers_openvino_plugin.so");
+    fs::write(&core, b"fixture").unwrap();
+    fs::write(&provider, b"fixture").unwrap();
+    let mut config = openvino("npu");
+    config.backend.fallback = Fallback::Cpu;
+    config.backend.library_dirs = vec![libraries.clone()];
+    config.backend.onnxruntime_library = core.clone();
+    config.backend.provider_library = provider.clone();
+
+    let expected = report(&paths, "npu", true);
+    let actual = isolated_with(
+        &config,
+        &paths.config_file,
+        |candidate, path, loader, device| {
+            assert_eq!(candidate.backend.fallback, Fallback::Error);
+            assert_eq!(candidate.backend.onnxruntime_library, core);
+            assert_eq!(candidate.backend.provider_library, provider);
+            assert_eq!(path, paths.config_file);
+            assert_eq!(device, "NPU");
+            assert!(std::env::split_paths(loader).any(|entry| entry == libraries));
+            Ok(AttemptOutcome::Complete(expected.clone()))
+        },
+    )
+    .unwrap();
+    assert!(actual.prepared);
+}
+
+#[test]
+fn cache_validation_and_json_deferred_paths_are_explicit() {
+    let paths = fixture("validation");
+    let mut config = openvino("npu");
+    config.model.name = "not-in-catalog".into();
+    assert!(
+        prepare_for_runtime_with(
+            &config,
+            &paths.config_file,
+            &paths,
+            ProgressFormat::Json,
+            |_, _, _| unreachable!(),
+        )
+        .unwrap()
+        .is_none()
+    );
+    assert!(catalog_probe_audio(&config, &paths).is_none());
+
+    for (runtime, device) in [
+        (Runtime::Default, "cpu"),
+        (Runtime::Openvino, "cpu"),
+        (Runtime::Cuda, "gpu"),
+    ] {
+        config.backend.runtime = runtime;
+        config.backend.device = device.into();
+        assert!(cache_device(&config).is_err());
+    }
+
+    let error = retry_signaled("NPU", || {
+        Ok(AttemptOutcome::Failed {
+            status: "exit status: 1".into(),
+            signal: None,
+            stderr: "   ".into(),
+        })
+    })
+    .unwrap_err();
+    assert!(!error.to_string().ends_with(':'));
+}
+
+#[test]
+fn public_prepare_reports_an_isolated_child_failure() {
+    let paths = fixture("public-isolated-failure");
+    let config = openvino("npu");
+    let error = prepare(&config, &paths.config_file, &paths, ProgressFormat::Human).unwrap_err();
+    assert!(error.to_string().contains("model-cache preparation failed"));
+}

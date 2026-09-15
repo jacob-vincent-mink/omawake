@@ -559,50 +559,15 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
             apply,
         } => {
             if runtime.is_some() || device.is_some() || dir.is_some() {
-                let current = Config::load(config_path)?;
-                let selected_runtime = runtime
-                    .as_deref()
-                    .map(parse_runtime)
-                    .transpose()?
-                    .unwrap_or(current.backend.runtime);
-                let selected_device = device.unwrap_or_else(|| {
-                    current
-                        .backend
-                        .canonical_device()
-                        .ok()
-                        .filter(|_| selected_runtime == current.backend.runtime)
-                        .map_or_else(|| "auto".to_owned(), |_| current.backend.device.clone())
-                });
-                let candidate = runtime_selection_candidate(
-                    &current,
+                configure_runtime_from_flags(
                     config_path,
-                    &RuntimeSelection {
-                        runtime: selected_runtime,
-                        device: selected_device,
-                    },
-                    dir.as_deref(),
-                )?;
-                let evidence = crate::runtime_inventory::apply_with(
-                    &candidate,
-                    config_path,
-                    false,
+                    paths,
+                    runtime,
+                    device,
+                    dir,
+                    apply,
                     crate::runtime_inventory::probe,
                 )?;
-                if apply {
-                    prepare_and_save_runtime_candidate_with(
-                        &candidate,
-                        config_path,
-                        paths,
-                        ProgressFormat::Human,
-                        app_setup::cache::prepare_for_runtime,
-                    )?;
-                }
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(
-                        &json!({"candidate":candidate.backend,"probe":evidence,"applied":apply})
-                    )?
-                );
                 return Ok(());
             }
             app_setup::print_runtime(&Config::load(config_path)?, config_path, json)
@@ -729,6 +694,57 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
             )
         }
     }
+}
+
+fn configure_runtime_from_flags(
+    config_path: &Path,
+    paths: &AppPaths,
+    runtime: Option<String>,
+    device: Option<String>,
+    directory: Option<PathBuf>,
+    apply: bool,
+    probe: impl FnOnce(&crate::backend::BackendConfig, &Path) -> crate::runtime_inventory::Probe,
+) -> Result<()> {
+    let current = Config::load(config_path)?;
+    let selected_runtime = runtime
+        .as_deref()
+        .map(parse_runtime)
+        .transpose()?
+        .unwrap_or(current.backend.runtime);
+    let selected_device = device.unwrap_or_else(|| {
+        current
+            .backend
+            .canonical_device()
+            .ok()
+            .filter(|_| selected_runtime == current.backend.runtime)
+            .map_or_else(|| "auto".to_owned(), |_| current.backend.device.clone())
+    });
+    let candidate = runtime_selection_candidate(
+        &current,
+        config_path,
+        &RuntimeSelection {
+            runtime: selected_runtime,
+            device: selected_device,
+        },
+        directory.as_deref(),
+    )?;
+    let evidence = crate::runtime_inventory::apply_with(&candidate, config_path, false, probe)?;
+    if apply {
+        prepare_and_save_runtime_candidate_with(
+            &candidate,
+            config_path,
+            paths,
+            ProgressFormat::Human,
+            app_setup::cache::prepare_for_runtime,
+        )?;
+    }
+    println!(
+        "{}",
+        serde_json::to_string_pretty(
+            &json!({"candidate":candidate.backend,"probe":evidence,"applied":apply})
+        )?
+    );
+    Ok(())
 }
 
 fn setup_is_interactive() -> bool {

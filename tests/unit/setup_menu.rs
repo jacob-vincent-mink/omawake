@@ -21,4 +21,5 @@ fn launcher_path_falls_back_and_uninstall_is_idempotent() {
     status(&isolated).unwrap();
     uninstall(&isolated).unwrap();
     assert!(!installed.exists());
+    assert!(status(&isolated).is_err());
 }

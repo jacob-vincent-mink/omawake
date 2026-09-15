@@ -369,3 +369,43 @@ fn systemd_lifecycle_uses_user_manager_and_propagates_failures() {
             .success()
     );
 }
+
+#[test]
+fn real_openvino_inventory_child_registers_the_official_plugin_when_available() {
+    let (Some(runtime), Some(provider)) = (
+        std::env::var_os("OMAWAKE_TEST_ONNXRUNTIME"),
+        std::env::var_os("OMAWAKE_TEST_OPENVINO_PROVIDER"),
+    ) else {
+        return;
+    };
+    let root = sandbox();
+    let provider = PathBuf::from(provider);
+    let runtime = PathBuf::from(runtime);
+    let candidate = omawake::backend::BackendConfig {
+        runtime: omawake::backend::Runtime::Openvino,
+        device: "cpu".into(),
+        onnxruntime_library: runtime.clone(),
+        provider_library: provider.clone(),
+        library_dirs: vec![
+            runtime.parent().unwrap().to_owned(),
+            provider.parent().unwrap().to_owned(),
+        ],
+        ..Default::default()
+    };
+    let loader_path = std::env::join_paths(&candidate.library_dirs).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_omawake"))
+        .args([
+            "__inventory-probe",
+            &serde_json::to_string(&candidate).unwrap(),
+        ])
+        .env("HOME", &root)
+        .env("LD_LIBRARY_PATH", loader_path)
+        .env("ORT_DISABLE_TELEMETRY", "1")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", stderr(&output));
+    let probe: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(probe["ready"], true);
+    assert_eq!(probe["evidence"]["provider_registration"], true);
+    assert_eq!(probe["evidence"]["selected_device"], "cpu");
+}

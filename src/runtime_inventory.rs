@@ -157,7 +157,11 @@ pub fn probe(config: &BackendConfig, path: &Path) -> Probe {
 }
 
 fn isolated(config: &BackendConfig) -> Result<Probe> {
-    let mut command = Command::new(env::current_exe()?);
+    isolated_with_executable(config, &env::current_exe()?)
+}
+
+fn isolated_with_executable(config: &BackendConfig, executable: &Path) -> Result<Probe> {
+    let mut command = Command::new(executable);
     command
         .arg("__inventory-probe")
         .arg(serde_json::to_string(config)?)
@@ -252,9 +256,6 @@ pub fn child(config: &BackendConfig) -> Probe {
             }
             result.evidence.available_devices = devices;
         }
-        result.loadable = true;
-        result.device_accessible = true;
-        result.ready = true;
         let device = config.canonical_device()?;
         result.evidence.selected_device = if config.runtime == Runtime::Default {
             Some("cpu".into())
@@ -263,6 +264,9 @@ pub fn child(config: &BackendConfig) -> Probe {
         } else {
             None
         };
+        result.loadable = true;
+        result.device_accessible = true;
+        result.ready = true;
         // This API proves the requested device only; it does not enumerate all devices.
         Ok(())
     })();

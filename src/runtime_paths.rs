@@ -402,3 +402,7 @@ fn display_or_none(paths: &[PathBuf]) -> String {
         display(paths)
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/runtime_paths.rs"]
+mod tests;

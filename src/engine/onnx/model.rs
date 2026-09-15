@@ -664,6 +664,21 @@ fn validate_runtime_version(path: &Path) -> Result<()> {
 mod tests {
     use super::*;
 
+    fn fixture_paths(name: &str) -> AppPaths {
+        let root = std::env::temp_dir().join(format!(
+            "omawake-onnx-model-test-{}-{name}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        AppPaths {
+            config_file: root.join("config/omawake/config.toml"),
+            data_dir: root.join("data/omawake"),
+            cache_dir: root.join("cache/omawake"),
+            state_dir: root.join("state/omawake"),
+            runtime_dir: root.join("run/omawake"),
+        }
+    }
+
     #[test]
     fn runtime_plan_selects_the_calibrated_graphs_and_beam_shape() {
         let mut config = Config::default();
@@ -739,5 +754,159 @@ mod tests {
         assert!(
             joiner_decoded_batch(&decoded, NPU_MIN_BEAM_WIDTH + 1, NPU_MIN_BEAM_WIDTH).is_err()
         );
+        assert!(joiner_decoded_batch(&[], usize::MAX, 1).is_err());
+        assert!(joiner_decoded_batch(&[], 1, usize::MAX).is_err());
+    }
+
+    #[test]
+    fn model_metadata_validation_rejects_bad_configuration_and_tokens() {
+        let paths = fixture_paths("metadata");
+        fs::create_dir_all(&paths.data_dir).unwrap();
+
+        let malformed = paths.data_dir.join("malformed.txt");
+        fs::write(&malformed, "missing-id\n").unwrap();
+        assert!(load_tokens(&malformed).is_err());
+        fs::write(&malformed, "token nope\n").unwrap();
+        assert!(load_tokens(&malformed).is_err());
+        fs::write(&malformed, "first 0\nsecond 0\n").unwrap();
+        assert!(
+            load_tokens(&malformed)
+                .unwrap_err()
+                .to_string()
+                .contains("duplicate")
+        );
+        fs::write(&malformed, "first 0\nthird 2\n").unwrap();
+        assert_eq!(load_tokens(&malformed).unwrap(), ["first", "", "third"]);
+        assert!(load_tokens(&paths.data_dir.join("absent.txt")).is_err());
+
+        assert_eq!(concrete_shape(vec![-1, 2, -3]), [1, 2, 1]);
+        assert_eq!(element_count(&[2, 3, 4]).unwrap(), 24);
+        assert!(element_count(&[i64::MAX, i64::MAX]).is_err());
+
+        for runtime in [Runtime::Default, Runtime::Openvino, Runtime::Cuda] {
+            assert!(!runtime_name(runtime).is_empty());
+        }
+        for (key, value) in [("good.option-1", "value"), ("under_score", "")] {
+            validate_option(key, value).unwrap();
+        }
+        for (key, value) in [("", "value"), ("bad key", "value"), ("good", "bad\nvalue")] {
+            assert!(validate_option(key, value).is_err());
+        }
+
+        let mut invalid = Config::default();
+        invalid.model.max_active_paths = 0;
+        assert!(inference_plan(&invalid, Runtime::Default).is_err());
+    }
+
+    #[test]
+    fn provider_configuration_is_explicit_and_rejects_reserved_options() {
+        let paths = fixture_paths("providers");
+        let mut config = Config::default();
+        config.backend.runtime = Runtime::Openvino;
+        for (device, ep, specialize) in [
+            ("auto", "OpenVINOExecutionProvider.AUTO", false),
+            ("cpu", "OpenVINOExecutionProvider", false),
+            ("gpu", "OpenVINOExecutionProvider", false),
+            ("npu", "OpenVINOExecutionProvider", true),
+        ] {
+            config.backend.device = device.into();
+            let selection = provider_selection(&config, &paths, Runtime::Openvino).unwrap();
+            assert_eq!(selection.ep, ep);
+            assert_eq!(selection.specialize_shapes, specialize);
+            assert!(
+                selection
+                    .options
+                    .iter()
+                    .any(|(key, _)| key.ends_with(".load_config"))
+            );
+        }
+
+        config.backend.runtime = Runtime::Cuda;
+        config.backend.device = "gpu".into();
+        config.backend.device_id = 3;
+        let cuda = provider_selection(&config, &paths, Runtime::Cuda).unwrap();
+        assert_eq!(cuda.ep, "CUDAExecutionProvider");
+        assert_eq!(cuda.device_id, Some(3));
+
+        assert!(provider_selection(&config, &paths, Runtime::Default).is_err());
+        config.backend.runtime = Runtime::Openvino;
+        config.backend.device = "cpu".into();
+        config
+            .backend
+            .options
+            .insert("load_config".into(), "{}".into());
+        assert!(provider_selection(&config, &paths, Runtime::Openvino).is_err());
+        config.backend.options.clear();
+        config.backend.options.insert("bad key".into(), "x".into());
+        assert!(provider_selection(&config, &paths, Runtime::Openvino).is_err());
+    }
+
+    #[test]
+    fn real_runtime_validates_graph_shapes_and_model_errors_when_available() {
+        let (Some(runtime), Some(directory)) = (
+            std::env::var_os("OMAWAKE_TEST_ONNXRUNTIME"),
+            std::env::var_os("OMAWAKE_TEST_MODEL"),
+        ) else {
+            return;
+        };
+        let runtime = PathBuf::from(runtime);
+        let directory = PathBuf::from(directory);
+        validate_runtime_version(&runtime).unwrap();
+        assert!(validate_runtime_version(&directory.join("missing.so")).is_err());
+        assert!(validate_runtime_version(&std::env::current_exe().unwrap()).is_err());
+
+        let mut config = Config::default();
+        config.backend.onnxruntime_library = runtime;
+        let paths = fixture_paths("real");
+        let plan = Model::plan(&config, Runtime::Default).unwrap();
+        let mut model = Model::load(&config, &paths, &directory, Runtime::Default, &plan).unwrap();
+        assert_eq!(model.token(-1), "<invalid>");
+        assert_eq!(model.token(50_000), "<invalid>");
+        assert!(!model.token(0).is_empty());
+        assert!(
+            model
+                .encode(vec![0.0; 79], model.initial_state().unwrap())
+                .is_err()
+        );
+        assert!(
+            model
+                .decode_join(&vec![0.0; ENCODER_DIMENSION], vec![0], 1)
+                .is_err()
+        );
+        let logits = model
+            .decode_join(&vec![0.0; ENCODER_DIMENSION], vec![-1, 0], 1)
+            .unwrap();
+        assert_eq!(logits.len(), VOCABULARY_SIZE);
+
+        // Exercise the fixed-batch tensor contract independently of hardware;
+        // the explicit NPU provider uses this same padding and host-output path.
+        let mut fixed_plan = plan.clone();
+        fixed_plan.fixed_batch = Some(NPU_MIN_BEAM_WIDTH);
+        fixed_plan.beam_width = NPU_MIN_BEAM_WIDTH;
+        let mut fixed =
+            Model::load(&config, &paths, &directory, Runtime::Default, &fixed_plan).unwrap();
+        let logits = fixed
+            .decode_join(&vec![0.0; ENCODER_DIMENSION], vec![-1, 0], 1)
+            .unwrap();
+        assert_eq!(logits.len(), VOCABULARY_SIZE);
+        assert!(
+            fixed
+                .decode_join(
+                    &vec![0.0; ENCODER_DIMENSION],
+                    [-1, 0].repeat(NPU_MIN_BEAM_WIDTH + 1),
+                    NPU_MIN_BEAM_WIDTH + 1,
+                )
+                .is_err()
+        );
+
+        assert!(
+            fixed_input_shapes(&directory.join(&plan.decoder), 1, 2)
+                .unwrap()
+                .contains("[2,")
+        );
+
+        let empty = fixture_paths("missing-assets").data_dir;
+        fs::create_dir_all(&empty).unwrap();
+        assert!(Model::load(&config, &paths, &empty, Runtime::Default, &plan).is_err());
     }
 }

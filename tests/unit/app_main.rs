@@ -12,6 +12,37 @@ struct FakeControl;
 struct InMemoryBackend;
 struct InMemoryWakeWordStream;
 
+struct DefaultProbePrompts;
+
+impl GuidedPrompts for DefaultProbePrompts {
+    fn setup_mode(&mut self) -> Result<Option<SetupMode>> {
+        Ok(None)
+    }
+    fn runtime(&mut self, _: &Config) -> Result<Option<RuntimeSelection>> {
+        Ok(None)
+    }
+    fn confirm_runtime(&mut self, _: &Config, _: &crate::runtime_inventory::Probe) -> Result<bool> {
+        Ok(false)
+    }
+    fn model(
+        &mut self,
+        _: &AppPaths,
+        _: &Config,
+    ) -> Result<Option<&'static crate::catalog::ModelSpec>> {
+        Ok(None)
+    }
+    fn model_archive(
+        &mut self,
+        _: &AppPaths,
+        _: &crate::catalog::ModelSpec,
+    ) -> Result<Option<PathBuf>> {
+        Ok(None)
+    }
+    fn confirm(&mut self, _: &RuntimeSelection, _: &str, _: bool) -> Result<bool> {
+        Ok(false)
+    }
+}
+
 impl WakeWordBackend for InMemoryBackend {
     fn kind(&self) -> &'static str {
         "in-memory"
@@ -490,6 +521,7 @@ fn terminal_prompt_adapter_reports_non_tty_errors() {
     };
     assert!(prompts.setup_mode().is_err());
     assert!(prompts.runtime(&config).is_err());
+    assert!(prompts.runtime_library_dir(&config).is_err());
     assert!(
         prompts
             .confirm_runtime(&config, &crate::runtime_inventory::Probe::default())
@@ -516,6 +548,8 @@ fn terminal_prompt_adapter_reports_non_tty_errors() {
     );
     assert!(guided_runtime(&paths.config_file, &paths).is_err());
     assert!(guided_model(&paths.config_file, &paths).is_err());
+    assert!(guided_setup(&paths.config_file, &paths).is_err());
+    assert!(guided_all_with(&paths.config_file, &paths, &mut prompts).is_err());
 }
 
 impl WakeWordStream for InMemoryWakeWordStream {
@@ -1498,13 +1532,13 @@ fn file_benchmark_reports_warmups_iterations_percentiles_and_rtf() {
             .unwrap()
             .contains("CPU session")
     );
-    assert_eq!(runtime_placement(Runtime::Openvino).0, true);
+    assert!(runtime_placement(Runtime::Openvino).0);
     assert!(
         runtime_placement(Runtime::Openvino)
             .1
             .contains("fallback was disabled")
     );
-    assert_eq!(runtime_placement(Runtime::Cuda).0, false);
+    assert!(!runtime_placement(Runtime::Cuda).0);
     assert!(runtime_placement(Runtime::Cuda).1.contains("shape helpers"));
     assert_eq!(report["summary"]["samples"], 4);
     assert_eq!(report["summary"]["p50_milliseconds"], 10.0);
@@ -2389,6 +2423,193 @@ fn setup_dispatch_covers_checks_catalog_and_safe_failure_paths() {
 }
 
 #[test]
+fn noninteractive_setup_covers_safe_runtime_model_and_service_decisions() {
+    let paths = test_paths("setup-safe-decisions");
+    // With no terminal and no subcommand, setup runs its read-only check path.
+    assert!(setup(None, &paths.config_file, &paths).is_err());
+    Config::default().save(&paths.config_file).unwrap();
+
+    let empty_runtime = paths.data_dir.join("empty-runtime");
+    fs::create_dir_all(&empty_runtime).unwrap();
+    let runtime_error = setup(
+        Some(SetupCommand::Runtime {
+            json: false,
+            runtime: Some("default".into()),
+            device: Some("cpu".into()),
+            dir: Some(empty_runtime),
+            apply: false,
+        }),
+        &paths.config_file,
+        &paths,
+    )
+    .unwrap_err();
+    assert!(
+        runtime_error.to_string().contains("ONNX Runtime"),
+        "unexpected runtime setup error: {runtime_error:#}"
+    );
+
+    for command in [
+        SetupCommand::Model {
+            list: false,
+            json: false,
+            download: None,
+            set: None,
+            verify: Some("unknown".into()),
+            archive: None,
+            no_activate: false,
+            progress_format: ProgressFormat::Human,
+        },
+        SetupCommand::Model {
+            list: false,
+            json: false,
+            download: None,
+            set: Some("unknown".into()),
+            verify: None,
+            archive: None,
+            no_activate: false,
+            progress_format: ProgressFormat::Human,
+        },
+    ] {
+        assert!(setup(Some(command), &paths.config_file, &paths).is_err());
+    }
+    setup(
+        Some(SetupCommand::Model {
+            list: false,
+            json: false,
+            download: None,
+            set: None,
+            verify: None,
+            archive: None,
+            no_activate: false,
+            progress_format: ProgressFormat::Human,
+        }),
+        &paths.config_file,
+        &paths,
+    )
+    .unwrap();
+    assert!(
+        setup(
+            Some(SetupCommand::Systemd {
+                uninstall: false,
+                status: true,
+                no_start: false,
+            }),
+            &paths.config_file,
+            &paths,
+        )
+        .is_err()
+    );
+
+    let ready = |_: &crate::backend::BackendConfig, _: &Path| crate::runtime_inventory::Probe {
+        loadable: true,
+        device_accessible: true,
+        ready: true,
+        ..Default::default()
+    };
+    configure_runtime_from_flags(
+        &paths.config_file,
+        &paths,
+        Some("openvino".into()),
+        None,
+        None,
+        false,
+        ready,
+    )
+    .unwrap();
+    configure_runtime_from_flags(
+        &paths.config_file,
+        &paths,
+        Some("default".into()),
+        Some("cpu".into()),
+        None,
+        true,
+        ready,
+    )
+    .unwrap();
+    assert_eq!(
+        Config::load(&paths.config_file).unwrap().backend.device,
+        "cpu"
+    );
+}
+
+#[test]
+fn default_runtime_probe_and_os_socket_wrappers_report_real_failures_cleanly() {
+    let paths = test_paths("default-probe-and-sockets");
+    let mut config = Config::default();
+    config.backend.onnxruntime_library = paths.data_dir.join("missing-ort.so");
+    let mut prompts = DefaultProbePrompts;
+    assert!(prompts.probe_runtime(&config, &paths.config_file).is_err());
+    assert!(validate_runtime_candidate(&config, &paths.config_file).is_err());
+
+    let report = runtime_paths::RuntimeLibraryReport {
+        onnxruntime_library: None,
+        provider_library: None,
+        configured_library_dirs: vec![],
+        environment_library_dirs: vec![],
+        package_library_dirs: vec![],
+        effective_library_dirs: vec![],
+        missing_library_dirs: vec![],
+        runtime_loadable: BTreeMap::from([("default", false)]),
+        remediation: vec![],
+    };
+    assert!(
+        validate_runtime_candidate_report(Runtime::Default, &report)
+            .unwrap_err()
+            .to_string()
+            .contains("ABI")
+    );
+
+    let listener = match bind_socket(&paths) {
+        Ok(listener) => listener,
+        Err(error) if sandbox_denied(&error) => return,
+        Err(error) => panic!("{error:#}"),
+    };
+    assert!(accept_control(&listener).unwrap().is_none());
+    let metadata = fs::symlink_metadata(socket_path(&paths)).unwrap();
+    drop(listener);
+    finish_daemon(&paths, Some(&metadata), Ok(())).unwrap();
+    assert!(!socket_path(&paths).exists());
+    assert!(remove_socket_if_unchanged(&socket_path(&paths), &metadata).is_ok());
+    assert!(connect_control_socket(&socket_path(&paths)).is_err());
+
+    fs::write(socket_path(&paths), b"ordinary file").unwrap();
+    let ordinary = fs::symlink_metadata(socket_path(&paths)).unwrap();
+    assert!(remove_socket_if_unchanged(&socket_path(&paths), &ordinary).is_err());
+}
+
+#[test]
+fn runtime_directory_and_config_snapshot_cover_default_cuda_and_cleanup_edges() {
+    let paths = test_paths("runtime-and-snapshot-edges");
+    let runtime = paths.data_dir.join("runtime");
+    fs::create_dir_all(&runtime).unwrap();
+    fs::write(runtime.join("libonnxruntime.so.1.30.0"), b"core").unwrap();
+    fs::write(runtime.join("libonnxruntime_providers_cuda.so"), b"cuda").unwrap();
+
+    let mut config = Config::default();
+    configure_runtime_directory(&mut config, &runtime).unwrap();
+    assert!(config.backend.provider_library.as_os_str().is_empty());
+    config.backend.runtime = Runtime::Cuda;
+    configure_runtime_directory(&mut config, &runtime).unwrap();
+    assert!(
+        config
+            .backend
+            .provider_library
+            .ends_with("libonnxruntime_providers_cuda.so")
+    );
+
+    let snapshot = paths.data_dir.join("snapshot.toml");
+    let temporary = snapshot.with_extension("toml.tmp");
+    fs::write(&snapshot, b"current").unwrap();
+    fs::write(&temporary, b"partial").unwrap();
+    restore_config_snapshot(&snapshot, None).unwrap();
+    assert!(!snapshot.exists() && !temporary.exists());
+
+    let directory = paths.data_dir.join("directory-as-config");
+    fs::create_dir_all(&directory).unwrap();
+    assert!(config_snapshot(&directory).is_err());
+}
+
+#[test]
 fn request_reader_is_testable_without_a_unix_socket() {
     let request = read_request(std::io::Cursor::new(encoded_request(
         1,
@@ -2589,6 +2810,94 @@ fn real_detector_forwards_control_metadata_without_native_backend() {
         poll_control(&detector, "armed", None, || Ok(streams.pop_front())).unwrap(),
         Some(Command::Pause)
     ));
+}
+
+#[test]
+fn real_model_runs_through_top_level_file_and_benchmark_commands_when_available() {
+    let (Some(runtime), Some(model)) = (
+        std::env::var_os("OMAWAKE_TEST_ONNXRUNTIME"),
+        std::env::var_os("OMAWAKE_TEST_MODEL"),
+    ) else {
+        return;
+    };
+    let runtime = PathBuf::from(runtime);
+    let model = PathBuf::from(model);
+    let paths = test_paths("real-top-level");
+    let mut catalog_paths = paths.clone();
+    catalog_paths.data_dir = model.parent().unwrap().parent().unwrap().to_owned();
+    let active = crate::catalog::models()[0].id;
+    choose_model_with(&catalog_paths, active, |items, _| {
+        assert!(items[0].label.contains("active"));
+        Ok(None)
+    })
+    .unwrap();
+    choose_model_with(&catalog_paths, "different-model", |items, _| {
+        assert!(items[0].label.contains("installed"));
+        Ok(None)
+    })
+    .unwrap();
+    print_models(&catalog_paths);
+    let mut config = Config::default();
+    config.backend.onnxruntime_library = runtime;
+    config.model.directory = model.to_string_lossy().into_owned();
+    config.wake_words = vec![WakeWord {
+        id: "light-up".into(),
+        phrase: "Light up".into(),
+        enabled: true,
+        command: vec!["true".into()],
+    }];
+    config.save(&paths.config_file).unwrap();
+    let audio = model.join("test_wavs/0.wav");
+
+    for args in [
+        vec![
+            "omawake".to_owned(),
+            "--config".into(),
+            paths.config_file.display().to_string(),
+            "test".into(),
+            "--audio".into(),
+            audio.display().to_string(),
+            "--json".into(),
+        ],
+        vec![
+            "omawake".to_owned(),
+            "--config".into(),
+            paths.config_file.display().to_string(),
+            "benchmark".into(),
+            "--warmup".into(),
+            "0".into(),
+            "--iterations".into(),
+            "1".into(),
+            audio.display().to_string(),
+        ],
+    ] {
+        let cli = Cli::try_parse_from(args).unwrap();
+        run_with_paths_and_services(cli, paths.clone(), |_, _| unreachable!(), || unreachable!())
+            .unwrap();
+    }
+}
+
+#[test]
+fn hidden_inventory_command_uses_real_ort_when_available() {
+    let Some(runtime) = std::env::var_os("OMAWAKE_TEST_ONNXRUNTIME") else {
+        return;
+    };
+    let runtime = PathBuf::from(runtime);
+    let paths = test_paths("real-runtime-command");
+    let candidate = crate::backend::BackendConfig {
+        runtime: Runtime::Default,
+        device: "cpu".into(),
+        onnxruntime_library: runtime.clone(),
+        ..Default::default()
+    };
+    let cli = Cli {
+        config: Some(paths.config_file.clone()),
+        command: TopCommand::InventoryProbe {
+            candidate: serde_json::to_string(&candidate).unwrap(),
+        },
+    };
+    run_with_paths_and_services(cli, paths.clone(), |_, _| unreachable!(), || unreachable!())
+        .unwrap();
 }
 
 #[test]

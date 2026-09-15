@@ -121,13 +121,27 @@ fn prepare_with(
 }
 
 fn isolated(config: &Config, config_path: &Path, _paths: &AppPaths) -> Result<CacheReport> {
+    isolated_with(
+        config,
+        config_path,
+        |candidate, config_path, library_path, device| {
+            isolated_attempt(candidate, config_path, library_path, device)
+        },
+    )
+}
+
+fn isolated_with(
+    config: &Config,
+    config_path: &Path,
+    mut attempt: impl FnMut(&Config, &Path, &std::ffi::OsStr, &str) -> Result<AttemptOutcome>,
+) -> Result<CacheReport> {
     let mut candidate = config.clone();
     candidate.backend.fallback = Fallback::Error;
     candidate.backend = crate::runtime_inventory::resolve(&candidate.backend, config_path);
     let library_path = std::env::join_paths(&candidate.backend.library_dirs)?;
     let device = cache_device(&candidate)?.to_ascii_uppercase();
     retry_signaled(&device, || {
-        isolated_attempt(&candidate, config_path, &library_path, &device)
+        attempt(&candidate, config_path, &library_path, &device)
     })
 }
 
@@ -185,7 +199,41 @@ fn isolated_attempt(
     library_path: &std::ffi::OsStr,
     device: &str,
 ) -> Result<AttemptOutcome> {
-    let mut command = Command::new(std::env::current_exe()?);
+    isolated_attempt_with_executable(
+        candidate,
+        config_path,
+        library_path,
+        device,
+        &std::env::current_exe()?,
+    )
+}
+
+fn isolated_attempt_with_executable(
+    candidate: &Config,
+    config_path: &Path,
+    library_path: &std::ffi::OsStr,
+    device: &str,
+    executable: &Path,
+) -> Result<AttemptOutcome> {
+    isolated_attempt_with_timeout(
+        candidate,
+        config_path,
+        library_path,
+        device,
+        executable,
+        PREPARE_TIMEOUT,
+    )
+}
+
+fn isolated_attempt_with_timeout(
+    candidate: &Config,
+    config_path: &Path,
+    library_path: &std::ffi::OsStr,
+    device: &str,
+    executable: &Path,
+    timeout: Duration,
+) -> Result<AttemptOutcome> {
+    let mut command = Command::new(executable);
     command
         .arg("--config")
         .arg(config_path)
@@ -219,14 +267,14 @@ fn isolated_attempt(
         if let Some(status) = child.try_wait()? {
             break status;
         }
-        if started.elapsed() > PREPARE_TIMEOUT {
+        if started.elapsed() > timeout {
             child.kill()?;
             child.wait()?;
             let _ = stderr_reader.join();
             let _ = stdout_reader.join();
             bail!(
                 "OpenVINO {device} model-cache preparation timed out after {} seconds",
-                PREPARE_TIMEOUT.as_secs()
+                timeout.as_secs_f64()
             );
         }
         thread::sleep(Duration::from_millis(25));
