@@ -3,7 +3,9 @@ use ort::{
     ep::ExecutionProviderLibrary,
     logging::LogLevel,
     memory::{Allocator, DeviceType},
-    session::{OutputSelector, RunOptions, Session, builder::GraphOptimizationLevel},
+    session::{
+        HasSelectedOutputs, OutputSelector, RunOptions, Session, builder::GraphOptimizationLevel,
+    },
     value::{DynValue, Tensor},
 };
 use std::{
@@ -213,7 +215,9 @@ impl Model {
         }
         let options = RunOptions::new()?.with_outputs(selector);
         let outputs = self.encoder.run_with_options(inputs, &options)?;
-        let (shape, values) = outputs[0].try_extract_tensor::<f32>()?;
+        let (shape, values) = outputs[0]
+            .try_extract_tensor::<f32>()
+            .context("read encoder output from host memory")?;
         if shape.as_ref() != [1, ENCODER_OUTPUT_FRAMES as i64, ENCODER_DIMENSION as i64] {
             bail!("unexpected encoder output shape {shape:?}");
         }
@@ -222,10 +226,14 @@ impl Model {
         for (index, state_shape) in self.encoder_state_shapes.iter().enumerate() {
             let output = &outputs[index + 1];
             let value = if index + 1 == self.encoder_state_shapes.len() {
-                let (_, values) = output.try_extract_tensor::<i64>()?;
+                let (_, values) = output
+                    .try_extract_tensor::<i64>()
+                    .context("read encoder integer state from host memory")?;
                 Tensor::from_array((state_shape.clone(), values.to_vec()))?.into_dyn()
             } else {
-                let (_, values) = output.try_extract_tensor::<f32>()?;
+                let (_, values) = output
+                    .try_extract_tensor::<f32>()
+                    .context("read encoder state from host memory")?;
                 Tensor::from_array((state_shape.clone(), values.to_vec()))?.into_dyn()
             };
             next_state.push(value);
@@ -243,11 +251,15 @@ impl Model {
             bail!("decoder context count does not match beam size");
         }
         if self.fixed_batch.is_none() {
-            let outputs = self.decoder.run(ort::inputs![Tensor::from_array((
-                vec![paths as i64, 2],
-                contexts
-            ))?])?;
-            let (shape, decoded) = outputs[0].try_extract_tensor::<f32>()?;
+            let decoder_options =
+                host_float_output(self.decoder.outputs()[0].name(), [paths, ENCODER_DIMENSION])?;
+            let outputs = self.decoder.run_with_options(
+                ort::inputs![Tensor::from_array((vec![paths as i64, 2], contexts))?],
+                &decoder_options,
+            )?;
+            let (shape, decoded) = outputs[0]
+                .try_extract_tensor::<f32>()
+                .context("read decoder output from host memory")?;
             if shape.as_ref() != [paths as i64, ENCODER_DIMENSION as i64] {
                 bail!("unexpected decoder output shape {shape:?}");
             }
@@ -255,14 +267,21 @@ impl Model {
             for _ in 0..paths {
                 repeated.extend_from_slice(encoded);
             }
-            let outputs = self.joiner.run(ort::inputs![
-                Tensor::from_array((vec![paths as i64, ENCODER_DIMENSION as i64], repeated))?,
-                Tensor::from_array((
-                    vec![paths as i64, ENCODER_DIMENSION as i64],
-                    decoded.to_vec()
-                ))?,
-            ])?;
-            let (shape, logits) = outputs[0].try_extract_tensor::<f32>()?;
+            let joiner_options =
+                host_float_output(self.joiner.outputs()[0].name(), [paths, VOCABULARY_SIZE])?;
+            let outputs = self.joiner.run_with_options(
+                ort::inputs![
+                    Tensor::from_array((vec![paths as i64, ENCODER_DIMENSION as i64], repeated))?,
+                    Tensor::from_array((
+                        vec![paths as i64, ENCODER_DIMENSION as i64],
+                        decoded.to_vec()
+                    ))?,
+                ],
+                &joiner_options,
+            )?;
+            let (shape, logits) = outputs[0]
+                .try_extract_tensor::<f32>()
+                .context("read joiner output from host memory")?;
             if shape.as_ref() != [paths as i64, VOCABULARY_SIZE as i64] {
                 bail!("unexpected joiner output shape {shape:?}");
             }
@@ -277,10 +296,7 @@ impl Model {
             padded_contexts.extend_from_slice(&[-1, 0]);
         }
         let decoder_options =
-            RunOptions::new()?.with_outputs(OutputSelector::default().preallocate(
-                self.decoder.outputs()[0].name().to_owned(),
-                Tensor::<f32>::new(&Allocator::default(), [batch, ENCODER_DIMENSION])?,
-            ));
+            host_float_output(self.decoder.outputs()[0].name(), [batch, ENCODER_DIMENSION])?;
         let outputs = self.decoder.run_with_options(
             ort::inputs![Tensor::from_array((
                 vec![batch as i64, 2],
@@ -288,7 +304,9 @@ impl Model {
             ))?],
             &decoder_options,
         )?;
-        let (shape, decoded) = outputs[0].try_extract_tensor::<f32>()?;
+        let (shape, decoded) = outputs[0]
+            .try_extract_tensor::<f32>()
+            .context("read fixed-batch decoder output from host memory")?;
         if shape.as_ref() != [batch as i64, ENCODER_DIMENSION as i64] {
             bail!("unexpected decoder output shape {shape:?}");
         }
@@ -301,10 +319,7 @@ impl Model {
             repeated.extend_from_slice(encoded);
         }
         let joiner_options =
-            RunOptions::new()?.with_outputs(OutputSelector::default().preallocate(
-                self.joiner.outputs()[0].name().to_owned(),
-                Tensor::<f32>::new(&Allocator::default(), [batch, VOCABULARY_SIZE])?,
-            ));
+            host_float_output(self.joiner.outputs()[0].name(), [batch, VOCABULARY_SIZE])?;
         let outputs = self.joiner.run_with_options(
             ort::inputs![
                 Tensor::from_array((vec![batch as i64, ENCODER_DIMENSION as i64], repeated))?,
@@ -312,7 +327,9 @@ impl Model {
             ],
             &joiner_options,
         )?;
-        let (shape, logits) = outputs[0].try_extract_tensor::<f32>()?;
+        let (shape, logits) = outputs[0]
+            .try_extract_tensor::<f32>()
+            .context("read fixed-batch joiner output from host memory")?;
         if shape.as_ref() != [batch as i64, VOCABULARY_SIZE as i64] {
             bail!("unexpected joiner output shape {shape:?}");
         }
@@ -325,6 +342,26 @@ impl Model {
             .map(String::as_str)
             .unwrap_or("<invalid>")
     }
+}
+
+/// Bind a graph output to ORT's host allocator before execution.
+///
+/// Accelerator Plugin EPs may otherwise return an OrtValue backed by device
+/// memory. Every output in this model is immediately inspected by Rust, so it
+/// must be copied to CPU-accessible memory at the execution boundary. This is
+/// output binding only; it does not permit graph nodes to fall back to the CPU.
+fn host_float_output(name: &str, shape: [usize; 2]) -> Result<RunOptions<HasSelectedOutputs>> {
+    let output = host_float_tensor(shape)?;
+    Ok(RunOptions::new()?
+        .with_outputs(OutputSelector::default().preallocate(name.to_owned(), output)))
+}
+
+fn host_float_tensor(shape: [usize; 2]) -> Result<Tensor<f32>> {
+    let output = Tensor::<f32>::new(&Allocator::default(), shape)?;
+    if !output.memory_info().is_cpu_accessible() {
+        bail!("ORT's default allocator did not create CPU-accessible output memory");
+    }
+    Ok(output)
 }
 
 fn build_session(
@@ -860,6 +897,9 @@ mod tests {
         let paths = fixture_paths("real");
         let plan = Model::plan(&config, Runtime::Default).unwrap();
         let mut model = Model::load(&config, &paths, &directory, Runtime::Default, &plan).unwrap();
+        let host_output = host_float_tensor([2, 3]).unwrap();
+        assert!(host_output.memory_info().is_cpu_accessible());
+        assert_eq!(host_output.shape().as_ref(), [2, 3]);
         assert_eq!(model.token(-1), "<invalid>");
         assert_eq!(model.token(50_000), "<invalid>");
         assert!(!model.token(0).is_empty());
@@ -879,7 +919,7 @@ mod tests {
         assert_eq!(logits.len(), VOCABULARY_SIZE);
 
         // Exercise the fixed-batch tensor contract independently of hardware;
-        // the explicit NPU provider uses this same padding and host-output path.
+        // accelerator providers use this same padding and host-output path.
         let mut fixed_plan = plan.clone();
         fixed_plan.fixed_batch = Some(NPU_MIN_BEAM_WIDTH);
         fixed_plan.beam_width = NPU_MIN_BEAM_WIDTH;
