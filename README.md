@@ -118,7 +118,10 @@ phrase matching, cooldowns, and actions in Rust.
 Moonshine is a speech verifier rather than a fixed keyword classifier, so the
 English profile needs no per-phrase training for text phrases within its
 language coverage. Phrase matching is case-insensitive,
-punctuation-insensitive, Unicode-normalized, and requires whole words.
+punctuation-insensitive, Unicode-normalized, and ignores ASR word-boundary
+variation while requiring the same normalized characters. See the
+[qualification plan](docs/architecture/EVALUATION.md) for the positive,
+false-activation, adverse-audio, and idle-cost gates.
 
 The catalog pins:
 
