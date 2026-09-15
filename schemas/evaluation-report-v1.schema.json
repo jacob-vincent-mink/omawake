@@ -45,7 +45,7 @@
     "inputs": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["manifest_sha256", "config_sha256", "corpus", "matching", "model_name", "model_directory", "keyword_score"],
+      "required": ["manifest_sha256", "config_sha256", "corpus", "matching", "enabled_keyword_ids", "model_name", "model_directory", "keyword_score"],
       "properties": {
         "manifest_sha256": { "$ref": "#/$defs/fingerprint" },
         "config_sha256": { "$ref": "#/$defs/fingerprint" },
@@ -58,6 +58,12 @@
             "early_tolerance_ms": { "type": "integer", "minimum": 0 },
             "late_tolerance_ms": { "type": "integer", "minimum": 0 }
           }
+        },
+        "enabled_keyword_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
         },
         "model_name": { "type": "string" },
         "model_directory": { "type": "string" },

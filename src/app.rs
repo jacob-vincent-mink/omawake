@@ -2149,6 +2149,7 @@ fn evaluation_report(
     let thresholds = evaluation::normalize_thresholds(thresholds, config.model.keywords_threshold)?;
     let context = EvaluationContext {
         config_sha256: evaluation::sha256_bytes(&serde_json::to_vec(config)?),
+        enabled_keyword_ids: enabled_keywords.iter().cloned().collect(),
         model_name: config.model.name.clone(),
         model_directory: config.model_directory(paths).display().to_string(),
         keyword_score: config.model.keywords_score,

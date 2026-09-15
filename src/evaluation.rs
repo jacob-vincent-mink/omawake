@@ -102,6 +102,7 @@ pub struct EvaluationInputs {
     pub config_sha256: String,
     pub corpus: CorpusMetadata,
     pub matching: MatchingPolicy,
+    pub enabled_keyword_ids: Vec<String>,
     pub model_name: String,
     pub model_directory: String,
     pub keyword_score: f32,
@@ -386,6 +387,7 @@ fn validate_manifest(
 
 pub struct EvaluationContext {
     pub config_sha256: String,
+    pub enabled_keyword_ids: Vec<String>,
     pub model_name: String,
     pub model_directory: String,
     pub keyword_score: f32,
@@ -431,7 +433,13 @@ where
                 &prepared.manifest.matching,
             )?);
         }
-        reports.push(build_threshold_report(threshold, load_time, backend, files));
+        reports.push(build_threshold_report(
+            threshold,
+            load_time,
+            backend,
+            files,
+            &context.enabled_keyword_ids,
+        ));
     }
     let prediction_fingerprint = report_fingerprint(&reports);
     Ok(EvaluationReport {
@@ -443,6 +451,7 @@ where
             config_sha256: context.config_sha256,
             corpus: prepared.manifest.corpus.clone(),
             matching: prepared.manifest.matching.clone(),
+            enabled_keyword_ids: context.enabled_keyword_ids,
             model_name: context.model_name,
             model_directory: context.model_directory,
             keyword_score: context.keyword_score,
@@ -740,9 +749,14 @@ fn build_threshold_report(
     load_time: Duration,
     backend: RuntimeIdentity,
     files: Vec<FileReport>,
+    enabled_keyword_ids: &[String],
 ) -> ThresholdReport {
     let mut summary = AccuracyMetrics::default();
-    let mut per_keyword = BTreeMap::<String, AccuracyMetrics>::new();
+    let mut per_keyword = enabled_keyword_ids
+        .iter()
+        .cloned()
+        .map(|id| (id, AccuracyMetrics::default()))
+        .collect::<BTreeMap<_, _>>();
     let mut negative_audio_hours = 0.0;
     for file in &files {
         summary.expected_events += file.expected.len() as u64;

@@ -275,11 +275,13 @@ fn scoring_distinguishes_duplicates_wrong_ids_and_negative_false_activations() {
         &policy,
     )
     .unwrap();
+    let enabled_keyword_ids = vec!["wake".into(), "unused".into()];
     let threshold = build_threshold_report(
         0.25,
         Duration::from_millis(5),
         identity(),
         vec![report, negative],
+        &enabled_keyword_ids,
     );
     assert_eq!(threshold.summary.true_positives, 1);
     assert_eq!(threshold.summary.false_activations, 2);
@@ -289,6 +291,7 @@ fn scoring_distinguishes_duplicates_wrong_ids_and_negative_false_activations() {
     assert_eq!(threshold.per_keyword["wake"].duplicate_predictions, 1);
     assert_eq!(threshold.per_keyword["wrong"].wrong_id_predictions, 1);
     assert_eq!(threshold.per_keyword["wake"].false_activations, 2);
+    assert_eq!(threshold.per_keyword["unused"].predictions, 0);
     assert_eq!(
         threshold.per_keyword["wake"].false_activations_per_hour,
         Some(2.0)
@@ -339,6 +342,7 @@ fn evaluation_reloads_and_reinfers_for_each_threshold_and_is_fingerprinted() {
         &[0.25, 0.5],
         EvaluationContext {
             config_sha256: "2".repeat(64),
+            enabled_keyword_ids: vec!["wake".into(), "unused".into()],
             model_name: "fake-model".into(),
             model_directory: "/fake".into(),
             keyword_score: 1.5,
@@ -373,6 +377,15 @@ fn evaluation_reloads_and_reinfers_for_each_threshold_and_is_fingerprinted() {
     assert_eq!(json["evaluation"], "omawake-kws-accuracy");
     assert_eq!(json["thresholds"][0]["backend"]["fallback_used"], false);
     assert_eq!(json["inputs"]["matching"]["early_tolerance_ms"], 250);
+    assert_eq!(
+        json["inputs"]["enabled_keyword_ids"],
+        serde_json::json!(["wake", "unused"])
+    );
+    assert_eq!(report.thresholds[0].per_keyword["unused"].predictions, 0);
+    assert_eq!(
+        report.thresholds[0].per_keyword["unused"].negative_audio_hours,
+        0.0
+    );
 
     let schema: serde_json::Value = serde_json::from_str(include_str!(
         "../../schemas/evaluation-report-v1.schema.json"
