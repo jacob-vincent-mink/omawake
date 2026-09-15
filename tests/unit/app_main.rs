@@ -1691,7 +1691,7 @@ fn detection_output_supports_human_and_diagnostic_json_forms() {
 }
 
 #[test]
-fn native_json_worker_keeps_stdout_parseable_and_forwards_native_diagnostics() {
+fn native_json_worker_suppresses_nonactionable_success_diagnostics() {
     use std::os::unix::fs::PermissionsExt;
 
     let paths = test_paths("native-json-success");
@@ -1724,9 +1724,7 @@ fn native_json_worker_keeps_stdout_parseable_and_forwards_native_diagnostics() {
     assert_eq!(parsed, json!({"ok": true}));
     let output = String::from_utf8(output).unwrap();
     assert!(!output.contains("native provider diagnostic"));
-    let diagnostics = String::from_utf8(diagnostics).unwrap();
-    assert!(diagnostics.contains("native provider diagnostic"));
-    assert!(diagnostics.contains("native warning"));
+    assert!(diagnostics.is_empty());
     assert_eq!(
         fs::read_dir(&paths.runtime_dir)
             .unwrap()

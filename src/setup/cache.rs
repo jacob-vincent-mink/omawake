@@ -309,12 +309,16 @@ fn isolated_attempt_with_timeout(
             stderr: child_diagnostics(&stdout, &stderr),
         });
     }
-    let mut diagnostics = std::io::stderr().lock();
-    diagnostics.write_all(&stdout)?;
-    diagnostics.write_all(&stderr)?;
-    let report = response
-        .read_json()
-        .with_context(|| format!("read isolated OpenVINO {device} model-cache report"))?;
+    let report = match response.read_json() {
+        Ok(report) => report,
+        Err(error) => {
+            let mut diagnostics = std::io::stderr().lock();
+            diagnostics.write_all(&stdout)?;
+            diagnostics.write_all(&stderr)?;
+            return Err(error)
+                .with_context(|| format!("read isolated OpenVINO {device} model-cache report"));
+        }
+    };
     Ok(AttemptOutcome::Complete(report))
 }
 

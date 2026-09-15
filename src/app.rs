@@ -318,12 +318,19 @@ fn run_native_json_worker_with(
         .stderr(Stdio::piped())
         .output()
         .context("run isolated native inference worker")?;
-    diagnostics.write_all(&child.stdout)?;
-    diagnostics.write_all(&child.stderr)?;
     if !child.status.success() {
+        diagnostics.write_all(&child.stdout)?;
+        diagnostics.write_all(&child.stderr)?;
         bail!("native inference worker failed: {}", child.status);
     }
-    let report: Value = response.read_json()?;
+    let report: Value = match response.read_json() {
+        Ok(report) => report,
+        Err(error) => {
+            diagnostics.write_all(&child.stdout)?;
+            diagnostics.write_all(&child.stderr)?;
+            return Err(error);
+        }
+    };
     serde_json::to_writer_pretty(&mut output, &report)?;
     writeln!(output)?;
     Ok(())
