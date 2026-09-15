@@ -229,7 +229,7 @@ enum SetupCommand {
 }
 
 pub fn entry() -> ExitCode {
-    match run(Cli::parse()) {
+    match run_entry(Cli::parse()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("omawake: {error:#}");
@@ -238,7 +238,7 @@ pub fn entry() -> ExitCode {
     }
 }
 
-fn run(cli: Cli) -> Result<()> {
+fn run_entry(cli: Cli) -> Result<()> {
     let paths = AppPaths::discover();
     if let Some(request) = native_json_request(&cli.command) {
         let config_path = cli.config.as_deref().unwrap_or(&paths.config_file);
