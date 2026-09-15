@@ -104,7 +104,7 @@ jobs:
             version=${tag_version}
           fi
           package="omawake-${version}-linux-x86_64"
-          mkdir -p "dist/${package}/lib" "dist/${package}/licenses"
+          mkdir -p "dist/${package}/lib" "dist/${package}/licenses" "dist/${package}/native"
           cargo about generate about.hbs > "dist/${package}/licenses/RUST-DEPENDENCIES.txt"
           cp target/release/omawake "dist/${package}/omawake"
           cp "${OMA_ORT_ROOT}/lib/libonnxruntime.so.${ORT_VERSION}" "dist/${package}/lib/"
@@ -119,7 +119,8 @@ jobs:
           cp THIRD_PARTY_NOTICES.md "dist/${package}/licenses/OMAWAKE-THIRD-PARTY-NOTICES"
           cp native/sherpa/NOTICE "dist/${package}/licenses/SHERPA-ONNX-NOTICE"
           cp README.md INSTALL.md ACCELERATOR_SETUP.md CHANGELOG.md RELEASE_NOTES.md DEMO.md config.example.toml "dist/${package}/"
-          cp -a assets benchmarks native/sherpa packaging scripts "dist/${package}/"
+          cp -a assets benchmarks packaging scripts "dist/${package}/"
+          cp -a native/sherpa "dist/${package}/native/"
           native_licenses=(
             EIGEN-APACHE-2.0
             EIGEN-BSD
