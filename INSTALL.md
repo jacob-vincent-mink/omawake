@@ -42,8 +42,11 @@ enables it without starting it. Distribution packages may install the disabled
 unit from `packaging/systemd/omawake.service` without enabling it.
 
 For acceleration, install a complete audio.cpp CUDA, Vulkan, or HIP provider,
-or a complete OpenVINO GenAI runtime, then point `setup runtime --dir` at it.
-See [ACCELERATOR_SETUP.md](ACCELERATOR_SETUP.md).
+or a complete OpenVINO GenAI runtime, then choose the runtime, device, provider
+directory, and model in `omawake setup`. For focused command-line selection,
+include `--runtime` and `--device` as well as `--dir`; changing the directory
+alone does not select a different runtime. See the complete commands and model
+prerequisites in [ACCELERATOR_SETUP.md](ACCELERATOR_SETUP.md).
 
 The guided picker recommends CUDA, Intel NPU, Intel GPU, Vulkan, or CPU in that
 order when both matching hardware and a provider are detected. It reports
@@ -71,4 +74,6 @@ scripts/build-default-audiocpp-provider.sh /path/to/audio.cpp /path/to/build
 ```
 
 Copy `build/bin/libaudiocpp.so.0.1.0` beside the executable under `lib/`, or
-select its complete build directory in `omawake setup runtime`.
+run `omawake setup` and select its complete build directory together with a
+model. Focused `setup runtime --apply` requires the compatible model to be
+installed already.

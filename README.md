@@ -21,8 +21,8 @@ unpack a release, then start the guided terminal setup:
 
 ```bash
 sha256sum --check --ignore-missing SHA256SUMS.txt
-tar -xJf omawake-0.0.1-linux-x86_64.tar.xz
-cd omawake-0.0.1-linux-x86_64
+tar -xJf omawake-0.0.2-linux-x86_64.tar.xz
+cd omawake-0.0.2-linux-x86_64
 ./omawake setup
 ```
 
@@ -56,8 +56,10 @@ For an offline install, put both exact catalog filenames in one directory:
 omawake setup all --source-dir /absolute/path/to/assets
 ```
 
-`setup runtime` discovers and probes a complete `libaudiocpp` provider. Point
-to a provider directory explicitly when testing a source build:
+`setup runtime` discovers and probes a complete `libaudiocpp` provider. On
+a fresh source build, run `omawake setup` and choose the provider directory
+and model together. Once the compatible model is installed, focused runtime
+selection can validate and apply a different provider directory:
 
 ```bash
 omawake setup runtime \
