@@ -31,21 +31,33 @@ fn rejected_and_preview_candidates_preserve_config_bytes() {
 
     let probe = Probe {
         loadable: true,
-        device_accessible: Some(true),
-        ready: true,
+        device_accessible: None,
+        ready: false,
         evidence: Evidence {
             versions: vec!["audio.cpp 0.1.0".into()],
             provider_registration: true,
-            available_devices: vec!["cpu".into()],
+            available_devices: Vec::new(),
             selected_device: Some("cpu".into()),
             ..Default::default()
         },
         errors: Vec::new(),
     };
+    let preview = apply_with(&candidate, &path, false, |_, _| probe.clone()).unwrap();
+    assert!(preview.loadable);
+    assert!(!preview.ready);
+    assert_eq!(fs::read(&path).unwrap(), original);
+
+    assert!(apply_with(&candidate, &path, true, |_, _| probe).is_err());
+    assert_eq!(fs::read(&path).unwrap(), original);
+
     assert!(
-        apply_with(&candidate, &path, false, |_, _| probe.clone())
-            .unwrap()
-            .ready
+        apply_with(&candidate, &path, false, |_, _| Probe {
+            loadable: true,
+            ready: true,
+            errors: vec!["contradictory provider failure".into()],
+            ..Default::default()
+        })
+        .is_err()
     );
     assert_eq!(fs::read(&path).unwrap(), original);
 }

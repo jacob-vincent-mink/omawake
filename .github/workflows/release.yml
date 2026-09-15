@@ -155,7 +155,8 @@ jobs:
               "default": ["cpu"], "openvino": ["cpu", "gpu", "npu"],
               "cuda": ["gpu"], "vulkan": ["gpu"], "hip": ["gpu"]
           }
-          assert report["provider"]["ready"]
+          assert report["provider"]["loadable"]
+          assert not report["provider"]["ready"]
           assert pathlib.Path(report["provider"]["library"]).resolve() == expected
           PY
 

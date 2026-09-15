@@ -24,11 +24,14 @@ pub struct Evidence {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Probe {
+    /// The provider library loaded and exposed the expected public ABI.
     pub loadable: bool,
     /// Whether the selected device has actually been exercised. Loading the
     /// audio.cpp ABI alone cannot establish this, so an unproved selection is
     /// represented as `None` rather than the misleading value `false`.
     pub device_accessible: Option<bool>,
+    /// The selected model completed inference on the selected device. Runtime
+    /// discovery must leave this false; setup Apply sets it after model proof.
     pub ready: bool,
     pub evidence: Evidence,
     pub errors: Vec<String>,
@@ -53,7 +56,10 @@ pub fn probe(config: &Config, config_path: &Path) -> Probe {
             Ok(evidence) => Probe {
                 loadable: true,
                 device_accessible: Some(true),
-                ready: true,
+                // This probe validates the OpenVINO runtime and requested
+                // device. Readiness additionally requires the selected model
+                // proof performed by setup Apply.
+                ready: false,
                 evidence: Evidence {
                     versions: vec![format!(
                         "OpenVINO {} · GenAI C {} · {}",
@@ -77,15 +83,13 @@ pub fn probe(config: &Config, config_path: &Path) -> Probe {
         Ok((library, version)) => Probe {
             loadable: true,
             device_accessible: None,
-            ready: true,
+            // Loading the ABI proves neither device access nor inference with
+            // the selected model.
+            ready: false,
             evidence: Evidence {
                 versions: vec![format!("{version} · {}", library.display())],
                 provider_registration: true,
-                available_devices: vec![
-                    backend
-                        .canonical_device()
-                        .unwrap_or_else(|_| backend.device.clone()),
-                ],
+                available_devices: Vec::new(),
                 selected_device: Some(
                     backend
                         .canonical_device()
@@ -110,10 +114,19 @@ pub fn apply_with(
     probe: impl FnOnce(&Config, &Path) -> Probe,
 ) -> Result<Probe> {
     let result = probe(config, path);
-    if !result.ready {
+    if !result.loadable || !result.errors.is_empty() {
         bail!(
             "runtime candidate rejected; config unchanged: {}",
-            result.errors.join("; ")
+            if result.errors.is_empty() {
+                "provider is not loadable".to_owned()
+            } else {
+                result.errors.join("; ")
+            }
+        );
+    }
+    if apply && !result.ready {
+        bail!(
+            "runtime candidate rejected; config unchanged: selected model inference has not been verified"
         );
     }
     if apply {

@@ -73,8 +73,8 @@ impl GuidedPrompts for ScriptedGuidedPrompts {
         }
         Ok(crate::runtime_inventory::Probe {
             loadable: true,
-            device_accessible: Some(true),
-            ready: true,
+            device_accessible: None,
+            ready: false,
             ..Default::default()
         })
     }
@@ -1327,10 +1327,10 @@ fn focused_runtime_preview_failure_and_apply_recover_invalid_config_transactiona
     let invalid = b"# obsolete pre-release config\n[backend]\nremoved_option = \"\"\n";
     fs::write(&paths.config_file, invalid).unwrap();
 
-    let ready = |_: &Config, _: &Path| crate::runtime_inventory::Probe {
+    let discovered = |_: &Config, _: &Path| crate::runtime_inventory::Probe {
         loadable: true,
-        device_accessible: Some(true),
-        ready: true,
+        device_accessible: None,
+        ready: false,
         ..Default::default()
     };
     configure_runtime_from_flags_with(
@@ -1341,7 +1341,7 @@ fn focused_runtime_preview_failure_and_apply_recover_invalid_config_transactiona
         None,
         None,
         false,
-        ready,
+        discovered,
         |_, _, _, _| Ok(None),
         |_, _| Ok(()),
     )
@@ -1380,7 +1380,7 @@ fn focused_runtime_preview_failure_and_apply_recover_invalid_config_transactiona
         None,
         None,
         true,
-        ready,
+        discovered,
         |_, _, _, _| Ok(None),
         |_, _| Ok(()),
     )
@@ -1416,7 +1416,7 @@ fn focused_openvino_runtime_probe_and_proof_receive_the_compatible_model() {
             crate::runtime_inventory::Probe {
                 loadable: true,
                 device_accessible: Some(true),
-                ready: true,
+                ready: false,
                 ..Default::default()
             }
         },
@@ -3438,10 +3438,10 @@ fn noninteractive_setup_covers_safe_runtime_model_and_service_decisions() {
         .is_err()
     );
 
-    let ready = |_: &Config, _: &Path| crate::runtime_inventory::Probe {
+    let discovered = |_: &Config, _: &Path| crate::runtime_inventory::Probe {
         loadable: true,
-        device_accessible: Some(true),
-        ready: true,
+        device_accessible: None,
+        ready: false,
         ..Default::default()
     };
     configure_runtime_from_flags_with(
@@ -3452,7 +3452,7 @@ fn noninteractive_setup_covers_safe_runtime_model_and_service_decisions() {
         None,
         None,
         false,
-        ready,
+        discovered,
         |_, _, _, _| Ok(None),
         |_, _| Ok(()),
     )
@@ -3469,7 +3469,7 @@ fn noninteractive_setup_covers_safe_runtime_model_and_service_decisions() {
         None,
         None,
         true,
-        ready,
+        discovered,
         |_, _, _, _| Ok(None),
         |_, _| Ok(()),
     )
@@ -3513,8 +3513,10 @@ fn native_runtime_probe_reports_real_safe_audio_cpp_and_openvino_evidence() {
     let mut audio_cpp = Config::default();
     audio_cpp.backend.library = crate::engine::audiocpp::tests::fake_library().to_path_buf();
     let probe = native_runtime_probe(&audio_cpp, &paths.config_file);
-    assert!(probe.ready);
+    assert!(probe.loadable);
+    assert!(!probe.ready);
     assert_eq!(probe.device_accessible, None);
+    assert!(probe.evidence.available_devices.is_empty());
     assert!(!probe.evidence.model_inference_verified);
     assert_eq!(probe.evidence.selected_device.as_deref(), Some("cpu"));
     assert_eq!(
@@ -3546,7 +3548,8 @@ fn native_runtime_probe_reports_real_safe_audio_cpp_and_openvino_evidence() {
         },
         |_, _| unreachable!(),
     );
-    assert!(probe.ready, "{:?}", probe.errors);
+    assert!(probe.loadable, "{:?}", probe.errors);
+    assert!(!probe.ready);
     assert_eq!(probe.device_accessible, Some(true));
     assert!(!probe.evidence.model_inference_verified);
     assert_eq!(probe.evidence.selected_device.as_deref(), Some("npu"));

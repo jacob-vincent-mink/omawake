@@ -322,7 +322,7 @@ pub fn print_runtime(config: &Config, config_path: &Path, json: bool) -> Result<
     let mut probe_paths = AppPaths::discover();
     probe_paths.config_file = config_path.to_owned();
     let provider = crate::engine::audiocpp::probe_provider(&candidate, &probe_paths);
-    let (ready, library, version, error) = match provider {
+    let (loadable, library, version, error) = match provider {
         Ok((library, version)) => (true, Some(library), Some(version), None),
         Err(error) => (false, None, None, Some(format!("{error:#}"))),
     };
@@ -339,7 +339,8 @@ pub fn print_runtime(config: &Config, config_path: &Path, json: bool) -> Result<
         "models": catalog::models(),
         "provider": {
             "kind": "audiocpp",
-            "ready": ready,
+            "loadable": loadable,
+            "ready": false,
             "library": library,
             "version": version,
             "error": error,
@@ -389,8 +390,8 @@ pub fn print_runtime(config: &Config, config_path: &Path, json: bool) -> Result<
         }
         println!(
             "Provider: {}",
-            if ready {
-                "ready"
+            if loadable {
+                "found"
             } else {
                 "not found or incompatible"
             }
@@ -411,8 +412,8 @@ pub fn print_runtime(config: &Config, config_path: &Path, json: bool) -> Result<
             "Selected: {} / {} ({})",
             crate::runtime_inventory::name(config.backend.runtime),
             config.backend.device,
-            if configured.ready {
-                "ready"
+            if configured.loadable {
+                "provider found"
             } else {
                 "needs setup"
             }

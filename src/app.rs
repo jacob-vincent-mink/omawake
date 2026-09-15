@@ -1102,6 +1102,15 @@ where
             prove,
         )?;
         evidence.device_accessible = Some(true);
+        evidence.ready = true;
+        if evidence.evidence.available_devices.is_empty() {
+            evidence.evidence.available_devices = vec![
+                candidate
+                    .backend
+                    .canonical_device()
+                    .unwrap_or_else(|_| candidate.backend.device.clone()),
+            ];
+        }
         evidence.evidence.model_inference_verified = true;
     }
     println!(
@@ -1177,7 +1186,7 @@ impl GuidedPrompts for TerminalGuidedPrompts {
             ("vulkan", providers.vulkan),
             (
                 "hip",
-                current.backend.runtime == Runtime::Hip && probe.ready,
+                current.backend.runtime == Runtime::Hip && probe.loadable,
             ),
         ]);
         let provider = probe
@@ -1792,7 +1801,7 @@ where
             Ok(evidence) => crate::runtime_inventory::Probe {
                 loadable: true,
                 device_accessible: Some(true),
-                ready: true,
+                ready: false,
                 evidence: crate::runtime_inventory::Evidence {
                     versions: vec![format!(
                         "OpenVINO {} · GenAI C {} · {}",
@@ -1816,15 +1825,11 @@ where
         Ok((library, version)) => crate::runtime_inventory::Probe {
             loadable: true,
             device_accessible: None,
-            ready: true,
+            ready: false,
             evidence: crate::runtime_inventory::Evidence {
                 versions: vec![format!("{version} · {}", library.display())],
                 provider_registration: true,
-                available_devices: vec![
-                    backend
-                        .canonical_device()
-                        .unwrap_or_else(|_| backend.device.clone()),
-                ],
+                available_devices: Vec::new(),
                 selected_device: Some(
                     backend
                         .canonical_device()

@@ -726,6 +726,7 @@ fn runtime_discovery_reports_invalid_paths_without_reexec_and_engine_use_rejects
     let value: serde_json::Value = serde_json::from_slice(&discovery.stdout).unwrap();
     let expected = root.join("config/omawake/missing-provider-libraries");
     assert_eq!(value["provider"]["kind"], "audiocpp");
+    assert_eq!(value["provider"]["loadable"], false);
     assert_eq!(value["provider"]["ready"], false);
     assert_eq!(value["configured_provider"]["probe"]["ready"], false);
     assert!(
