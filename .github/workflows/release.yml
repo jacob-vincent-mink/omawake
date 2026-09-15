@@ -250,8 +250,15 @@ jobs:
           assert sherpa.SherpaOnnxGetVersionStr() == b"1.13.8"
           assert sherpa.SherpaOnnxGetExtendedApiVersion() == 1
           PY
-          nm -D "${lib}/libsherpa-onnx-c-api.so" | grep -q 'SherpaOnnxGetExtendedApiVersion'
-          ! nm -D "${lib}/libsherpa-onnx-c-api.so" | grep -q 'SherpaOnnxGetOmaRuntimeAbiVersion'
+          symbols=$(nm -D "${lib}/libsherpa-onnx-c-api.so")
+          [[ "${symbols}" == *SherpaOnnxGetExtendedApiVersion* ]] || {
+            echo "patched sherpa library is missing SherpaOnnxGetExtendedApiVersion" >&2
+            exit 1
+          }
+          [[ "${symbols}" != *SherpaOnnxGetOmaRuntimeAbiVersion* ]] || {
+            echo "patched sherpa library unexpectedly exports the retired Oma ABI symbol" >&2
+            exit 1
+          }
 
       - uses: actions/upload-artifact@v4
         with:
