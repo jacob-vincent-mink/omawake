@@ -4,6 +4,7 @@ fn wake_word(id: &str, phrase: &str) -> WakeWord {
     WakeWord {
         id: id.into(),
         phrase: phrase.into(),
+        aliases: Vec::new(),
         enabled: true,
         command: vec!["true".into()],
     }
@@ -121,6 +122,17 @@ fn a_later_non_overlapping_occurrence_can_still_match() {
 }
 
 #[test]
+fn exact_transcript_aliases_map_to_the_same_action_without_fuzzy_matching() {
+    let mut atreyu = wake_word("atreyu", "hey atreyu");
+    atreyu.aliases = vec!["hey a tray you".into(), "hey atre you".into()];
+    let matcher = PhraseMatcher::compile(&[atreyu]).unwrap();
+
+    assert_eq!(matcher.matches("Hey, a tray you! ")[0].id, "atreyu");
+    assert_eq!(matcher.matches("hey atre you")[0].id, "atreyu");
+    assert!(matcher.matches("hey atrium").is_empty());
+}
+
+#[test]
 fn rejects_ambiguous_or_empty_enabled_phrases() {
     assert!(PhraseMatcher::compile(&[wake_word("empty", "---")]).is_err());
     assert!(
@@ -130,6 +142,9 @@ fn rejects_ambiguous_or_empty_enabled_phrases() {
         ])
         .is_err()
     );
+    let mut duplicate_alias = wake_word("atreyu", "hey atreyu");
+    duplicate_alias.aliases = vec!["hey a tre yu".into(), "hey atre yu".into()];
+    assert!(PhraseMatcher::compile(&[duplicate_alias]).is_err());
     assert!(
         PhraseMatcher::compile(&[
             wake_word("first", "forever"),

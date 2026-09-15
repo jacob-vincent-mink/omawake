@@ -96,6 +96,9 @@ enum TopCommand {
         /// Run mapped actions for detected phrases.
         #[arg(long)]
         execute: bool,
+        /// Print raw verifier transcripts to stderr for alias diagnosis.
+        #[arg(long, conflicts_with = "json")]
+        show_transcripts: bool,
         /// Emit a machine-readable result.
         #[arg(long)]
         json: bool,
@@ -202,8 +205,21 @@ enum WakeWordCommand {
         id: String,
         #[arg(long)]
         phrase: String,
+        /// Exact alternate ASR transcript to accept (repeatable).
+        #[arg(long = "alias")]
+        aliases: Vec<String>,
         #[arg(last = true, required = true)]
         command: Vec<String>,
+    },
+    /// Add an exact alternate ASR transcript to an existing wake word.
+    AddAlias {
+        id: String,
+        alias: String,
+    },
+    /// Remove an alternate ASR transcript from an existing wake word.
+    RemoveAlias {
+        id: String,
+        alias: String,
     },
     Remove {
         id: String,
@@ -572,18 +588,24 @@ where
         TopCommand::Test {
             audio: Some(audio),
             execute,
+            show_transcripts,
             json: as_json,
             ..
         } => {
+            let _transcript_diagnostics =
+                show_transcripts.then(crate::phrase::enable_transcript_diagnostics);
             let detector = Detector::load(&config, &paths)?;
             present_detections(&detector, detector.detect_file(&audio)?, execute, as_json)
         }
         TopCommand::Test {
             seconds: Some(seconds),
             execute,
+            show_transcripts,
             json: as_json,
             ..
         } => {
+            let _transcript_diagnostics =
+                show_transcripts.then(crate::phrase::enable_transcript_diagnostics);
             let detector = Detector::load(&config, &paths)?;
             let detections = detect_live(&detector, &config, Duration::from_secs(seconds))?;
             present_detections(&detector, detections, execute, as_json)
@@ -750,16 +772,40 @@ fn wake_word_command(command: WakeWordCommand, mut config: Config, path: &Path) 
         WakeWordCommand::Add {
             id,
             phrase,
+            aliases,
             command,
         } => {
             let message = format!("added wake word: {id}");
             config.wake_words.push(WakeWord {
                 id,
                 phrase,
+                aliases,
                 enabled: true,
                 command,
             });
             message
+        }
+        WakeWordCommand::AddAlias { id, alias } => {
+            let wake_word = config
+                .wake_words
+                .iter_mut()
+                .find(|item| item.id == id)
+                .with_context(|| format!("unknown wake-word id {id}"))?;
+            wake_word.aliases.push(alias);
+            format!("added transcript alias to wake word: {id}")
+        }
+        WakeWordCommand::RemoveAlias { id, alias } => {
+            let wake_word = config
+                .wake_words
+                .iter_mut()
+                .find(|item| item.id == id)
+                .with_context(|| format!("unknown wake-word id {id}"))?;
+            let before = wake_word.aliases.len();
+            wake_word.aliases.retain(|candidate| candidate != &alias);
+            if wake_word.aliases.len() == before {
+                bail!("wake word {id} has no transcript alias {alias:?}");
+            }
+            format!("removed transcript alias from wake word: {id}")
         }
         WakeWordCommand::Remove { id } => {
             remove_wake_word(&mut config, &id)?;
@@ -3426,7 +3472,7 @@ fn schema(config: &Config, config_path: &Path, paths: &AppPaths) -> serde_json::
             {"key":"daemon.queue_capacity","type":"integer","section":"Daemon","label":"Capture queue","description":"Bounded live-audio queue capacity","value":config.daemon.queue_capacity,"file_value":null,"supported":true,"restart_required":true,"min":1}],
         "collections":[
             {"prefix":"backend.options.","type":"string-map","section":"Backend","label":"Provider options","description":"Provider-specific load and session options","restart_required":true},
-            {"key":"wake_words","id_key":"id","label":"Wake words","description":"Phrase-to-command mappings","items":config.wake_words}],
+            {"key":"wake_words","id_key":"id","label":"Wake words","description":"Phrase-to-command mappings with exact alternate ASR transcripts","items":config.wake_words}],
         "constraints":[
             {"kind":"matrix","keys":["backend.runtime","backend.device"],"rows":[{"backend.runtime":"default","backend.device":["auto","cpu"]},{"backend.runtime":"cuda","backend.device":["auto","gpu"]},{"backend.runtime":"vulkan","backend.device":["auto","gpu"]},{"backend.runtime":"hip","backend.device":["auto","gpu"]},{"backend.runtime":"openvino","backend.device":["npu","gpu","cpu"]}]},
             {"kind":"runtime-only","key":"backend.device_id","runtimes":["cuda","vulkan","hip"]}]})

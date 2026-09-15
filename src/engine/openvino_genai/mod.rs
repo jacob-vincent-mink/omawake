@@ -32,7 +32,7 @@ use super::{Detection, WakeWordBackend, WakeWordStream, detect_samples};
 use crate::backend::Runtime;
 use crate::config::{Config, WakeWord};
 use crate::paths::AppPaths;
-use crate::phrase::{PhraseMatcher, normalize_tokens};
+use crate::phrase::{PhraseMatcher, normalize_tokens, record_transcript};
 
 const WORKER_STARTUP_TIMEOUT: Duration = Duration::from_secs(180);
 const WORKER_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
@@ -391,6 +391,7 @@ impl OpenVinoGenAiBackend {
         transcripts
             .into_iter()
             .flat_map(|transcript| {
+                record_transcript(&transcript.text);
                 let tokens = normalize_tokens(&transcript.text);
                 self.matcher
                     .matches(&transcript.text)
@@ -2043,6 +2044,7 @@ mod tests {
         let matcher = PhraseMatcher::compile(&[WakeWord {
             id: "lights".into(),
             phrase: "light up".into(),
+            aliases: Vec::new(),
             enabled: true,
             command: vec!["true".into()],
         }])
@@ -2500,6 +2502,7 @@ mod tests {
             matcher: PhraseMatcher::compile(&[WakeWord {
                 id: "greeting".into(),
                 phrase: "hello oma".into(),
+                aliases: Vec::new(),
                 enabled: true,
                 command: vec!["true".into()],
             }])

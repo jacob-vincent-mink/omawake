@@ -11,6 +11,7 @@ fn parses_multiple_wake_words() {
             [[wake_words]]
             id = "one"
             phrase = "Lovely Child"
+            aliases = ["Lovely Childe", "Love Lee Child"]
             command = ["touch", "/tmp/one"]
             [[wake_words]]
             id = "two"
@@ -22,6 +23,7 @@ fn parses_multiple_wake_words() {
     .unwrap();
     assert_eq!(config.wake_words.len(), 2);
     assert!(config.wake_words[0].enabled);
+    assert_eq!(config.wake_words[0].aliases.len(), 2);
     assert!(!config.wake_words[1].enabled);
 }
 

@@ -37,6 +37,10 @@ original model repository and Moonshine Streaming Tiny Q8_0 from the pinned
 audio.cpp GGUF conversion. Silero gates compute; Rust retains bounded context;
 Moonshine transcribes a completed utterance; the provider-neutral matcher
 normalizes and matches complete configured phrases without fuzzy matching.
+Configured transcript aliases use that same exact whole-phrase matcher. The
+whisper.cpp provider additionally passes phrases and aliases as its initial
+decoder prompt; Moonshine and OpenVINO apply them after transcription because
+their current provider APIs expose no equivalent qualified biasing control.
 
 The current English profile requires no per-phrase training for arbitrary text
 phrases within its language coverage. It must not be described as supporting

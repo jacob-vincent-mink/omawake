@@ -13,6 +13,8 @@ This release introduces the greenfield native-provider architecture:
 - fire-and-forget action launching with detached I/O and background child
   reaping;
 - provider-neutral exact phrase-verifier evaluation reports.
+- exact per-wake-word transcript aliases for coined names and repeatable ASR
+  spelling variants without global fuzzy matching.
 
 The release archives contain project, Rust dependency, audio.cpp, ggml, cJSON,
 libyaml, PocketFFT, and conservative llama tokenizer notices. Models are

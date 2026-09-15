@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added exact per-wake-word transcript aliases for uncommon names and repeatable
+  ASR spelling variants without enabling global fuzzy matching.
+
 ## 0.0.1 - 2026-09-15
 
 - Promoted the native-provider architecture after the rc.3 CPU, Intel

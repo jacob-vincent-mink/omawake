@@ -57,6 +57,7 @@ impl Default for Config {
             wake_words: vec![WakeWord {
                 id: "computer".into(),
                 phrase: "Computer".into(),
+                aliases: Vec::new(),
                 enabled: true,
                 command: vec!["notify-send".into(), "Wake word heard".into()],
             }],
@@ -121,6 +122,9 @@ impl Default for DaemonConfig {
 pub struct WakeWord {
     pub id: String,
     pub phrase: String,
+    /// Exact alternate ASR transcripts accepted for this wake word.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
     pub command: Vec<String>,

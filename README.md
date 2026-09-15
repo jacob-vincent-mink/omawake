@@ -97,6 +97,26 @@ omawake wake-word add --id computer --phrase Computer -- notify-send "Wake word 
 omawake wake-word remove computer
 ```
 
+For names or coined words that the ASR verifier spells inconsistently, add
+only the exact transcript variants you have observed. They map to the same
+action without enabling general fuzzy matching:
+
+```bash
+omawake test --seconds 5 --show-transcripts
+omawake wake-word add --id atreyu --phrase "Hey Atreyu" \
+  --alias "Hey a tray you" -- notify-send "Atreyu heard"
+omawake wake-word add-alias atreyu "Hey atre you"
+omawake wake-word remove-alias atreyu "Hey atre you"
+```
+
+Say the phrase during the bounded diagnostic capture, then copy the reported
+`verifier transcript` from stderr into an alias. The flag is explicit because
+raw transcripts may contain nearby speech; it cannot be combined with JSON.
+Aliases remain whole-phrase, normalized exact matches, so an unrelated phrase
+that merely sounds similar is not accepted. The optional whisper.cpp provider
+also supplies enabled phrases and aliases as its decoder prompt. The default
+Moonshine and OpenVINO providers currently use aliases after transcription.
+
 Use `evaluate` for reproducible accuracy and false-activation measurements over
 a labeled WAV corpus:
 

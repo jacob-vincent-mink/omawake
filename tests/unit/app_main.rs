@@ -1133,6 +1133,7 @@ fn config_mutation_saves_and_wake_words_validate_before_persisting() {
         WakeWordCommand::Add {
             id: "lovely-child".into(),
             phrase: "Lovely Child".into(),
+            aliases: Vec::new(),
             command: vec!["true".into()],
         },
         config.clone(),
@@ -1148,6 +1149,7 @@ fn config_mutation_saves_and_wake_words_validate_before_persisting() {
             WakeWordCommand::Add {
                 id: "computer".into(),
                 phrase: "Duplicate".into(),
+                aliases: Vec::new(),
                 command: vec!["true".into()],
             },
             config,
@@ -2155,6 +2157,7 @@ fn native_json_requests_only_wrap_inference_commands_with_json_output() {
             audio: Some(PathBuf::from("probe.wav")),
             seconds: None,
             execute: false,
+            show_transcripts: false,
             json: true,
         }),
         Some(NativeJsonRequest::FileTest { .. })
@@ -2164,6 +2167,7 @@ fn native_json_requests_only_wrap_inference_commands_with_json_output() {
             audio: None,
             seconds: Some(3),
             execute: true,
+            show_transcripts: false,
             json: true,
         }),
         Some(NativeJsonRequest::LiveTest {
@@ -2176,6 +2180,7 @@ fn native_json_requests_only_wrap_inference_commands_with_json_output() {
             audio: Some(PathBuf::from("probe.wav")),
             seconds: None,
             execute: false,
+            show_transcripts: false,
             json: false,
         })
         .is_none()
@@ -3014,6 +3019,7 @@ fn top_level_dispatch_runs_file_only_commands_with_injected_paths() {
             audio: None,
             seconds: None,
             execute: false,
+            show_transcripts: false,
             json: false,
         })
         .is_err()
@@ -3023,6 +3029,7 @@ fn top_level_dispatch_runs_file_only_commands_with_injected_paths() {
             audio: Some(paths.data_dir.join("missing.wav")),
             seconds: None,
             execute: false,
+            show_transcripts: false,
             json: false,
         })
         .is_err()
@@ -3032,6 +3039,7 @@ fn top_level_dispatch_runs_file_only_commands_with_injected_paths() {
             audio: None,
             seconds: Some(0),
             execute: false,
+            show_transcripts: false,
             json: false,
         })
         .is_err()

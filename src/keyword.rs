@@ -2,6 +2,7 @@ use anyhow::{Result, bail};
 use std::collections::HashSet;
 
 use crate::config::WakeWord;
+use crate::phrase::normalize_tokens;
 
 pub fn validate_wake_words(wake_words: &[WakeWord]) -> Result<()> {
     let mut ids = HashSet::new();
@@ -12,9 +13,11 @@ pub fn validate_wake_words(wake_words: &[WakeWord]) -> Result<()> {
             bail!("duplicate wake-word id {}", wake_word.id);
         }
         if wake_word.enabled {
-            let normalized = wake_word.phrase.trim().to_uppercase();
-            if !phrases.insert(normalized) {
-                bail!("duplicate wake-word phrase {}", wake_word.phrase);
+            for variant in std::iter::once(&wake_word.phrase).chain(&wake_word.aliases) {
+                let normalized = normalize_tokens(variant).concat();
+                if !phrases.insert(normalized) {
+                    bail!("duplicate wake-word phrase or alias {variant}");
+                }
             }
         }
     }
@@ -34,6 +37,13 @@ fn validate_entry(wake_word: &WakeWord) -> Result<()> {
     }
     if wake_word.phrase.trim().is_empty() {
         bail!("wake-word phrase must not be empty");
+    }
+    if wake_word
+        .aliases
+        .iter()
+        .any(|alias| alias.trim().is_empty())
+    {
+        bail!("wake-word aliases must not be empty");
     }
     if wake_word.command.is_empty() || wake_word.command[0].is_empty() {
         bail!("wake-word command must not be empty");

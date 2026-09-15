@@ -1,9 +1,30 @@
 //! Provider-independent matching of verifier transcripts to configured phrases.
 
 use anyhow::{Result, bail};
+use std::sync::atomic::{AtomicBool, Ordering};
 use unicode_normalization::UnicodeNormalization;
 
 use crate::config::WakeWord;
+
+static SHOW_TRANSCRIPTS: AtomicBool = AtomicBool::new(false);
+
+pub(crate) struct TranscriptDiagnosticsGuard(bool);
+
+pub(crate) fn enable_transcript_diagnostics() -> TranscriptDiagnosticsGuard {
+    TranscriptDiagnosticsGuard(SHOW_TRANSCRIPTS.swap(true, Ordering::Relaxed))
+}
+
+pub(crate) fn record_transcript(transcript: &str) {
+    if SHOW_TRANSCRIPTS.load(Ordering::Relaxed) {
+        eprintln!("verifier transcript: {transcript:?}");
+    }
+}
+
+impl Drop for TranscriptDiagnosticsGuard {
+    fn drop(&mut self) {
+        SHOW_TRANSCRIPTS.store(self.0, Ordering::Relaxed);
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PhraseMatch {
@@ -31,34 +52,36 @@ impl PhraseMatcher {
             if !wake_word.enabled {
                 continue;
             }
-            let tokens = normalize_tokens(&wake_word.phrase);
-            if tokens.is_empty() {
-                bail!(
-                    "enabled wake-word phrase for id {:?} contains no letters or numbers",
-                    wake_word.id
-                );
-            }
             if phrases
                 .iter()
                 .any(|existing: &CompiledPhrase| existing.id == wake_word.id)
             {
                 bail!("duplicate enabled wake-word id {:?}", wake_word.id);
             }
-            let canonical = tokens.concat();
-            if phrases
-                .iter()
-                .any(|existing| existing.canonical == canonical)
-            {
-                bail!(
-                    "enabled wake-word phrase {:?} normalizes to the same phrase as another entry, including word boundaries",
-                    wake_word.phrase
-                );
+            for variant in std::iter::once(&wake_word.phrase).chain(&wake_word.aliases) {
+                let tokens = normalize_tokens(variant);
+                if tokens.is_empty() {
+                    bail!(
+                        "enabled wake-word phrase or alias for id {:?} contains no letters or numbers",
+                        wake_word.id
+                    );
+                }
+                let canonical = tokens.concat();
+                if phrases
+                    .iter()
+                    .any(|existing| existing.canonical == canonical)
+                {
+                    bail!(
+                        "enabled wake-word phrase or alias {:?} normalizes to the same text as another variant, including word boundaries",
+                        variant
+                    );
+                }
+                phrases.push(CompiledPhrase {
+                    id: wake_word.id.clone(),
+                    canonical,
+                    order,
+                });
             }
-            phrases.push(CompiledPhrase {
-                id: wake_word.id.clone(),
-                canonical,
-                order,
-            });
         }
         if phrases.is_empty() {
             bail!("at least one wake word must be enabled");

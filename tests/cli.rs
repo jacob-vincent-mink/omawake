@@ -243,6 +243,29 @@ fn whisper_library_worker_reuses_one_model_and_session_for_file_requests() {
         events.lines().filter(|line| *line == "transcribe").count(),
         2
     );
+
+    let diagnostic = run(
+        &root,
+        &[
+            "test",
+            "--audio",
+            wave.to_str().unwrap(),
+            "--show-transcripts",
+        ],
+    );
+    assert!(diagnostic.status.success(), "{}", stderr(&diagnostic));
+    assert!(stderr(&diagnostic).contains("verifier transcript: \"computer\""));
+    let conflicting = run(
+        &root,
+        &[
+            "test",
+            "--audio",
+            wave.to_str().unwrap(),
+            "--show-transcripts",
+            "--json",
+        ],
+    );
+    assert!(!conflicting.status.success());
 }
 
 #[cfg(unix)]
@@ -400,6 +423,10 @@ fn word_alias_add_remove_and_empty_configuration_round_trip() {
             "computer",
             "--phrase",
             "Computer",
+            "--alias",
+            "Come pewter",
+            "--alias",
+            "Compute her",
             "--",
             "true",
         ],
@@ -407,6 +434,27 @@ fn word_alias_add_remove_and_empty_configuration_round_trip() {
     assert!(add.status.success(), "{}", stderr(&add));
     assert!(stdout(&add).contains("added wake word: computer"));
     assert!(stdout(&run(&root, &["word", "list"])).contains("computer"));
+    let listed: serde_json::Value =
+        serde_json::from_str(&stdout(&run(&root, &["word", "list", "--json"]))).unwrap();
+    assert_eq!(
+        listed[0]["aliases"],
+        serde_json::json!(["Come pewter", "Compute her"])
+    );
+    assert!(
+        run(&root, &["word", "add-alias", "computer", "Come pooter"])
+            .status
+            .success()
+    );
+    assert!(
+        run(&root, &["word", "remove-alias", "computer", "Come pooter"])
+            .status
+            .success()
+    );
+    assert!(
+        !run(&root, &["word", "remove-alias", "computer", "missing"])
+            .status
+            .success()
+    );
     assert!(run(&root, &["word", "remove", "computer"]).status.success());
     assert!(!run(&root, &["word", "remove", "missing"]).status.success());
 }

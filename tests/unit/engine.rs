@@ -83,6 +83,7 @@ fn detector(id: &str, command: Vec<String>, detected: &str) -> Detector {
     let action = WakeWord {
         id: id.into(),
         phrase: "Test".into(),
+        aliases: Vec::new(),
         enabled: true,
         command,
     };
@@ -252,6 +253,7 @@ fn backend_assembly_filters_disabled_actions_and_records_metadata() {
     config.wake_words.push(WakeWord {
         id: "disabled".into(),
         phrase: "Disabled".into(),
+        aliases: Vec::new(),
         enabled: false,
         command: vec!["false".into()],
     });

@@ -21,7 +21,7 @@ use super::{Detection, WakeWordBackend, WakeWordStream, detect_samples};
 use crate::backend::Runtime;
 use crate::config::Config;
 use crate::paths::AppPaths;
-use crate::phrase::{PhraseMatcher, normalize_tokens};
+use crate::phrase::{PhraseMatcher, normalize_tokens, record_transcript};
 
 unsafe extern "C" {
     fn oma_whisper_open(
@@ -105,7 +105,10 @@ impl WhisperCppBackend {
             .wake_words
             .iter()
             .filter(|word| word.enabled)
-            .map(|word| word.phrase.trim())
+            .flat_map(|word| {
+                std::iter::once(word.phrase.as_str()).chain(word.aliases.iter().map(String::as_str))
+            })
+            .map(str::trim)
             .collect::<Vec<_>>()
             .join(", ");
         let library_dirs = resolve_library_dirs(config, paths, &library)?;
@@ -137,6 +140,7 @@ fn transcripts_to_detections(
     transcripts
         .into_iter()
         .flat_map(|transcript| {
+            record_transcript(&transcript.text);
             let tokens = normalize_tokens(&transcript.text);
             matcher
                 .matches(&transcript.text)
@@ -1215,6 +1219,7 @@ mod tests {
         let matcher = PhraseMatcher::compile(&[WakeWord {
             id: "computer".into(),
             phrase: "hey computer".into(),
+            aliases: Vec::new(),
             enabled: true,
             command: vec!["true".into()],
         }])
@@ -1265,6 +1270,7 @@ mod tests {
         config.wake_words = vec![WakeWord {
             id: "greeting".into(),
             phrase: "hello oma".into(),
+            aliases: vec!["hello oh ma".into()],
             enabled: true,
             command: vec!["true".into()],
         }];
@@ -1275,6 +1281,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(backend.kind(), "whispercpp");
+        assert_eq!(backend.prompt, "hello oma, hello oh ma");
         let stream = backend.stream();
         assert!(stream.accept(16_000, &[f32::NAN]).is_err());
         assert!(

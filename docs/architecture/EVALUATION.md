@@ -39,6 +39,12 @@ across `light up`, `lovely child`, and `forever`. It deliberately includes the
 ASR spelling variation `for ever`. Phrase matching ignores word boundaries but
 otherwise requires exact normalized characters; this lets the same acoustic
 phrase survive ASR tokenization without introducing general fuzzy matching.
+Per-wake-word transcript aliases cover repeatable spelling errors for names or
+coined words while retaining the same exact normalized comparison. Every alias
+must pass the positive and false-activation lanes alongside its primary phrase;
+aliases are acceptance rules, not harmless display metadata.
+Use `test --audio FILE --show-transcripts` on a representative missed clip to
+discover an alias. Transcript diagnostics are opt-in and go to stderr.
 
 The long clean-negative set contains 5,557 checksum-pinned LibriSpeech clips
 and 10.739 hours of speech. Two clips containing real `light up` utterances are
