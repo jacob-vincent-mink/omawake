@@ -1,0 +1,57 @@
+[backend]
+kind = "omawake-onnx"
+runtime = "default"
+device = "cpu"
+threads = 2
+fallback = "error"
+device_id = 0
+library_dirs = [
+    "/tmp/ort-1.30.0/onnxruntime-linux-aarch64-1.30.0/lib",
+    "/tmp/ort-cuda-plugin-0.1.0",
+    "/usr/local/cuda/targets/sbsa-linux/lib",
+]
+onnxruntime_library = "/tmp/ort-1.30.0/onnxruntime-linux-aarch64-1.30.0/lib/libonnxruntime.so.1.30.0"
+provider_library = ""
+
+[backend.options]
+
+[model]
+name = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
+directory = "/tmp/omawake-direct-model/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
+encoder = "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx"
+decoder = "decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx"
+joiner = "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx"
+tokens = "tokens.txt"
+bpe_model = "bpe.model"
+sample_rate = 16000
+keywords_score = 1.5
+keywords_threshold = 0.25
+max_active_paths = 4
+num_trailing_blanks = 1
+
+[audio]
+device = "default"
+channels = "mono"
+buffer_milliseconds = 200
+
+[daemon]
+cooldown_milliseconds = 1500
+queue_capacity = 8
+
+[[wake_words]]
+id = "light-up"
+phrase = "Light up"
+enabled = true
+command = ["true"]
+
+[[wake_words]]
+id = "lovely-child"
+phrase = "Lovely child"
+enabled = true
+command = ["true"]
+
+[[wake_words]]
+id = "forever"
+phrase = "Forever"
+enabled = true
+command = ["true"]

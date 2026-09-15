@@ -1,11 +1,16 @@
 # Benchmark evidence
 
-Most dated artifacts currently in this directory record the former
-sherpa-adapter implementation; a few later files are low-level accelerator
-experiments. They are retained as historical engineering evidence.
+Most artifacts dated 2026-09-14 record the former sherpa-adapter
+implementation; a few are low-level accelerator experiments. They are
+retained as historical engineering evidence.
 
-The `cuda-gb10-ort130-results-2026-09-14` directory is the current direct Rust
-KWS validation set for the official ONNX Runtime 1.30 CUDA Plugin EP.
+The current direct Rust KWS release evidence is:
 
-Release claims for the direct implementation must cite a result set whose
-metadata names the direct pipeline and the exact application commit tested.
+- [`cuda-gb10-ort130-2026-09-15.md`](cuda-gb10-ort130-2026-09-15.md):
+  ONNX Runtime 1.30 CUDA Plugin EP on NVIDIA GB10.
+- [`openvino-dell-xps-ort130-2026-09-15.md`](openvino-dell-xps-ort130-2026-09-15.md):
+  ONNX Runtime 1.30 OpenVINO Plugin EP on Intel CPU, iGPU, and NPU.
+
+Each current report names the exact application commit and runtime artifacts
+tested. Audio was piped through the WAV input path; neither proof used live
+capture or playback.

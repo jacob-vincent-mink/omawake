@@ -1,0 +1,6 @@
+1	light-up
+2	light-up
+3	light-up
+1	lovely-child,forever
+2	lovely-child,forever
+3	lovely-child,forever

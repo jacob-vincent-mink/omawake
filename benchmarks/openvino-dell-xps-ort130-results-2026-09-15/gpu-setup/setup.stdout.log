@@ -1,0 +1,34 @@
+{
+  "applied": true,
+  "candidate": {
+    "device": "gpu",
+    "device_id": 0,
+    "fallback": "error",
+    "kind": "omawake-onnx",
+    "library_dirs": [
+      "/tmp/onnxruntime-ep-openvino-1.7.0/onnxruntime_ep_openvino",
+      "/tmp/omawake-rc2-final-stage-output-clean/lib"
+    ],
+    "onnxruntime_library": "/tmp/omawake-rc2-final-stage-output-clean/lib/libonnxruntime.so",
+    "options": {},
+    "provider_library": "/tmp/onnxruntime-ep-openvino-1.7.0/onnxruntime_ep_openvino/libonnxruntime_providers_openvino_plugin.so",
+    "runtime": "openvino",
+    "threads": 2
+  },
+  "probe": {
+    "device_accessible": true,
+    "errors": [],
+    "evidence": {
+      "available_devices": [
+        "OpenVINOExecutionProvider:GPU:45184"
+      ],
+      "provider_registration": true,
+      "selected_device": "gpu",
+      "versions": [
+        "ONNX Runtime 1.30.0"
+      ]
+    },
+    "loadable": true,
+    "ready": true
+  }
+}

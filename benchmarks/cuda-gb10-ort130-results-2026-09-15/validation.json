@@ -1,0 +1,9 @@
+{
+  "commit": "538d4191f28919fa2d0f6f6ec398a43b685584ce",
+  "cpu_cold": true,
+  "cpu_hot": true,
+  "cuda_cold": true,
+  "cuda_hot": true,
+  "exact_label_parity": true,
+  "all_pass": true
+}

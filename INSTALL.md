@@ -1,22 +1,22 @@
 # Installing Omawake
 
-Omawake 0.0.1-rc.1 supports Linux x86-64 and aarch64 with glibc 2.35 or newer.
+Omawake 0.0.1-rc.2 supports Linux x86-64 and aarch64 with glibc 2.35 or newer.
 Each release archive contains one runtime-neutral executable and a bundled CPU
 runtime. OpenVINO and CUDA remain external runtime choices configured after
 installation.
 
-There are no 0.0.1-rc.1 prebuilt artifacts for macOS or Windows.
+There are no 0.0.1-rc.2 prebuilt artifacts for macOS or Windows.
 
 ## Release archive
 
-Download `omawake-0.0.1-rc.1-linux-x86_64.tar.xz` and `SHA256SUMS.txt` from the
-[v0.0.1-rc.1 release](https://github.com/jacob-vincent-mink/omawake/releases/tag/v0.0.1-rc.1),
+Download `omawake-0.0.1-rc.2-linux-x86_64.tar.xz` and `SHA256SUMS.txt` from the
+[v0.0.1-rc.2 release](https://github.com/jacob-vincent-mink/omawake/releases/tag/v0.0.1-rc.2),
 then verify and unpack it:
 
 ```bash
 sha256sum --check --ignore-missing SHA256SUMS.txt
-tar -xJf omawake-0.0.1-rc.1-linux-x86_64.tar.xz
-cd omawake-0.0.1-rc.1-linux-x86_64
+tar -xJf omawake-0.0.1-rc.2-linux-x86_64.tar.xz
+cd omawake-0.0.1-rc.2-linux-x86_64
 ./omawake --version
 ```
 
@@ -81,10 +81,10 @@ stores reusable blobs below
 `${XDG_CACHE_HOME:-$HOME/.cache}/omawake/openvino/<device>`. The first
 compilation can take several seconds. If runtime setup precedes model
 installation, model setup completes this step before activation.
-Some Intel GPU compiler versions can terminate during a fresh cold compile;
-Omawake contains that work in a child process and allows up to five total
-attempts while the vendor cache is populated. Only signal terminations are
-retried. Setup applies the runtime only after a complete detector pass succeeds.
+Omawake serializes OpenVINO GPU compilation to avoid a confirmed Intel compiler
+failure under concurrent cold compilation. Compilation runs in an isolated
+worker, and setup applies the runtime only after a complete detector pass
+succeeds.
 
 See [ACCELERATOR_SETUP.md](ACCELERATOR_SETUP.md) for OpenVINO and CUDA package
 layout details.

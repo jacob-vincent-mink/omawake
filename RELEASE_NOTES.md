@@ -1,4 +1,4 @@
-# Omawake 0.0.1-rc.1
+# Omawake 0.0.1-rc.2
 
 This release candidate provides local wake-word detection from live audio or WAV
 files, multiple phrase-to-action mappings, foreground daemon controls, and
@@ -7,6 +7,11 @@ runtime. The same executable can use externally installed OpenVINO or CUDA
 stacks selected during setup. Explicit OpenVINO GPU and NPU setup compiles and
 verifies the fixed-shape wake-word model cache before the configuration is
 applied.
+
+OpenVINO GPU compilation is serialized to prevent a reproduced Intel compiler
+crash during first-time cache preparation. Successful native diagnostics stay
+inside the worker so setup and JSON commands show only actionable output;
+failures retain their diagnostic detail.
 
 Accelerator libraries remain mapped until process exit while sessions and runtime
 objects are still destroyed normally. This prevents late vendor worker cleanup

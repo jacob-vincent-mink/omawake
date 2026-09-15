@@ -91,9 +91,11 @@ jobs:
           cp THIRD_PARTY_NOTICES.md "dist/${package}/licenses/OMAWAKE-THIRD-PARTY-NOTICES"
           cp README.md INSTALL.md ACCELERATOR_SETUP.md CHANGELOG.md RELEASE_NOTES.md DEMO.md RUNTIME.md config.example.toml "dist/${package}/"
           mkdir -p "dist/${package}/benchmarks"
-          cp benchmarks/README.md benchmarks/cuda-gb10-ort130-2026-09-14.md \
+          cp benchmarks/README.md benchmarks/cuda-gb10-ort130-2026-09-15.md \
+            benchmarks/openvino-dell-xps-ort130-2026-09-15.md \
             "dist/${package}/benchmarks/"
-          cp -a benchmarks/cuda-gb10-ort130-results-2026-09-14 \
+          cp -a benchmarks/cuda-gb10-ort130-results-2026-09-15 \
+            benchmarks/openvino-dell-xps-ort130-results-2026-09-15 \
             "dist/${package}/benchmarks/"
           cp -a assets packaging scripts "dist/${package}/"
           tar -C dist -cJf "dist/${package}.tar.xz" "${package}"
@@ -114,7 +116,8 @@ jobs:
             test -s "${root}/${package}/${document}"
           done
           test -s "${root}/${package}/assets/omawake-mark.svg"
-          test -s "${root}/${package}/benchmarks/cuda-gb10-ort130-2026-09-14.md"
+          test -s "${root}/${package}/benchmarks/cuda-gb10-ort130-2026-09-15.md"
+          test -s "${root}/${package}/benchmarks/openvino-dell-xps-ort130-2026-09-15.md"
           test -s "${root}/${package}/packaging/systemd/omawake.service"
           [[ $(find "${lib}" -maxdepth 1 \( -type f -o -type l \) | wc -l) == 3 ]]
           if readelf -d "${binary}" | grep -E 'NEEDED.*(onnxruntime|sherpa|openvino|cuda|cudnn|cublas|nvinfer)'; then

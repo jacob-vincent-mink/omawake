@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.0.1-rc.1 - 2026-09-15
+## 0.0.1-rc.2 - 2026-09-15
 
 - Added an independent Rust implementation of the published icefall
   keyword-spotting model contract.
@@ -12,6 +12,11 @@
   release CI.
 - Use the model's FP32 accelerator graphs on Intel GPU and NPU. NPU also uses a
   fixed beam of at least eight to preserve the reference CPU detections.
+- Serialize OpenVINO GPU compilation to prevent a reproduced Intel compiler
+  crash during first-time cache preparation.
+- Keep successful native provider diagnostics inside worker processes while
+  retaining them when an operation fails.
+- Updated rustls to 0.23.45 for RUSTSEC-2026-0285.
 
 ## 0.0.1-rc - 2026-09-14
 

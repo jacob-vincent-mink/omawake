@@ -1,0 +1,237 @@
+{
+  "backend": {
+    "effective_runtime": "openvino",
+    "fallback_used": false,
+    "kind": "omawake-onnx",
+    "placement_evidence": "CPU fallback was disabled while every model graph initialized on the selected OpenVINO device",
+    "placement_verified": true,
+    "requested_device": "npu",
+    "requested_runtime": "openvino"
+  },
+  "benchmark": "omawake-file-detection",
+  "files": [
+    {
+      "audio_duration_milliseconds": 6625.0,
+      "iterations": [
+        {
+          "detections": [
+            {
+              "id": "light-up",
+              "start_time": 0.0,
+              "timestamps": [
+                3.0,
+                3.0399999618530273,
+                3.0799999237060547,
+                3.240000009536743
+              ],
+              "tokens": [
+                "▁",
+                "L",
+                "IGHT",
+                "▁UP"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 124.124955,
+          "iteration": 1,
+          "real_time_factor": 0.018735842264150943
+        },
+        {
+          "detections": [
+            {
+              "id": "light-up",
+              "start_time": 0.0,
+              "timestamps": [
+                3.0,
+                3.0399999618530273,
+                3.0799999237060547,
+                3.240000009536743
+              ],
+              "tokens": [
+                "▁",
+                "L",
+                "IGHT",
+                "▁UP"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 119.221483,
+          "iteration": 2,
+          "real_time_factor": 0.017995695547169812
+        },
+        {
+          "detections": [
+            {
+              "id": "light-up",
+              "start_time": 0.0,
+              "timestamps": [
+                3.0,
+                3.0399999618530273,
+                3.0799999237060547,
+                3.240000009536743
+              ],
+              "tokens": [
+                "▁",
+                "L",
+                "IGHT",
+                "▁UP"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 123.956614,
+          "iteration": 3,
+          "real_time_factor": 0.018710432301886792
+        }
+      ],
+      "path": "/home/jacob/.local/share/omawake/models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/test_wavs/0.wav",
+      "summary": {
+        "p50_milliseconds": 123.956614,
+        "p50_real_time_factor": 0.018710432301886792,
+        "p95_milliseconds": 124.124955,
+        "p95_real_time_factor": 0.018735842264150943,
+        "samples": 3
+      }
+    },
+    {
+      "audio_duration_milliseconds": 16715.0,
+      "iterations": [
+        {
+          "detections": [
+            {
+              "id": "lovely-child",
+              "start_time": 0.0,
+              "timestamps": [
+                5.359999656677246,
+                5.559999942779541,
+                5.839999675750732,
+                6.0,
+                6.039999961853027
+              ],
+              "tokens": [
+                "▁LOVE",
+                "LY",
+                "▁CHI",
+                "L",
+                "D"
+              ]
+            },
+            {
+              "id": "forever",
+              "start_time": 0.0,
+              "timestamps": [
+                10.880000114440918,
+                11.039999961853027,
+                11.079999923706056
+              ],
+              "tokens": [
+                "▁FOR",
+                "E",
+                "VER"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 294.543416,
+          "iteration": 1,
+          "real_time_factor": 0.017621502602452887
+        },
+        {
+          "detections": [
+            {
+              "id": "lovely-child",
+              "start_time": 0.0,
+              "timestamps": [
+                5.359999656677246,
+                5.559999942779541,
+                5.839999675750732,
+                6.0,
+                6.039999961853027
+              ],
+              "tokens": [
+                "▁LOVE",
+                "LY",
+                "▁CHI",
+                "L",
+                "D"
+              ]
+            },
+            {
+              "id": "forever",
+              "start_time": 0.0,
+              "timestamps": [
+                10.880000114440918,
+                11.039999961853027,
+                11.079999923706056
+              ],
+              "tokens": [
+                "▁FOR",
+                "E",
+                "VER"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 286.228957,
+          "iteration": 2,
+          "real_time_factor": 0.017124077594974575
+        },
+        {
+          "detections": [
+            {
+              "id": "lovely-child",
+              "start_time": 0.0,
+              "timestamps": [
+                5.359999656677246,
+                5.559999942779541,
+                5.839999675750732,
+                6.0,
+                6.039999961853027
+              ],
+              "tokens": [
+                "▁LOVE",
+                "LY",
+                "▁CHI",
+                "L",
+                "D"
+              ]
+            },
+            {
+              "id": "forever",
+              "start_time": 0.0,
+              "timestamps": [
+                10.880000114440918,
+                11.039999961853027,
+                11.079999923706056
+              ],
+              "tokens": [
+                "▁FOR",
+                "E",
+                "VER"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 291.708898,
+          "iteration": 3,
+          "real_time_factor": 0.017451923302422973
+        }
+      ],
+      "path": "/home/jacob/.local/share/omawake/models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/test_wavs/1.wav",
+      "summary": {
+        "p50_milliseconds": 291.708898,
+        "p50_real_time_factor": 0.017451923302422973,
+        "p95_milliseconds": 294.543416,
+        "p95_real_time_factor": 0.017621502602452887,
+        "samples": 3
+      }
+    }
+  ],
+  "measured_iterations": 3,
+  "model_load_milliseconds": 1300.964917,
+  "schema_version": 1,
+  "summary": {
+    "p50_milliseconds": 124.124955,
+    "p50_real_time_factor": 0.017621502602452887,
+    "p95_milliseconds": 294.543416,
+    "p95_real_time_factor": 0.018735842264150943,
+    "samples": 6
+  },
+  "warmup_iterations": 1
+}

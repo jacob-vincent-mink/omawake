@@ -1,0 +1,17 @@
+created_utc=20260915T065138Z
+repo=/home/jacob/src/github.com/jacob-vincent-mink/omawake
+model=/home/jacob/.local/share/omawake/models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01
+binary=/tmp/omawake-rc2-final-stage-output-clean/omawake
+openvino_library_path=/tmp/onnxruntime-ep-openvino-1.7.0/onnxruntime_ep_openvino:/tmp/omawake-rc2-final-stage-output-clean/lib
+1ef3353e6ba48363bf5a821334934e034d26fd0e74c2cd4472c485421c664834  /tmp/omawake-rc2-final-stage-output-clean/omawake
+cold_warmup=0
+cold_iterations=1
+hot_warmup=1
+hot_iterations=3
+threads=2
+lanes=default-cpu openvino-cpu openvino-gpu openvino-npu
+accelerator_model_variant=fp32
+npu_busy_counter=/sys/devices/pci0000:00/0000:00:0b.0/npu_busy_time_us
+test_keywords_sha256=fd9c3b504ab922bc96ce8613eff02193f8a5526fcf74a14df436c7af74ad649d
+6bc58a4efdf20daac252b6b1502632601a71efe0308f6757dc1eda34891a7e4f  /home/jacob/.local/share/omawake/models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/test_wavs/0.wav
+5143a6ba93c4b274e2c4ac22deb75c2c48936c853f0519add1de828b6c79cc5a  /home/jacob/.local/share/omawake/models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/test_wavs/1.wav
