@@ -32,10 +32,14 @@ cmake -S "${source_directory}" -B "${build_directory}" \
   -DENGINE_BUILD_EXAMPLES=OFF \
   -DENGINE_BUILD_TESTS=OFF \
   -DENGINE_BUILD_EXTENDED_TESTS=OFF \
-  -DENGINE_BUILD_MODEL_TESTS=OFF
+  -DENGINE_BUILD_MODEL_TESTS=OFF >&2
 cmake --build "${build_directory}" \
   --parallel "${AUDIOCPP_BUILD_JOBS:-4}" \
-  --target audiocpp
+  --target audiocpp >&2
 
-test -f "${build_directory}/bin/libaudiocpp.so.0.1.0"
-printf '%s\n' "${build_directory}/bin/libaudiocpp.so.0.1.0"
+provider="${build_directory}/bin/libaudiocpp.so.0.1.0"
+test -f "${provider}"
+test "$(readelf -d "${provider}" | sed -n 's/.*Library soname: \[\([^]]*\)\].*/\1/p')" = \
+  "libaudiocpp.so.0"
+nm -D --defined-only "${provider}" | grep 'audiocpp_abi_version@@AUDIOCPP_0' >/dev/null
+printf '%s\n' "${provider}"
