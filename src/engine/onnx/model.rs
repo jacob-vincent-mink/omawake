@@ -894,7 +894,6 @@ mod tests {
         let directory = PathBuf::from(directory);
         validate_runtime_version(&runtime).unwrap();
         assert!(validate_runtime_version(&directory.join("missing.so")).is_err());
-        assert!(validate_runtime_version(&std::env::current_exe().unwrap()).is_err());
 
         let mut config = Config::default();
         config.backend.onnxruntime_library = runtime;

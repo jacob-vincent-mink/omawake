@@ -6,10 +6,9 @@ use std::collections::VecDeque;
 use std::env;
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::io;
-use std::os::fd::OwnedFd;
-use std::os::unix::net::UnixStream;
+use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -400,6 +399,78 @@ const WORKER_STARTUP_TIMEOUT: Duration = Duration::from_secs(120);
 const WORKER_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 const WORKER_STOP_TIMEOUT: Duration = Duration::from_secs(2);
 
+struct TimedReader {
+    reader: ChildStdout,
+    timeout: Duration,
+}
+
+impl io::Read for TimedReader {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        wait_for_io(self.reader.as_raw_fd(), libc::POLLIN, self.timeout).map_err(|error| {
+            io::Error::new(error.kind(), format!("wait for worker IPC read: {error}"))
+        })?;
+        io::Read::read(&mut self.reader, buffer)
+            .map_err(|error| io::Error::new(error.kind(), format!("read worker IPC pipe: {error}")))
+    }
+}
+
+struct TimedWriter {
+    writer: ChildStdin,
+    timeout: Duration,
+}
+
+impl io::Write for TimedWriter {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        wait_for_io(self.writer.as_raw_fd(), libc::POLLOUT, self.timeout).map_err(|error| {
+            io::Error::new(error.kind(), format!("wait for worker IPC write: {error}"))
+        })?;
+        io::Write::write(&mut self.writer, buffer).map_err(|error| {
+            io::Error::new(error.kind(), format!("write worker IPC pipe: {error}"))
+        })
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        io::Write::flush(&mut self.writer)
+    }
+}
+
+fn wait_for_io(fd: libc::c_int, events: libc::c_short, timeout: Duration) -> io::Result<()> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let milliseconds = if remaining.is_zero() {
+            0
+        } else {
+            i32::try_from(remaining.as_millis().max(1)).unwrap_or(i32::MAX)
+        };
+        let mut descriptor = libc::pollfd {
+            fd,
+            events,
+            revents: 0,
+        };
+        let status = unsafe { libc::poll(&mut descriptor, 1, milliseconds) };
+        if status > 0 {
+            if descriptor.revents & libc::POLLNVAL != 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "whisper.cpp worker IPC descriptor is invalid",
+                ));
+            }
+            return Ok(());
+        }
+        if status == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "whisper.cpp worker IPC timed out",
+            ));
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+}
+
 #[derive(Clone)]
 struct WorkerSpec {
     library: PathBuf,
@@ -411,19 +482,12 @@ struct WorkerSpec {
 
 struct WorkerProcess {
     child: Child,
-    stream: UnixStream,
+    input: Option<TimedWriter>,
+    output: Option<TimedReader>,
 }
 
 impl WorkerProcess {
     fn launch(spec: &WorkerSpec) -> Result<Self> {
-        let (stream, child_stream) = UnixStream::pair().context("create whisper.cpp worker IPC")?;
-        stream.set_read_timeout(Some(WORKER_STARTUP_TIMEOUT))?;
-        stream.set_write_timeout(Some(WORKER_STARTUP_TIMEOUT))?;
-        let child_input: OwnedFd = child_stream
-            .try_clone()
-            .context("clone whisper.cpp worker IPC")?
-            .into();
-        let child_output: OwnedFd = child_stream.into();
         let executable = env::current_exe().context("resolve Omawake executable")?;
         let mut command = Command::new(executable);
         command
@@ -432,30 +496,42 @@ impl WorkerProcess {
             .arg(&spec.verifier)
             .arg(&spec.vad)
             .arg(spec.threads.to_string())
-            .stdin(Stdio::from(child_input))
-            .stdout(Stdio::from(child_output))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
             .stderr(Stdio::null());
         configure_library_path(&mut command, &spec.library_dirs)?;
-        let child = command
+        let mut child = command
             .spawn()
             .context("spawn isolated whisper.cpp worker")?;
-        let mut process = Self { child, stream };
-        let handshake =
-            protocol::read_response(&mut process.stream).context("read worker handshake");
+        let input = child
+            .stdin
+            .take()
+            .context("whisper.cpp worker stdin is unavailable")?;
+        let output = child
+            .stdout
+            .take()
+            .context("whisper.cpp worker stdout is unavailable")?;
+        let mut process = Self {
+            child,
+            input: Some(TimedWriter {
+                writer: input,
+                timeout: WORKER_STARTUP_TIMEOUT,
+            }),
+            output: Some(TimedReader {
+                reader: output,
+                timeout: WORKER_STARTUP_TIMEOUT,
+            }),
+        };
+        let handshake = process.read_response().context("read worker handshake");
         match handshake {
             Ok(Response::Ready { .. }) => {
-                if let Err(error) = process
-                    .stream
-                    .set_read_timeout(Some(WORKER_REQUEST_TIMEOUT))
-                    .and_then(|()| {
-                        process
-                            .stream
-                            .set_write_timeout(Some(WORKER_REQUEST_TIMEOUT))
-                    })
-                {
-                    process.stop(false);
-                    return Err(error).context("configure whisper.cpp worker IPC timeout");
-                }
+                process.input.as_mut().expect("worker input exists").timeout =
+                    WORKER_REQUEST_TIMEOUT;
+                process
+                    .output
+                    .as_mut()
+                    .expect("worker output exists")
+                    .timeout = WORKER_REQUEST_TIMEOUT;
                 Ok(process)
             }
             Ok(Response::Error { message, .. }) => {
@@ -473,12 +549,35 @@ impl WorkerProcess {
         }
     }
 
+    fn write_request(&mut self, request: &Request, pcm: &[f32]) -> Result<()> {
+        protocol::write_request(
+            self.input
+                .as_mut()
+                .context("whisper.cpp worker input is closed")?,
+            request,
+            pcm,
+        )
+        .context("write worker request")
+    }
+
+    fn read_response(&mut self) -> Result<Response> {
+        protocol::read_response(
+            self.output
+                .as_mut()
+                .context("whisper.cpp worker output is closed")?,
+        )
+        .context("read worker response")
+    }
+
     fn stop(&mut self, graceful: bool) {
         if graceful {
-            let _ = self.stream.set_write_timeout(Some(Duration::from_secs(1)));
-            let _ = protocol::write_request(&mut self.stream, &Request::Shutdown, &[]);
+            if let Some(input) = self.input.as_mut() {
+                input.timeout = Duration::from_secs(1);
+                let _ = protocol::write_request(input, &Request::Shutdown, &[]);
+            }
         }
-        let _ = self.stream.shutdown(std::net::Shutdown::Both);
+        self.input.take();
+        self.output.take();
         if !wait_for_exit(&mut self.child, WORKER_STOP_TIMEOUT) {
             let _ = self.child.kill();
             let _ = wait_for_exit(&mut self.child, WORKER_STOP_TIMEOUT);
@@ -547,9 +646,8 @@ impl Worker {
                 .process
                 .as_mut()
                 .context("whisper.cpp worker is unavailable")?;
-            protocol::write_request(&mut process.stream, request, pcm)
-                .context("write worker request")?;
-            protocol::read_response(&mut process.stream).context("read worker response")
+            process.write_request(request, pcm)?;
+            process.read_response()
         })();
         if result.is_err() {
             self.disconnect();
@@ -942,6 +1040,7 @@ mod tests {
     use super::*;
     use crate::config::WakeWord;
     use std::fs;
+    use std::io::{Read, Write};
 
     #[test]
     fn transcript_conversion_uses_whole_phrase_matcher() {
@@ -1045,5 +1144,49 @@ mod tests {
     fn bounded_wait_reaps_a_normal_child_exit() {
         let mut child = Command::new("true").spawn().unwrap();
         assert!(wait_for_exit(&mut child, Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn worker_pipes_round_trip_without_socket_permissions() {
+        let mut child = Command::new("cat")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut input = TimedWriter {
+            writer: child.stdin.take().unwrap(),
+            timeout: Duration::from_secs(1),
+        };
+        let mut output = TimedReader {
+            reader: child.stdout.take().unwrap(),
+            timeout: Duration::from_secs(1),
+        };
+
+        input.write_all(b"worker pipe").unwrap();
+        input.flush().unwrap();
+        let mut echoed = [0_u8; 11];
+        output.read_exact(&mut echoed).unwrap();
+        assert_eq!(&echoed, b"worker pipe");
+
+        drop(input);
+        drop(output);
+        assert!(wait_for_exit(&mut child, Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn worker_pipe_deadline_times_out_and_child_exits_normally() {
+        let mut child = Command::new("sleep")
+            .arg("0.05")
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut output = TimedReader {
+            reader: child.stdout.take().unwrap(),
+            timeout: Duration::from_millis(1),
+        };
+        let error = output.read(&mut [0_u8; 1]).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        assert!(wait_for_exit(&mut child, Duration::from_secs(1)));
+        assert!(child.wait().unwrap().success());
     }
 }

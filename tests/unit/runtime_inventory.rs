@@ -167,7 +167,10 @@ fn real_ort_child_reports_cpu_evidence_and_invalid_device_when_available() {
 
     let mut wrong_plugin = config.clone();
     wrong_plugin.runtime = Runtime::Openvino;
-    wrong_plugin.provider_library = wrong_plugin.onnxruntime_library.clone();
+    // Exercise the registration error with an absent provider. Passing the ORT
+    // core itself as a deliberately invalid EP library can enter vendor loader
+    // code and should never be part of a normal test failure.
+    wrong_plugin.provider_library = PathBuf::from("/definitely/missing/openvino-provider.so");
     let rejected_plugin = child(&wrong_plugin);
     assert!(!rejected_plugin.ready);
     assert!(!rejected_plugin.evidence.provider_registration);
