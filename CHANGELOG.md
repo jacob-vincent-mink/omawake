@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.0.2 - Unreleased
+## 0.0.2 - 2026-09-15
 
 - Added exact per-wake-word transcript aliases for uncommon names and repeatable
   ASR spelling variants without enabling global fuzzy matching.
@@ -9,6 +9,8 @@
   wake-word changes; restore the previous config and restart on failure.
 - Recommend discovered accelerator providers in the order CUDA, Intel NPU,
   Intel GPU, Vulkan, then CPU, while preserving existing manual selections.
+- Report provider discovery separately from device access and selected-model
+  readiness; only a successful model proof marks the runtime ready.
 - Added file-only Intel Vulkan validation and a shared-provider build example.
 - Reject phrases and aliases that normalize to no letters or numbers.
 

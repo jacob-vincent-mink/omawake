@@ -10,6 +10,8 @@ This follow-up to 0.0.1 improves wake-phrase configuration and setup:
   with config and service rollback if the new configuration fails;
 - hardware-aware setup recommendations that preserve existing manual choices
   and distinguish hardware discovery from model-backed validation;
+- runtime readiness reports that require selected-model inference, with
+  provider loading and device discovery reported separately;
 - validation that rejects phrases and aliases containing only punctuation.
 
 The runtime-neutral Rust executable includes a pinned CPU audio.cpp provider.
