@@ -477,7 +477,7 @@ fn full_setup_prepares_npu_cache_before_config_launcher_and_service_changes() {
             assert!(model_installed.get());
             assert_eq!(candidate.backend.runtime, Runtime::Openvino);
             assert_eq!(candidate.backend.device, "npu");
-            assert_eq!(candidate.model.encoder, spec.openvino_npu_encoder);
+            assert_eq!(candidate.model.encoder, spec.openvino_accelerator_encoder);
             assert_eq!(path, paths.config_file);
             assert_eq!(received_paths, &paths);
             assert_eq!(progress, ProgressFormat::Human);
@@ -1582,7 +1582,7 @@ fn model_activation_prepares_npu_cache_before_saving() {
         spec,
         ProgressFormat::Json,
         |candidate, path, received_paths, progress| {
-            assert_eq!(candidate.model.encoder, spec.openvino_npu_encoder);
+            assert_eq!(candidate.model.encoder, spec.openvino_accelerator_encoder);
             assert_eq!(path, paths.config_file);
             assert_eq!(received_paths, &paths);
             assert_eq!(progress, ProgressFormat::Json);

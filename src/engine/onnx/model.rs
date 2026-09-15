@@ -498,6 +498,12 @@ fn provider_selection(
         if device == "npu" {
             properties.insert("EXECUTION_MODE_HINT".into(), "ACCURACY".into());
             properties.insert("LOG_LEVEL".into(), "LOG_NONE".into());
+        } else if device == "gpu" {
+            // Intel GPUs commonly select f16 internally even for an f32 ONNX
+            // graph. This KWS encoder accumulates recurrent state across many
+            // chunks and needs f32 inference to preserve calibrated scores.
+            properties.insert("INFERENCE_PRECISION_HINT".into(), "f32".into());
+            properties.insert("EXECUTION_MODE_HINT".into(), "ACCURACY".into());
         }
         load_config.insert(device.to_ascii_uppercase(), properties.into());
         options.push((
@@ -535,41 +541,13 @@ fn inference_plan(config: &Config, runtime: Runtime) -> Result<InferencePlan> {
     } else {
         configured_width
     };
-    let mut plan = InferencePlan {
+    let plan = InferencePlan {
         encoder: config.model.encoder.clone(),
         decoder: config.model.decoder.clone(),
         joiner: config.model.joiner.clone(),
         beam_width,
         fixed_batch: explicit_npu.then_some(beam_width),
     };
-    if let Some(spec) = crate::catalog::model(&config.model.name) {
-        let known_graphs = [spec.encoder, spec.openvino_npu_encoder, spec.cuda_encoder]
-            .contains(&config.model.encoder.as_str())
-            && [spec.decoder, spec.openvino_npu_decoder, spec.cuda_decoder]
-                .contains(&config.model.decoder.as_str())
-            && [spec.joiner, spec.openvino_npu_joiner, spec.cuda_joiner]
-                .contains(&config.model.joiner.as_str());
-        if known_graphs {
-            plan.encoder = match runtime {
-                Runtime::Openvino if explicit_npu => spec.openvino_npu_encoder,
-                Runtime::Cuda => spec.cuda_encoder,
-                _ => spec.encoder,
-            }
-            .into();
-            plan.decoder = match runtime {
-                Runtime::Openvino if explicit_npu => spec.openvino_npu_decoder,
-                Runtime::Cuda => spec.cuda_decoder,
-                _ => spec.decoder,
-            }
-            .into();
-            plan.joiner = match runtime {
-                Runtime::Openvino if explicit_npu => spec.openvino_npu_joiner,
-                Runtime::Cuda => spec.cuda_joiner,
-                _ => spec.joiner,
-            }
-            .into();
-        }
-    }
     Ok(plan)
 }
 
@@ -717,7 +695,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_plan_selects_the_calibrated_graphs_and_beam_shape() {
+    fn runtime_plan_preserves_configured_graphs_and_selects_npu_beam_shape() {
         let mut config = Config::default();
         let spec = crate::catalog::models()[0];
 
@@ -729,7 +707,7 @@ mod tests {
         assert_eq!(cpu.fixed_batch, None);
 
         config.backend.runtime = Runtime::Openvino;
-        for device in ["auto", "cpu", "gpu"] {
+        for device in ["auto", "cpu"] {
             config.backend.device = device.into();
             let plan = inference_plan(&config, Runtime::Openvino).unwrap();
             assert_eq!(plan.encoder, spec.encoder);
@@ -737,11 +715,21 @@ mod tests {
             assert_eq!(plan.fixed_batch, None);
         }
 
+        config.backend.device = "gpu".into();
+        spec.apply_runtime_compatibility(&mut config);
+        let gpu = inference_plan(&config, Runtime::Openvino).unwrap();
+        assert_eq!(gpu.encoder, spec.openvino_accelerator_encoder);
+        assert_eq!(gpu.decoder, spec.openvino_accelerator_decoder);
+        assert_eq!(gpu.joiner, spec.openvino_accelerator_joiner);
+        assert_eq!(gpu.beam_width, 4);
+        assert_eq!(gpu.fixed_batch, None);
+
         config.backend.device = "npu".into();
+        spec.apply_runtime_compatibility(&mut config);
         let npu = inference_plan(&config, Runtime::Openvino).unwrap();
-        assert_eq!(npu.encoder, spec.openvino_npu_encoder);
-        assert_eq!(npu.decoder, spec.openvino_npu_decoder);
-        assert_eq!(npu.joiner, spec.openvino_npu_joiner);
+        assert_eq!(npu.encoder, spec.openvino_accelerator_encoder);
+        assert_eq!(npu.decoder, spec.openvino_accelerator_decoder);
+        assert_eq!(npu.joiner, spec.openvino_accelerator_joiner);
         assert_eq!(npu.beam_width, NPU_MIN_BEAM_WIDTH);
         assert_eq!(npu.fixed_batch, Some(NPU_MIN_BEAM_WIDTH));
 
@@ -752,19 +740,19 @@ mod tests {
     }
 
     #[test]
-    fn runtime_plan_normalizes_catalog_graphs_for_cpu_fallback() {
+    fn runtime_plan_never_silently_rewrites_explicit_graphs() {
         let mut config = Config::default();
         let spec = crate::catalog::models()[0];
         config.backend.runtime = Runtime::Openvino;
         config.backend.device = "npu".into();
-        config.model.encoder = spec.openvino_npu_encoder.into();
-        config.model.decoder = spec.openvino_npu_decoder.into();
-        config.model.joiner = spec.openvino_npu_joiner.into();
+        config.model.encoder = spec.openvino_accelerator_encoder.into();
+        config.model.decoder = spec.openvino_accelerator_decoder.into();
+        config.model.joiner = spec.openvino_accelerator_joiner.into();
 
         let fallback = inference_plan(&config, Runtime::Default).unwrap();
-        assert_eq!(fallback.encoder, spec.encoder);
-        assert_eq!(fallback.decoder, spec.decoder);
-        assert_eq!(fallback.joiner, spec.joiner);
+        assert_eq!(fallback.encoder, spec.openvino_accelerator_encoder);
+        assert_eq!(fallback.decoder, spec.openvino_accelerator_decoder);
+        assert_eq!(fallback.joiner, spec.openvino_accelerator_joiner);
         assert_eq!(fallback.fixed_batch, None);
 
         config.model.name = "custom".into();
@@ -856,6 +844,18 @@ mod tests {
                     .iter()
                     .any(|(key, _)| key.ends_with(".load_config"))
             );
+            if device == "gpu" {
+                let load_config = selection
+                    .options
+                    .iter()
+                    .find(|(key, _)| key.ends_with(".load_config"))
+                    .map(|(_, value)| value)
+                    .unwrap();
+                assert!(load_config.contains("INFERENCE_PRECISION_HINT"));
+                assert!(load_config.contains("f32"));
+                assert!(load_config.contains("EXECUTION_MODE_HINT"));
+                assert!(load_config.contains("ACCURACY"));
+            }
         }
 
         config.backend.runtime = Runtime::Cuda;

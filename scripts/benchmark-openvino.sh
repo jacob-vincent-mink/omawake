@@ -17,7 +17,7 @@ Environment:
   OMAWAKE_ITERATIONS    measured iterations per WAV (default: 10)
   OMAWAKE_THREADS       backend threads (default: 2)
   OMAWAKE_LANES         space-separated lane names (default: all four)
-  OMAWAKE_ACCELERATOR_MODEL_VARIANT  int8, fp32-encoder, or fp32 (default: fp32-encoder)
+  OMAWAKE_ACCELERATOR_MODEL_VARIANT  int8, fp32-encoder, or fp32 (default: fp32)
   OMAWAKE_NPU_BUSY_COUNTER  optional readable npu_busy_time_us sysfs path
 
 The external OpenVINO runtime stack and its native loader environment must
@@ -54,7 +54,7 @@ artifact_parent=${OMAWAKE_BENCH_ROOT:-$repo_dir/benchmark-artifacts}
 warmup=${OMAWAKE_WARMUP:-2}
 iterations=${OMAWAKE_ITERATIONS:-10}
 threads=${OMAWAKE_THREADS:-2}
-accelerator_model_variant=${OMAWAKE_ACCELERATOR_MODEL_VARIANT:-fp32-encoder}
+accelerator_model_variant=${OMAWAKE_ACCELERATOR_MODEL_VARIANT:-fp32}
 read -r -a lanes <<<"${OMAWAKE_LANES:-default-cpu openvino-cpu openvino-gpu openvino-npu}"
 
 for numeric in warmup iterations threads; do

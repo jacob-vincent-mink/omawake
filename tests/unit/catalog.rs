@@ -30,15 +30,15 @@ fn lookup_and_activation_populate_config() {
     config.backend.runtime = Runtime::Openvino;
     config.backend.device = "npu".into();
     spec.activate(&mut config);
-    assert_eq!(config.model.encoder, spec.openvino_npu_encoder);
-    assert_eq!(config.model.decoder, spec.openvino_npu_decoder);
-    assert_eq!(config.model.joiner, spec.openvino_npu_joiner);
+    assert_eq!(config.model.encoder, spec.openvino_accelerator_encoder);
+    assert_eq!(config.model.decoder, spec.openvino_accelerator_decoder);
+    assert_eq!(config.model.joiner, spec.openvino_accelerator_joiner);
 
     config.backend.device = "gpu".into();
     spec.apply_runtime_compatibility(&mut config);
-    assert_eq!(config.model.encoder, spec.encoder);
-    assert_eq!(config.model.decoder, spec.decoder);
-    assert_eq!(config.model.joiner, spec.joiner);
+    assert_eq!(config.model.encoder, spec.openvino_accelerator_encoder);
+    assert_eq!(config.model.decoder, spec.openvino_accelerator_decoder);
+    assert_eq!(config.model.joiner, spec.openvino_accelerator_joiner);
 
     config.backend.device = "cpu".into();
     spec.apply_runtime_compatibility(&mut config);

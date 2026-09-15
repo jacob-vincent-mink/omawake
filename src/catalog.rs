@@ -32,13 +32,13 @@ pub struct ModelSpec {
     pub archive_sha256: &'static str,
     pub archive_root: &'static str,
     pub encoder: &'static str,
-    pub openvino_npu_encoder: &'static str,
+    pub openvino_accelerator_encoder: &'static str,
     pub cuda_encoder: &'static str,
     pub decoder: &'static str,
-    pub openvino_npu_decoder: &'static str,
+    pub openvino_accelerator_decoder: &'static str,
     pub cuda_decoder: &'static str,
     pub joiner: &'static str,
-    pub openvino_npu_joiner: &'static str,
+    pub openvino_accelerator_joiner: &'static str,
     pub cuda_joiner: &'static str,
     pub tokens: &'static str,
     pub bpe_model: &'static str,
@@ -124,13 +124,13 @@ const MODELS: &[ModelSpec] = &[ModelSpec {
     archive_sha256: "f170013b4716e41b62b9bfd809687c207cef798ef9bc6534d524e17af9b6561a",
     archive_root: "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01",
     encoder: "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
-    openvino_npu_encoder: "encoder-epoch-12-avg-2-chunk-16-left-64.onnx",
+    openvino_accelerator_encoder: "encoder-epoch-12-avg-2-chunk-16-left-64.onnx",
     cuda_encoder: "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
     decoder: "decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
-    openvino_npu_decoder: "decoder-epoch-12-avg-2-chunk-16-left-64.onnx",
+    openvino_accelerator_decoder: "decoder-epoch-12-avg-2-chunk-16-left-64.onnx",
     cuda_decoder: "decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
     joiner: "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
-    openvino_npu_joiner: "joiner-epoch-12-avg-2-chunk-16-left-64.onnx",
+    openvino_accelerator_joiner: "joiner-epoch-12-avg-2-chunk-16-left-64.onnx",
     cuda_joiner: "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
     tokens: "tokens.txt",
     bpe_model: "bpe.model",
@@ -165,13 +165,21 @@ impl ModelSpec {
         if !config.model.directory.trim().is_empty()
             || !matches!(
                 config.model.encoder.as_str(),
-                encoder if [self.encoder, self.openvino_npu_encoder, self.cuda_encoder]
+                encoder if [self.encoder, self.openvino_accelerator_encoder, self.cuda_encoder]
                     .contains(&encoder)
             )
-            || ![self.decoder, self.openvino_npu_decoder, self.cuda_decoder]
-                .contains(&config.model.decoder.as_str())
-            || ![self.joiner, self.openvino_npu_joiner, self.cuda_joiner]
-                .contains(&config.model.joiner.as_str())
+            || ![
+                self.decoder,
+                self.openvino_accelerator_decoder,
+                self.cuda_decoder,
+            ]
+            .contains(&config.model.decoder.as_str())
+            || ![
+                self.joiner,
+                self.openvino_accelerator_joiner,
+                self.cuda_joiner,
+            ]
+            .contains(&config.model.joiner.as_str())
         {
             return;
         }
@@ -180,21 +188,21 @@ impl ModelSpec {
             config.model.decoder = self.cuda_decoder.into();
             config.model.joiner = self.cuda_joiner.into();
         } else {
-            let npu = self.uses_openvino_npu(config);
-            config.model.encoder = if npu {
-                self.openvino_npu_encoder
+            let accelerator = self.uses_openvino_accelerator(config);
+            config.model.encoder = if accelerator {
+                self.openvino_accelerator_encoder
             } else {
                 self.encoder
             }
             .into();
-            config.model.decoder = if npu {
-                self.openvino_npu_decoder
+            config.model.decoder = if accelerator {
+                self.openvino_accelerator_decoder
             } else {
                 self.decoder
             }
             .into();
-            config.model.joiner = if npu {
-                self.openvino_npu_joiner
+            config.model.joiner = if accelerator {
+                self.openvino_accelerator_joiner
             } else {
                 self.joiner
             }
@@ -202,14 +210,14 @@ impl ModelSpec {
         }
     }
 
-    pub fn uses_openvino_npu(self, config: &Config) -> bool {
+    fn uses_openvino_accelerator(self, config: &Config) -> bool {
         if config.backend.runtime != Runtime::Openvino {
             return false;
         }
         config
             .backend
             .canonical_device()
-            .is_ok_and(|device| device == "npu")
+            .is_ok_and(|device| matches!(device.as_str(), "gpu" | "npu"))
     }
 }
 
