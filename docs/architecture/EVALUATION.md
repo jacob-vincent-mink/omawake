@@ -49,9 +49,12 @@ A separate GB10 experiment contains 60 Piper `hey jarvis` positives from three
 voices with varied prosody, 2.4 hours of clean LibriSpeech negatives, and 1.7
 hours of generated noise-floor audio. In that experiment Whisper Tiny missed
 4/60 positives while Whisper Base missed 0/60; the VAD accepted all four missed
-clips. Until reproduced through Omawake, this is model-selection evidence, not
-a release result. Tiny verifier profiles must not be recommended without
-passing the same positive and negative gates.
+clips. That harness matched the substring `jarvis`, rather than requiring the
+complete `hey jarvis` phrase, so its apparent parity with fixed-phrase
+detectors is not a like-for-like product result. Until reproduced through
+Omawake's complete phrase matcher, it is model-selection evidence only. Tiny
+verifier profiles must not be recommended without passing the same positive
+and negative gates.
 
 ## Latency and resource reporting
 
