@@ -27,6 +27,32 @@ fn requires_whole_tokens() {
 }
 
 #[test]
+fn ignores_asr_word_boundary_variation() {
+    let matcher = PhraseMatcher::compile(&[
+        wake_word("forever", "forever"),
+        wake_word("lights", "light up"),
+    ])
+    .unwrap();
+
+    assert_eq!(
+        matcher.matches("registered for ever in our temples"),
+        [PhraseMatch {
+            id: "forever".into(),
+            start_token: 1,
+            end_token: 3,
+        }]
+    );
+    assert_eq!(
+        matcher.matches("the lamps would lightup here"),
+        [PhraseMatch {
+            id: "lights".into(),
+            start_token: 3,
+            end_token: 4,
+        }]
+    );
+}
+
+#[test]
 fn matches_separate_phrases_and_ignores_disabled_entries() {
     let mut disabled = wake_word("sleep", "go to sleep");
     disabled.enabled = false;
@@ -101,6 +127,13 @@ fn rejects_ambiguous_or_empty_enabled_phrases() {
         PhraseMatcher::compile(&[
             wake_word("first", "Hey, Computer"),
             wake_word("second", "hey computer"),
+        ])
+        .is_err()
+    );
+    assert!(
+        PhraseMatcher::compile(&[
+            wake_word("first", "forever"),
+            wake_word("second", "for ever"),
         ])
         .is_err()
     );

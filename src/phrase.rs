@@ -15,7 +15,7 @@ pub struct PhraseMatch {
 #[derive(Clone, Debug)]
 struct CompiledPhrase {
     id: String,
-    tokens: Vec<String>,
+    canonical: String,
     order: usize,
 }
 
@@ -44,15 +44,19 @@ impl PhraseMatcher {
             {
                 bail!("duplicate enabled wake-word id {:?}", wake_word.id);
             }
-            if phrases.iter().any(|existing| existing.tokens == tokens) {
+            let canonical = tokens.concat();
+            if phrases
+                .iter()
+                .any(|existing| existing.canonical == canonical)
+            {
                 bail!(
-                    "enabled wake-word phrase {:?} normalizes to the same phrase as another entry",
+                    "enabled wake-word phrase {:?} normalizes to the same phrase as another entry, including word boundaries",
                     wake_word.phrase
                 );
             }
             phrases.push(CompiledPhrase {
                 id: wake_word.id.clone(),
-                tokens,
+                canonical,
                 order,
             });
         }
@@ -62,7 +66,10 @@ impl PhraseMatcher {
         Ok(Self { phrases })
     }
 
-    /// Match complete token sequences in a verifier transcript.
+    /// Match complete phrase text in a verifier transcript. Word boundaries
+    /// are ignored because ASR output can render the same speech as, for
+    /// example, either `forever` or `for ever`. Character boundaries are still
+    /// exact, so `computer` does not match `computerized`.
     ///
     /// Each configured phrase is emitted at most once. When configured phrases
     /// overlap, the phrase with more tokens wins; configuration order breaks a
@@ -71,12 +78,17 @@ impl PhraseMatcher {
         let transcript = normalize_tokens(transcript);
         let mut candidates = Vec::new();
         for phrase in &self.phrases {
-            if phrase.tokens.len() > transcript.len() {
-                continue;
-            }
-            for (start_token, window) in transcript.windows(phrase.tokens.len()).enumerate() {
-                if window == phrase.tokens {
-                    candidates.push((phrase, start_token, start_token + phrase.tokens.len()));
+            for start_token in 0..transcript.len() {
+                let mut canonical = String::new();
+                for (offset, token) in transcript[start_token..].iter().enumerate() {
+                    canonical.push_str(token);
+                    if canonical == phrase.canonical {
+                        candidates.push((phrase, start_token, start_token + offset + 1));
+                        break;
+                    }
+                    if canonical.len() >= phrase.canonical.len() {
+                        break;
+                    }
                 }
             }
         }
@@ -84,7 +96,7 @@ impl PhraseMatcher {
         candidates.sort_by(|(left, left_start, _), (right, right_start, _)| {
             left_start
                 .cmp(right_start)
-                .then_with(|| right.tokens.len().cmp(&left.tokens.len()))
+                .then_with(|| right.canonical.len().cmp(&left.canonical.len()))
                 .then_with(|| left.order.cmp(&right.order))
         });
 
