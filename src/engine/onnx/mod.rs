@@ -8,7 +8,7 @@
 mod fbank;
 mod keyword;
 mod model;
-mod resample;
+pub(super) mod resample;
 
 use anyhow::{Context, Result, bail};
 use std::{cell::RefCell, fs, path::Path};

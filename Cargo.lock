@@ -911,6 +911,7 @@ dependencies = [
  "cpal",
  "crossterm",
  "hound",
+ "libc",
  "libloading 0.7.4",
  "ort",
  "rubato",

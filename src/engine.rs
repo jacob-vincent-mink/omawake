@@ -12,7 +12,9 @@ use crate::keyword::KeywordCompiler;
 use crate::paths::AppPaths;
 
 pub(crate) mod onnx;
+pub(crate) mod whisper;
 use self::onnx::{OmaOnnxBackend, read_wave};
+use self::whisper::WhisperCppBackend;
 
 pub trait WakeWordBackend {
     fn kind(&self) -> &'static str;
@@ -69,17 +71,37 @@ pub fn wav_duration(path: &Path) -> Result<Duration> {
 
 impl Detector {
     pub fn load(config: &Config, paths: &AppPaths) -> Result<Self> {
-        if config.backend.kind != "omawake-onnx" {
-            bail!(
-                "unsupported wake-word backend {}; run `omawake setup runtime`",
-                config.backend.kind
+        if config.backend.kind == "whispercpp" {
+            config.backend.validate_shape()?;
+            let keywords_buffer = config
+                .wake_words
+                .iter()
+                .filter(|entry| entry.enabled)
+                .map(|entry| entry.phrase.trim())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let started = Instant::now();
+            let backend = Box::new(WhisperCppBackend::load(config, paths)?);
+            return Self::from_backend(
+                config,
+                backend,
+                keywords_buffer,
+                Runtime::Default,
+                false,
+                started.elapsed(),
             );
         }
-        Self::load_with(config, paths, |config, directory, runtime, keywords| {
-            Ok(Box::new(OmaOnnxBackend::load(
-                config, paths, directory, runtime, keywords,
-            )?))
-        })
+        if config.backend.kind == "omawake-onnx" {
+            return Self::load_with(config, paths, |config, directory, runtime, keywords| {
+                Ok(Box::new(OmaOnnxBackend::load(
+                    config, paths, directory, runtime, keywords,
+                )?))
+            });
+        }
+        bail!(
+            "unsupported wake-word backend {}; run `omawake setup runtime`",
+            config.backend.kind
+        )
     }
 
     pub fn load_with<F>(config: &Config, paths: &AppPaths, mut load_backend: F) -> Result<Self>

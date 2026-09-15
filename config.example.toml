@@ -5,6 +5,8 @@ device = "auto"
 threads = 2
 fallback = "error"
 device_id = 0
+# Required for backend.kind = "whispercpp". May be absolute or relative to this config.
+library = ""
 
 [backend.options]
 # ProfilingFilePrefix = "/tmp/omawake-openvino"
@@ -12,6 +14,9 @@ device_id = 0
 [model]
 name = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
 directory = ""
+# Used by backend.kind = "whispercpp".
+verifier = "ggml-tiny.en.bin"
+vad = "ggml-silero-v6.2.0.bin"
 # The int8 graphs are the model's calibrated keyword-spotting artifacts.
 encoder = "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx"
 decoder = "decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx"

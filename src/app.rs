@@ -58,6 +58,13 @@ enum TopCommand {
         request: String,
         response: PathBuf,
     },
+    #[command(name = "__whisper-worker", hide = true)]
+    WhisperWorker {
+        library: PathBuf,
+        verifier: PathBuf,
+        vad: PathBuf,
+        threads: i32,
+    },
     Test {
         #[arg(long, conflicts_with = "seconds")]
         audio: Option<PathBuf>,
@@ -258,6 +265,15 @@ pub fn entry() -> ExitCode {
 
 fn run_entry(cli: Cli) -> Result<()> {
     let paths = AppPaths::discover();
+    if let TopCommand::WhisperWorker {
+        library,
+        verifier,
+        vad,
+        threads,
+    } = &cli.command
+    {
+        return crate::engine::whisper::worker_main(library, verifier, vad, *threads);
+    }
     if let Some(request) = native_json_request(&cli.command) {
         let config_path = cli.config.as_deref().unwrap_or(&paths.config_file);
         return run_native_json_worker(config_path, &paths, &request, &std::env::current_exe()?);
@@ -459,7 +475,9 @@ where
         TopCommand::NativeJson { request, response } => {
             let request = serde_json::from_str(&request)?;
             let config = Config::load(&config_path)?;
-            runtime_paths::ensure_engine_library_path(&config.backend, &config_path)?;
+            if config.backend.kind == "omawake-onnx" {
+                runtime_paths::ensure_engine_library_path(&config.backend, &config_path)?;
+            }
             let report = execute_native_json(&config, &paths, request)?;
             crate::native_worker::write_json(&response, &paths.runtime_dir, &report)?;
             return Ok(());
@@ -468,7 +486,7 @@ where
         command => command,
     };
     let config = Config::load(&config_path)?;
-    if command_uses_engine(&command) {
+    if command_uses_engine(&command) && config.backend.kind == "omawake-onnx" {
         ensure_engine_library_path(&config.backend, &config_path)?;
     }
     match command {
@@ -566,6 +584,7 @@ where
         TopCommand::InventoryProbe { .. }
         | TopCommand::ModelCachePrepare { .. }
         | TopCommand::NativeJson { .. }
+        | TopCommand::WhisperWorker { .. }
         | TopCommand::Setup { .. } => unreachable!(),
         TopCommand::Config { command } => config_mutation(command, config, &config_path),
     }
@@ -621,6 +640,7 @@ fn set_config(config: &mut Config, key: &str, value: &str) -> Result<()> {
         "backend.threads" => config.backend.threads = value.parse()?,
         "backend.fallback" => config.backend.fallback = parse_fallback(value)?,
         "backend.device_id" => config.backend.device_id = value.parse()?,
+        "backend.library" => config.backend.library = value.into(),
         "backend.library_dirs" => {
             config.backend.library_dirs = std::env::split_paths(value).collect()
         }
@@ -628,6 +648,8 @@ fn set_config(config: &mut Config, key: &str, value: &str) -> Result<()> {
         "backend.provider_library" => config.backend.provider_library = value.into(),
         "model.name" => config.model.name = value.into(),
         "model.directory" => config.model.directory = value.into(),
+        "model.verifier" => config.model.verifier = value.into(),
+        "model.vad" => config.model.vad = value.into(),
         "model.sample_rate" => config.model.sample_rate = value.parse()?,
         "model.keywords_score" => config.model.keywords_score = value.parse()?,
         "model.keywords_threshold" => config.model.keywords_threshold = value.parse()?,
@@ -650,6 +672,7 @@ fn unset_config(config: &mut Config, key: &str) -> Result<()> {
         "backend.threads" => config.backend.threads = defaults.backend.threads,
         "backend.fallback" => config.backend.fallback = defaults.backend.fallback,
         "backend.device_id" => config.backend.device_id = defaults.backend.device_id,
+        "backend.library" => config.backend.library = defaults.backend.library,
         "backend.library_dirs" => config.backend.library_dirs = defaults.backend.library_dirs,
         "backend.onnxruntime_library" => {
             config.backend.onnxruntime_library = defaults.backend.onnxruntime_library
@@ -659,6 +682,8 @@ fn unset_config(config: &mut Config, key: &str) -> Result<()> {
         }
         "model.name" => config.model.name = defaults.model.name,
         "model.directory" => config.model.directory = defaults.model.directory,
+        "model.verifier" => config.model.verifier = defaults.model.verifier,
+        "model.vad" => config.model.vad = defaults.model.vad,
         "model.sample_rate" => config.model.sample_rate = defaults.model.sample_rate,
         "model.keywords_score" => config.model.keywords_score = defaults.model.keywords_score,
         "model.keywords_threshold" => {
@@ -2985,13 +3010,16 @@ fn stopped_status(config: &Config, paths: &AppPaths) -> serde_json::Value {
 fn schema(config: &Config, config_path: &Path, paths: &AppPaths) -> serde_json::Value {
     json!({"schema_version":1,"app":"omawake","app_version":env!("CARGO_PKG_VERSION"),"daemon_version":env!("CARGO_PKG_VERSION"),"config_path":config_path,
         "keys":[
-            {"key":"backend.kind","type":"enum","section":"Backend","label":"Backend","description":"Inference engine","value":config.backend.kind,"file_value":null,"supported":true,"restart_required":true,"choices":["omawake-onnx"]},
+            {"key":"backend.kind","type":"enum","section":"Backend","label":"Backend","description":"Inference engine","value":config.backend.kind,"file_value":null,"supported":true,"restart_required":true,"choices":["omawake-onnx","whispercpp"]},
             {"key":"backend.runtime","type":"enum","section":"Backend","label":"Runtime","description":"ONNX Runtime provider","value":config.backend.runtime,"file_value":null,"supported":true,"restart_required":true,"choices":[{"value":"default","available":true,"capability":"cpu"},{"value":"openvino","available":supported_capabilities().contains(&"openvino"),"capability":"openvino"},{"value":"cuda","available":supported_capabilities().contains(&"cuda"),"capability":"cuda"}]},
             {"key":"backend.device","type":"string","section":"Backend","label":"Device","description":"Runtime-specific device","value":config.backend.device,"file_value":null,"supported":true,"restart_required":true},
+            {"key":"backend.library","type":"path","section":"Backend","label":"Provider library","description":"Exact libwhisper shared library for the whispercpp backend","value":config.backend.library,"file_value":null,"supported":true,"restart_required":true},
             {"key":"backend.library_dirs","type":"path-list","section":"Backend","label":"Native library directories","description":"App-owned vendor runtime search paths","value":config.backend.library_dirs,"file_value":null,"supported":true,"restart_required":true},
             {"key":"backend.onnxruntime_library","type":"path","section":"Backend","label":"ONNX Runtime library","description":"Exact app-owned ONNX Runtime shared library","value":config.backend.onnxruntime_library,"file_value":null,"supported":true,"restart_required":true},
             {"key":"backend.provider_library","type":"path","section":"Backend","label":"Provider library","description":"Exact OpenVINO or CUDA execution-provider plugin","value":config.backend.provider_library,"file_value":null,"supported":true,"restart_required":true},
-            {"key":"model.directory","type":"path","section":"Model","label":"Directory","description":"Model asset directory","value":config.model_directory(paths),"file_value":config.model.directory,"supported":true,"restart_required":true}],
+            {"key":"model.directory","type":"path","section":"Model","label":"Directory","description":"Model asset directory","value":config.model_directory(paths),"file_value":config.model.directory,"supported":true,"restart_required":true},
+            {"key":"model.verifier","type":"string","section":"Model","label":"Verifier model","description":"Whisper verifier filename inside the model directory","value":config.model.verifier,"file_value":null,"supported":true,"restart_required":true},
+            {"key":"model.vad","type":"string","section":"Model","label":"VAD model","description":"Silero VAD filename inside the model directory","value":config.model.vad,"file_value":null,"supported":true,"restart_required":true}],
         "collections":[{"key":"wake_words","id_key":"id","label":"Wake words","items":config.wake_words}],
         "constraints":[{"kind":"matrix","keys":["backend.runtime","backend.device"],"rows":[{"backend.runtime":"default","backend.device":["auto","cpu"]},{"backend.runtime":"cuda","backend.device":["auto","gpu"]},{"backend.runtime":"openvino","backend.device":["auto","npu","gpu","cpu"]}]}]})
 }

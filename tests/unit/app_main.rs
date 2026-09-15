@@ -833,6 +833,7 @@ fn config_helpers_cover_every_supported_key_and_validation() {
         ("backend.threads", "3"),
         ("backend.fallback", "CPU"),
         ("backend.device_id", "2"),
+        ("backend.library", "/opt/whisper/lib/libwhisper.so.1"),
         ("backend.library_dirs", "/opt/oma/lib:/opt/vendor/lib"),
         (
             "backend.onnxruntime_library",
@@ -844,6 +845,8 @@ fn config_helpers_cover_every_supported_key_and_validation() {
         ),
         ("model.name", "custom-model"),
         ("model.directory", "/models/custom"),
+        ("model.verifier", "ggml-tiny.en.bin"),
+        ("model.vad", "ggml-silero-v6.2.0.bin"),
         ("model.sample_rate", "8000"),
         ("model.keywords_score", "2.5"),
         ("model.keywords_threshold", "0.75"),

@@ -69,6 +69,8 @@ impl Default for Config {
 pub struct ModelConfig {
     pub name: String,
     pub directory: String,
+    pub verifier: String,
+    pub vad: String,
     pub encoder: String,
     pub decoder: String,
     pub joiner: String,
@@ -86,6 +88,8 @@ impl Default for ModelConfig {
         Self {
             name: "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01".into(),
             directory: String::new(),
+            verifier: "ggml-tiny.en.bin".into(),
+            vad: "ggml-silero-v6.2.0.bin".into(),
             encoder: "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx".into(),
             decoder: "decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx".into(),
             joiner: "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx".into(),
