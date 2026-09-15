@@ -1,11 +1,12 @@
 [package]
 name = "omawake"
-version = "0.1.0"
+version = "0.0.1-rc"
 edition = "2024"
 description = "Local wake-word detection CLI and daemon with runtime-selectable inference backends"
 license = "MIT"
 repository = "https://github.com/jacob-vincent-mink/omawake"
 readme = "README.md"
+publish = false
 
 [dependencies]
 anyhow = "1"

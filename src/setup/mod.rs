@@ -1,3 +1,4 @@
+pub mod cache;
 pub mod menu;
 pub mod model;
 pub mod systemd;
@@ -115,6 +116,51 @@ fn checks_with(
                 ));
             }
         }
+    }
+    let cache_device = config
+        .backend
+        .canonical_device()
+        .unwrap_or_else(|_| config.backend.device.clone());
+    match cache::status(&config, paths) {
+        Ok(report) if !report.required => result.push(ok(
+            "model-cache",
+            "setup-time compiled cache is not required for this runtime/device",
+        )),
+        Ok(report) if report.prepared => result.push(ok(
+            "model-cache",
+            format!(
+                "{} compiled artifact(s), {} bytes in {}",
+                report.artifacts,
+                report.bytes,
+                report
+                    .directory
+                    .as_deref()
+                    .unwrap_or_else(|| Path::new("<unknown>"))
+                    .display()
+            ),
+        )),
+        Ok(report) => result.push(fail(
+            "model-cache",
+            format!(
+                "OpenVINO {} model cache is not prepared: {}",
+                cache_device.to_ascii_uppercase(),
+                report
+                    .directory
+                    .as_deref()
+                    .unwrap_or_else(|| Path::new("<unknown>"))
+                    .display()
+            ),
+            format!(
+                "rerun OpenVINO {} runtime setup with `omawake setup runtime --runtime openvino --device {} --apply` after installing the model",
+                cache_device.to_ascii_uppercase(),
+                cache_device
+            ),
+        )),
+        Err(error) => result.push(fail(
+            "model-cache",
+            format!("{error:#}"),
+            "use Omawake's managed OpenVINO provider config and rerun GPU/NPU setup",
+        )),
     }
     match check_engine(&config, paths) {
         Ok(detail) => result.push(ok("engine", detail)),

@@ -123,6 +123,7 @@ fn spec(archive_bytes: &[u8], url: &str) -> &'static ModelSpec {
         cuda_joiner: "model.bin",
         tokens: "model.bin",
         bpe_model: "model.bin",
+        probe_audio: "model.bin",
         required_files: required,
     }))
 }
@@ -131,6 +132,7 @@ fn paths(root: &Path) -> AppPaths {
     AppPaths {
         config_file: root.join("config/config.toml"),
         data_dir: root.join("data"),
+        cache_dir: root.join("cache"),
         state_dir: root.join("state"),
         runtime_dir: root.join("run"),
     }
@@ -141,6 +143,7 @@ fn model_path_is_backend_neutral() {
     let paths = AppPaths {
         config_file: "/tmp/config".into(),
         data_dir: "/tmp/data".into(),
+        cache_dir: "/tmp/cache".into(),
         state_dir: "/tmp/state".into(),
         runtime_dir: "/tmp/run".into(),
     };

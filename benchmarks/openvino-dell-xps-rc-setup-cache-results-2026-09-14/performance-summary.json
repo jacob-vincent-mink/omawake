@@ -1,0 +1,138 @@
+{
+  "default-cpu": {
+    "cold-import": {
+      "process_elapsed_seconds": 0.543047,
+      "model_load_milliseconds": 314.676903,
+      "p50_milliseconds": 60.779031999999994,
+      "p95_milliseconds": 148.325692,
+      "p50_real_time_factor": 0.008873807478312894,
+      "p95_real_time_factor": 0.009174193509433961,
+      "backend": {
+        "effective_runtime": "default",
+        "fallback_used": false,
+        "kind": "sherpa-onnx",
+        "placement_verified": true,
+        "requested_device": "cpu",
+        "requested_runtime": "default"
+      }
+    },
+    "hot": {
+      "process_elapsed_seconds": 2.736361,
+      "model_load_milliseconds": 304.367864,
+      "p50_milliseconds": 57.547169000000004,
+      "p95_milliseconds": 145.55507400000002,
+      "p50_real_time_factor": 0.00862628120754717,
+      "p95_real_time_factor": 0.008708051091833683,
+      "backend": {
+        "effective_runtime": "default",
+        "fallback_used": false,
+        "kind": "sherpa-onnx",
+        "placement_verified": true,
+        "requested_device": "cpu",
+        "requested_runtime": "default"
+      }
+    }
+  },
+  "openvino-cpu": {
+    "cold-import": {
+      "process_elapsed_seconds": 2.486517,
+      "model_load_milliseconds": 1601.979759,
+      "p50_milliseconds": 262.14684,
+      "p95_milliseconds": 544.225699,
+      "p50_real_time_factor": 0.032559120490577326,
+      "p95_real_time_factor": 0.03956933433962264,
+      "backend": {
+        "effective_runtime": "openvino",
+        "fallback_used": false,
+        "kind": "sherpa-onnx",
+        "placement_verified": false,
+        "requested_device": "cpu",
+        "requested_runtime": "openvino"
+      }
+    },
+    "hot": {
+      "process_elapsed_seconds": 10.894363,
+      "model_load_milliseconds": 669.896725,
+      "p50_milliseconds": 311.273591,
+      "p95_milliseconds": 582.519535,
+      "p50_real_time_factor": 0.03435625313207547,
+      "p95_real_time_factor": 0.04103215094339623,
+      "backend": {
+        "effective_runtime": "openvino",
+        "fallback_used": false,
+        "kind": "sherpa-onnx",
+        "placement_verified": false,
+        "requested_device": "cpu",
+        "requested_runtime": "openvino"
+      }
+    }
+  },
+  "openvino-gpu": {
+    "cold-import": {
+      "process_elapsed_seconds": 1.213828,
+      "model_load_milliseconds": 407.213798,
+      "p50_milliseconds": 285.45558,
+      "p95_milliseconds": 446.840574,
+      "p50_real_time_factor": 0.01707780915345498,
+      "p95_real_time_factor": 0.06744763381132075,
+      "backend": {
+        "effective_runtime": "openvino",
+        "fallback_used": false,
+        "kind": "sherpa-onnx",
+        "placement_verified": false,
+        "requested_device": "gpu",
+        "requested_runtime": "openvino"
+      }
+    },
+    "hot": {
+      "process_elapsed_seconds": 5.565719,
+      "model_load_milliseconds": 376.30191099999996,
+      "p50_milliseconds": 113.530964,
+      "p95_milliseconds": 292.15863199999995,
+      "p50_real_time_factor": 0.016916462698175292,
+      "p95_real_time_factor": 0.017478829314986538,
+      "backend": {
+        "effective_runtime": "openvino",
+        "fallback_used": false,
+        "kind": "sherpa-onnx",
+        "placement_verified": false,
+        "requested_device": "gpu",
+        "requested_runtime": "openvino"
+      }
+    }
+  },
+  "openvino-npu": {
+    "cold-import": {
+      "process_elapsed_seconds": 0.722666,
+      "model_load_milliseconds": 240.022018,
+      "p50_milliseconds": 207.20339700000002,
+      "p95_milliseconds": 230.125629,
+      "p50_real_time_factor": 0.013767611666168113,
+      "p95_real_time_factor": 0.03127598445283019,
+      "backend": {
+        "effective_runtime": "openvino",
+        "fallback_used": false,
+        "kind": "sherpa-onnx",
+        "placement_verified": false,
+        "requested_device": "npu",
+        "requested_runtime": "openvino"
+      }
+    },
+    "hot": {
+      "process_elapsed_seconds": 3.708251,
+      "model_load_milliseconds": 211.883127,
+      "p50_milliseconds": 79.37827999999999,
+      "p95_milliseconds": 197.696807,
+      "p50_real_time_factor": 0.01173834762264151,
+      "p95_real_time_factor": 0.011971513509433962,
+      "backend": {
+        "effective_runtime": "openvino",
+        "fallback_used": false,
+        "kind": "sherpa-onnx",
+        "placement_verified": false,
+        "requested_device": "npu",
+        "requested_runtime": "openvino"
+      }
+    }
+  }
+}

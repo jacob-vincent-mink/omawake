@@ -1,0 +1,2 @@
+/tmp/omawake-npu-final-validation.7LvLMM/profiles/parity/npu_2026-09-14_19-33-18_871.json
+/tmp/omawake-npu-final-validation.7LvLMM/profiles/parity/npu_2026-09-14_19-33-17_872.json

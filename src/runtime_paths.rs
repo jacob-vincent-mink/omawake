@@ -537,8 +537,11 @@ fn library_path_in_directory(name: &str, directory: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 fn provider_dependencies_resolve(provider: &Path, search_dirs: &[PathBuf]) -> bool {
     let library_path = env::join_paths(search_dirs).ok();
-    let mut command = Command::new("ldd");
-    command.arg(provider);
+    let Some(loader) = native_dynamic_loader() else {
+        return false;
+    };
+    let mut command = Command::new(loader);
+    command.arg("--list").arg(provider);
     if let Some(library_path) = library_path {
         command.env("LD_LIBRARY_PATH", library_path);
     }
@@ -547,6 +550,24 @@ fn provider_dependencies_resolve(provider: &Path, search_dirs: &[PathBuf]) -> bo
             && !String::from_utf8_lossy(&output.stdout).contains("not found")
             && !String::from_utf8_lossy(&output.stderr).contains("not found")
     })
+}
+
+#[cfg(test)]
+fn native_dynamic_loader() -> Option<&'static Path> {
+    #[cfg(target_arch = "x86_64")]
+    const CANDIDATES: &[&str] = &[
+        "/lib64/ld-linux-x86-64.so.2",
+        "/usr/lib64/ld-linux-x86-64.so.2",
+    ];
+    #[cfg(target_arch = "aarch64")]
+    const CANDIDATES: &[&str] = &[
+        "/lib/ld-linux-aarch64.so.1",
+        "/usr/lib/ld-linux-aarch64.so.1",
+    ];
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    const CANDIDATES: &[&str] = &[];
+
+    CANDIDATES.iter().map(Path::new).find(|path| path.is_file())
 }
 
 fn deduplicate_paths(paths: impl IntoIterator<Item = PathBuf>) -> Vec<PathBuf> {

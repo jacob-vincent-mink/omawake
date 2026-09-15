@@ -3,12 +3,6 @@
 The MIT license in `LICENSE` applies to Omawake's project-authored source. It
 does not relicense the components and model files described below.
 
-## Omarchy-derived mark
-
-The open corner frame in `assets/omawake-mark*.svg` is adapted from the
-[Omarchy](https://github.com/basecamp/omarchy) icon, copyright David Heinemeier
-Hansson, under the MIT License. See `licenses/OMARCHY-LICENSE`.
-
 ## sherpa-onnx
 
 `native/sherpa` builds a modified sherpa-onnx 1.13.8 companion library.

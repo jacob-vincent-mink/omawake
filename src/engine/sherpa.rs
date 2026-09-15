@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::ptr;
 use std::rc::Rc;
 use std::slice;
+use std::sync::{Mutex, OnceLock};
 
 use anyhow::{Context, Result, bail};
 use libloading::os::unix::{Library, RTLD_GLOBAL, RTLD_LOCAL, RTLD_NOW};
@@ -16,6 +17,60 @@ use super::*;
 
 const SHERPA_VERSION: &str = "1.13.8";
 const EXTENDED_SHERPA_API_VERSION: i32 = 1;
+
+struct PinRegistry<T> {
+    entries: Vec<(PathBuf, T)>,
+}
+
+impl<T> Default for PinRegistry<T> {
+    fn default() -> Self {
+        Self {
+            entries: Vec::new(),
+        }
+    }
+}
+
+impl<T> PinRegistry<T> {
+    fn pin_with(&mut self, path: &Path, load: impl FnOnce(&Path) -> Result<T>) -> Result<bool> {
+        let canonical = path
+            .canonicalize()
+            .with_context(|| format!("canonicalize native library {}", path.display()))?;
+        if self.entries.iter().any(|(path, _)| path == &canonical) {
+            return Ok(false);
+        }
+
+        let value = load(&canonical)?;
+        self.entries.push((canonical, value));
+        Ok(true)
+    }
+}
+
+static ACCELERATOR_LIBRARY_PINS: OnceLock<Mutex<PinRegistry<Library>>> = OnceLock::new();
+
+fn pin_accelerator_libraries(
+    ort_path: &Path,
+    sherpa_path: &Path,
+    provider_path: &Path,
+) -> Result<()> {
+    let pins = ACCELERATOR_LIBRARY_PINS.get_or_init(|| Mutex::new(PinRegistry::default()));
+    let mut pins = pins.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    for (path, flags) in [
+        (ort_path, RTLD_NOW | RTLD_GLOBAL),
+        (sherpa_path, RTLD_NOW | RTLD_LOCAL),
+        (provider_path, RTLD_NOW | RTLD_LOCAL),
+    ] {
+        pins.pin_with(path, |canonical| {
+            // Rust does not drop static values at process exit. Keeping these handles in a
+            // process-wide registry prevents accelerator code from being unmapped while vendor
+            // worker threads still have TLS destructors or exit callbacks in that code.
+            unsafe { Library::open(Some(canonical), flags) }
+                .with_context(|| format!("pin native library {}", canonical.display()))
+        })?;
+    }
+
+    Ok(())
+}
 
 pub(crate) fn validate_runtime_libraries(ort_path: &Path, sherpa_path: &Path) -> Result<()> {
     let (sherpa, ort) = open_runtime_libraries(ort_path, sherpa_path)?;
@@ -495,10 +550,13 @@ impl Api {
                     CString::new(provider_path.to_string_lossy().as_bytes())?,
                     CString::new(ep_name)?,
                     CString::new(device)?,
+                    provider_path,
                 ))
             };
             let runtime_handle =
-                if let Some((registration, provider_path, ep_name, device)) = provider {
+                if let Some((registration, provider_path_c, ep_name, device, provider_path)) =
+                    provider
+                {
                     let runtime_handle = create_ort_runtime();
                     if runtime_handle.is_null() {
                         bail!(
@@ -510,12 +568,16 @@ impl Api {
                     if register_provider(
                         runtime_handle,
                         registration.as_ptr(),
-                        provider_path.as_ptr(),
+                        provider_path_c.as_ptr(),
                     ) == 0
                     {
                         let message = string(runtime_error(runtime_handle));
                         bail!("register execution-provider library: {message}");
                     }
+                    // The provider bridge must resolve Provider_GetHost before the provider can be
+                    // opened independently. Pin all three DSOs after registration, but before EP
+                    // discovery or session creation can start vendor worker threads.
+                    pin_accelerator_libraries(&ort_path, &sherpa_path, &provider_path)?;
                     if has_provider_device(runtime_handle, ep_name.as_ptr(), device.as_ptr()) == 0 {
                         let message = string(runtime_error(runtime_handle));
                         bail!("requested execution-provider device is unavailable: {message}");
@@ -855,8 +917,69 @@ type OnlineStreamInputFinished = unsafe extern "C" fn(*const COnlineStream);
 #[cfg(test)]
 mod ffi_tests {
     use super::*;
+    use std::cell::Cell;
     use std::mem::{offset_of, size_of};
     use std::process::Command;
+
+    #[test]
+    #[cfg(unix)]
+    fn pin_registry_deduplicates_canonical_paths() {
+        let root = env::temp_dir().join(format!(
+            "omawake-pin-registry-dedup-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let library = root.join("library.so");
+        let alias = root.join("alias.so");
+        fs::write(&library, b"fixture").unwrap();
+        std::os::unix::fs::symlink(&library, &alias).unwrap();
+
+        let loads = Cell::new(0);
+        let mut pins = PinRegistry::default();
+        assert!(
+            pins.pin_with(&library, |_| {
+                loads.set(loads.get() + 1);
+                Ok("pinned")
+            })
+            .unwrap()
+        );
+        assert!(
+            !pins
+                .pin_with(&alias, |_| {
+                    loads.set(loads.get() + 1);
+                    Ok("duplicate")
+                })
+                .unwrap()
+        );
+        assert_eq!(loads.get(), 1);
+        assert_eq!(pins.entries.len(), 1);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn pin_registry_retries_after_load_failure() {
+        let root = env::temp_dir().join(format!(
+            "omawake-pin-registry-retry-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let library = root.join("library.so");
+        fs::write(&library, b"fixture").unwrap();
+
+        let mut pins = PinRegistry::default();
+        assert!(
+            pins.pin_with(&library, |_| anyhow::bail!("load failed"))
+                .is_err()
+        );
+        assert!(pins.entries.is_empty());
+        assert!(pins.pin_with(&library, |_| Ok("pinned")).unwrap());
+        assert_eq!(pins.entries.len(), 1);
+        let _ = fs::remove_dir_all(root);
+    }
 
     #[test]
     #[cfg(target_pointer_width = "64")]
@@ -982,6 +1105,7 @@ void SherpaOnnxOnlineStreamInputFinished(const void *s) { ready = s != 0; }
         let paths = AppPaths {
             config_file: root.join("config.toml"),
             data_dir: root.join("data"),
+            cache_dir: root.join("cache"),
             state_dir: root.join("state"),
             runtime_dir: root.join("run"),
         };

@@ -1,12 +1,9 @@
-<!-- Frame adapted from Omarchy, Copyright (c) David Heinemeier Hansson, MIT. -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" role="img" aria-labelledby="title desc">
   <title id="title">Omawake</title>
-  <desc id="desc">An ear inside the square Omarchy mark</desc>
-  <g fill="#18181b">
-    <path d="M0 0h300v20H0zM0 20h20v260H0zM280 20h20v260h-20zM0 280h160v20H0zM180 280h120v20H180zM140 20h20v20h-20zM40 40h120v20H40zM40 60h20v80H40zM20 140h40v20H20zM40 160h20v80H40zM40 240h220v20H40zM140 260h20v20h-20zM220 40h40v20h-40zM240 60h20v180h-20z"/>
-  </g>
+  <desc id="desc">A stylized ear</desc>
   <g fill="none" stroke="#18181b" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M162 220c0 12-8 20-20 20-14 0-24-11-24-25v-64c0-31 20-51 48-51s48 20 48 47c0 21-11 34-29 42-10 5-15 12-15 23" stroke-width="14"/>
-    <path d="M144 194c-12-5-19-16-19-29v-13c0-21 15-36 36-36 22 0 38 15 38 36 0 15-8 26-24 34-9 4-14 13-14 24" stroke-width="12"/>
+    <path d="M103 166c-18 0-31-13-31-31v-13c0-13-5-23-16-32-10-9-16-23-16-38 0-29 23-50 55-50 31 0 56 22 56 52 0 23-13 40-34 50-12 6-18 16-18 30v5" stroke-width="14"/>
+    <path d="M71 58c0-15 11-27 27-27 17 0 29 12 29 28 0 13-7 23-20 30-12 7-19 18-19 33v8" stroke-width="12"/>
+    <path d="M73 91c-9-8-14-18-14-30" stroke-width="10"/>
   </g>
 </svg>

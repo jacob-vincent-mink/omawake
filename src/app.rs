@@ -46,6 +46,10 @@ enum TopCommand {
     InventoryProbe {
         candidate: String,
     },
+    #[command(name = "__model-cache-prepare", hide = true)]
+    ModelCachePrepare {
+        candidate: String,
+    },
     Test {
         #[arg(long, conflicts_with = "seconds")]
         audio: Option<PathBuf>,
@@ -246,6 +250,15 @@ where
             );
             return Ok(());
         }
+        TopCommand::ModelCachePrepare { candidate } => {
+            let mut candidate: Config = serde_json::from_str(&candidate)?;
+            candidate.backend.fallback = Fallback::Error;
+            println!(
+                "{}",
+                serde_json::to_string(&app_setup::cache::child(&candidate, &paths)?)?
+            );
+            return Ok(());
+        }
         TopCommand::Setup { command } => return setup(command, &config_path, &paths),
         command => command,
     };
@@ -337,7 +350,9 @@ where
             }
             Ok(())
         }
-        TopCommand::InventoryProbe { .. } | TopCommand::Setup { .. } => unreachable!(),
+        TopCommand::InventoryProbe { .. }
+        | TopCommand::ModelCachePrepare { .. }
+        | TopCommand::Setup { .. } => unreachable!(),
         TopCommand::Config { command } => config_mutation(command, config, &config_path),
     }
 }
@@ -542,7 +557,7 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
             device: None,
             dir: None,
             apply: false,
-        } if !json && setup_is_interactive() => guided_runtime(config_path),
+        } if !json && setup_is_interactive() => guided_runtime(config_path, paths),
         SetupCommand::Runtime {
             json,
             runtime,
@@ -577,9 +592,18 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
                 let evidence = crate::runtime_inventory::apply_with(
                     &candidate,
                     config_path,
-                    apply,
+                    false,
                     crate::runtime_inventory::probe,
                 )?;
+                if apply {
+                    prepare_and_save_runtime_candidate_with(
+                        &candidate,
+                        config_path,
+                        paths,
+                        ProgressFormat::Human,
+                        app_setup::cache::prepare_for_runtime,
+                    )?;
+                }
                 println!(
                     "{}",
                     serde_json::to_string_pretty(
@@ -618,7 +642,13 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
                 return Ok(());
             }
             if let Some(id) = set {
-                set_selected_model(&id, config_path, paths, app_setup::model::verify)?;
+                set_selected_model(
+                    &id,
+                    config_path,
+                    paths,
+                    progress_format,
+                    app_setup::model::verify,
+                )?;
                 return Ok(());
             }
             let default_id = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01";
@@ -850,7 +880,7 @@ fn guided_setup_with(
 ) -> Result<()> {
     match prompts.setup_mode()? {
         Some(SetupMode::Full) => guided_all_with(config_path, paths, prompts),
-        Some(SetupMode::Runtime) => guided_runtime_with(config_path, prompts),
+        Some(SetupMode::Runtime) => guided_runtime_with(config_path, paths, prompts),
         Some(SetupMode::Model) => guided_model_with(config_path, paths, prompts),
         Some(SetupMode::Check) => app_setup::print_checks(config_path, paths, false),
         None => {
@@ -860,16 +890,21 @@ fn guided_setup_with(
     }
 }
 
-fn guided_runtime(config_path: &Path) -> Result<()> {
+fn guided_runtime(config_path: &Path, paths: &AppPaths) -> Result<()> {
     guided_runtime_with(
         config_path,
+        paths,
         &mut TerminalGuidedPrompts {
             config_path: config_path.to_owned(),
         },
     )
 }
 
-fn guided_runtime_with(config_path: &Path, prompts: &mut impl GuidedPrompts) -> Result<()> {
+fn guided_runtime_with(
+    config_path: &Path,
+    paths: &AppPaths,
+    prompts: &mut impl GuidedPrompts,
+) -> Result<()> {
     let current = Config::load(config_path)?;
     let Some(selection) = prompts.runtime(&current)? else {
         println!("Setup cancelled.");
@@ -887,7 +922,13 @@ fn guided_runtime_with(config_path: &Path, prompts: &mut impl GuidedPrompts) -> 
         println!("Runtime setup cancelled; no changes were made.");
         return Ok(());
     }
-    candidate.save(config_path)?;
+    prepare_and_save_runtime_candidate_with(
+        &candidate,
+        config_path,
+        paths,
+        ProgressFormat::Human,
+        app_setup::cache::prepare_for_runtime,
+    )?;
     println!(
         "runtime configured: {} / {}",
         runtime_name(selection.runtime),
@@ -942,7 +983,7 @@ where
         return Ok(());
     };
     if verify(paths, spec).is_ok() {
-        activate_model(config_path, spec)?;
+        activate_model(config_path, paths, spec, ProgressFormat::Human)?;
         println!("active model: {}", spec.id);
         return Ok(());
     }
@@ -1170,6 +1211,25 @@ fn save_runtime_selection_impl_with(
     config.save(config_path)
 }
 
+fn prepare_and_save_runtime_candidate_with<F>(
+    config: &Config,
+    config_path: &Path,
+    paths: &AppPaths,
+    progress: ProgressFormat,
+    prepare_cache: F,
+) -> Result<()>
+where
+    F: FnOnce(
+        &Config,
+        &Path,
+        &AppPaths,
+        ProgressFormat,
+    ) -> Result<Option<app_setup::cache::CacheReport>>,
+{
+    prepare_cache(config, config_path, paths, progress)?;
+    config.save(config_path)
+}
+
 fn runtime_selection_candidate(
     current: &Config,
     config_path: &Path,
@@ -1367,7 +1427,7 @@ where
 #[allow(clippy::too_many_arguments)]
 fn install_everything_with_config<FI, FM, FR, CH, CJ>(
     spec: &crate::catalog::ModelSpec,
-    mut config: Config,
+    config: Config,
     config_path: &Path,
     paths: &AppPaths,
     archive: Option<&Path>,
@@ -1391,10 +1451,62 @@ where
     CH: FnOnce(&Path, &AppPaths) -> Result<()>,
     CJ: FnOnce(&Path, &AppPaths) -> Result<()>,
 {
+    install_everything_with_config_and_cache(
+        spec,
+        config,
+        config_path,
+        paths,
+        archive,
+        progress_format,
+        service_was_active,
+        install_model,
+        app_setup::cache::prepare,
+        install_menu,
+        restart_service,
+        check_human,
+        check_json,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn install_everything_with_config_and_cache<FI, FP, FM, FR, CH, CJ>(
+    spec: &crate::catalog::ModelSpec,
+    mut config: Config,
+    config_path: &Path,
+    paths: &AppPaths,
+    archive: Option<&Path>,
+    progress_format: ProgressFormat,
+    service_was_active: bool,
+    install_model: FI,
+    prepare_cache: FP,
+    install_menu: FM,
+    restart_service: FR,
+    check_human: CH,
+    check_json: CJ,
+) -> Result<()>
+where
+    FI: FnOnce(
+        &AppPaths,
+        &crate::catalog::ModelSpec,
+        Option<&Path>,
+        ProgressFormat,
+    ) -> Result<PathBuf>,
+    FP: FnOnce(
+        &Config,
+        &Path,
+        &AppPaths,
+        ProgressFormat,
+    ) -> Result<Option<app_setup::cache::CacheReport>>,
+    FM: FnOnce(&AppPaths) -> Result<PathBuf>,
+    FR: FnOnce(bool) -> Result<bool>,
+    CH: FnOnce(&Path, &AppPaths) -> Result<()>,
+    CJ: FnOnce(&Path, &AppPaths) -> Result<()>,
+{
     let original = config_snapshot(config_path)?;
     let result = (|| {
         let directory = install_model(paths, spec, archive, progress_format)?;
         spec.activate(&mut config);
+        prepare_cache(&config, config_path, paths, progress_format)?;
         config.save(config_path)?;
         let launcher = install_menu(paths)?;
         match progress_format {
@@ -1467,13 +1579,19 @@ where
     Ok(())
 }
 
-fn set_selected_model<F>(id: &str, config_path: &Path, paths: &AppPaths, verify: F) -> Result<()>
+fn set_selected_model<F>(
+    id: &str,
+    config_path: &Path,
+    paths: &AppPaths,
+    progress: ProgressFormat,
+    verify: F,
+) -> Result<()>
 where
     F: FnOnce(&AppPaths, &crate::catalog::ModelSpec) -> Result<()>,
 {
     let spec = model_spec(id)?;
     verify(paths, spec)?;
-    activate_model(config_path, spec)?;
+    activate_model(config_path, paths, spec, progress)?;
     println!("active model: {}", spec.id);
     Ok(())
 }
@@ -1499,7 +1617,7 @@ where
     let spec = model_spec(id)?;
     let directory = install(paths, spec, archive, progress_format)?;
     if !no_activate {
-        activate_model(config_path, spec)?;
+        activate_model(config_path, paths, spec, progress_format)?;
     }
     print_model_ready(&directory, spec, !no_activate, progress_format)
 }
@@ -1546,9 +1664,39 @@ fn print_setup_complete(
     Ok(())
 }
 
-fn activate_model(config_path: &Path, spec: &crate::catalog::ModelSpec) -> Result<()> {
+fn activate_model(
+    config_path: &Path,
+    paths: &AppPaths,
+    spec: &crate::catalog::ModelSpec,
+    progress: ProgressFormat,
+) -> Result<()> {
+    activate_model_with_cache(
+        config_path,
+        paths,
+        spec,
+        progress,
+        app_setup::cache::prepare,
+    )
+}
+
+fn activate_model_with_cache<F>(
+    config_path: &Path,
+    paths: &AppPaths,
+    spec: &crate::catalog::ModelSpec,
+    progress: ProgressFormat,
+    prepare_cache: F,
+) -> Result<()>
+where
+    F: FnOnce(
+        &Config,
+        &Path,
+        &AppPaths,
+        ProgressFormat,
+    ) -> Result<Option<app_setup::cache::CacheReport>>,
+{
     let mut config = app_setup::ensure_config(config_path)?;
     spec.activate(&mut config);
+    prepare_cache(&config, config_path, paths, progress)?;
     config.save(config_path)
 }
 

@@ -1,0 +1,28 @@
+{
+  "actions": [],
+  "backend": {
+    "effective_runtime": "openvino",
+    "fallback_used": false,
+    "kind": "sherpa-onnx"
+  },
+  "detections": [
+    {
+      "id": "light-up",
+      "start_time": 0.0,
+      "timestamps": [
+        3.0,
+        3.0399999618530273,
+        3.0799999237060547,
+        3.1599998474121094
+      ],
+      "tokens": [
+        " ",
+        "L",
+        "IGHT",
+        " UP"
+      ]
+    }
+  ],
+  "keywords_buffer": "▁ L IGHT ▁UP @light-up\n▁LOVE LY ▁CHI L D @lovely-child\n▁FOR E VER @forever",
+  "model_load_milliseconds": 221
+}

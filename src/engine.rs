@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -206,9 +206,13 @@ impl Detector {
             id: id.into(),
             program: program.clone(),
             arguments: arguments.to_vec(),
-            status: status.code().unwrap_or(-1),
+            status: action_status_code(&status),
         })
     }
+}
+
+fn action_status_code(status: &std::process::ExitStatus) -> i32 {
+    status.code().unwrap_or(-1)
 }
 
 impl DetectionSession<'_> {
@@ -296,8 +300,8 @@ fn cuda_provider(config: &Config, paths: &AppPaths) -> Result<String> {
         }
     }
     let device_directory = paths
-        .state_dir
-        .join("cache/cuda")
+        .cache_dir
+        .join("cuda")
         .join(format!("device-{}", config.backend.device_id));
     fs::create_dir_all(&device_directory).with_context(|| {
         format!(
@@ -360,10 +364,7 @@ fn openvino_provider(config: &Config, paths: &AppPaths) -> Result<String> {
             _ => bail!("unsupported OpenVINO provider option backend.options.{key}"),
         }
     }
-    let device_directory = paths
-        .state_dir
-        .join("cache/openvino")
-        .join(device_path_component(&canonical));
+    let device_directory = openvino_device_directory(config, paths)?;
     fs::create_dir_all(&device_directory).with_context(|| {
         format!(
             "create OpenVINO provider directory {}",
@@ -429,6 +430,18 @@ fn openvino_provider(config: &Config, paths: &AppPaths) -> Result<String> {
     let config_path = device_directory.join("provider.config");
     atomic_write_private(&config_path, contents.as_bytes())?;
     Ok(format!("openvino:{}", utf8_path(&config_path)?))
+}
+
+pub(crate) fn openvino_cache_directory(config: &Config, paths: &AppPaths) -> Result<PathBuf> {
+    Ok(openvino_device_directory(config, paths)?.join("compiled"))
+}
+
+fn openvino_device_directory(config: &Config, paths: &AppPaths) -> Result<PathBuf> {
+    let canonical = config.backend.canonical_device()?.to_ascii_uppercase();
+    Ok(paths
+        .cache_dir
+        .join("openvino")
+        .join(device_path_component(&canonical)))
 }
 
 fn provider_config_path(

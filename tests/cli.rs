@@ -37,6 +37,7 @@ fn run(root: &Path, args: &[&str]) -> Output {
         .env("HOME", root)
         .env("XDG_CONFIG_HOME", root.join("config"))
         .env("XDG_DATA_HOME", root.join("data"))
+        .env("XDG_CACHE_HOME", root.join("cache"))
         .env("XDG_STATE_HOME", root.join("state"))
         .env("XDG_RUNTIME_DIR", root.join("run"))
         .stdin(Stdio::null())
@@ -68,6 +69,7 @@ fn run_with_path(root: &Path, args: &[&str], path: &Path) -> Output {
         .env("HOME", root)
         .env("XDG_CONFIG_HOME", root.join("config"))
         .env("XDG_DATA_HOME", root.join("data"))
+        .env("XDG_CACHE_HOME", root.join("cache"))
         .env("XDG_STATE_HOME", root.join("state"))
         .env("XDG_RUNTIME_DIR", root.join("run"))
         .env("OMAWAKE_SYSTEMCTL_LOG", root.join("systemctl.log"))
@@ -333,6 +335,7 @@ fn direct_wav_detection_and_benchmark_use_the_external_runtime() {
         "onnxruntime",
         r#"
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 typedef struct { const void *(*GetApi)(uint32_t); const char *(*GetVersionString)(void); } OrtApiBase;
 static const char *version(void) { return "1.29.0"; }
@@ -345,6 +348,7 @@ const OrtApiBase *OrtGetApiBase(void) { return &base; }
         "sherpa-onnx-c-api",
         r#"
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 typedef struct { const char *keyword; const char *tokens; const char *const *tokens_arr; int32_t count; float *timestamps; float start_time; const char *json; } Result;
 static int runtime, spotter, stream, ready;
@@ -359,7 +363,12 @@ void SherpaOnnxDestroyOrtRuntime(void *p) { (void)p; }
 int32_t SherpaOnnxOrtRuntimeRegisterExecutionProviderLibrary(void *r, const char *n, const char *p) { return r && n && p && !strstr(p, "rejected"); }
 int32_t SherpaOnnxOrtRuntimeHasExecutionProviderDevice(void *r, const char *ep, const char *device) { return r && ep && device; }
 const char *SherpaOnnxOrtRuntimeGetLastError(const void *r) { (void)r; return "fake error"; }
-const void *SherpaOnnxCreateKeywordSpotter(const void *c) { return c ? &spotter : 0; }
+const void *SherpaOnnxCreateKeywordSpotter(const void *c) {
+    if (c) {
+        system("for device in gpu npu; do cache=\"$XDG_CACHE_HOME/omawake/openvino/$device/compiled\"; if [ -d \"$cache\" ]; then printf cache > \"$cache/fixture.blob\"; fi; done");
+    }
+    return c ? &spotter : 0;
+}
 void SherpaOnnxDestroyKeywordSpotter(const void *p) { (void)p; }
 const void *SherpaOnnxCreateKeywordStream(const void *p) { return p ? &stream : 0; }
 int32_t SherpaOnnxIsKeywordStreamReady(const void *p, const void *s) { return p && s && ready; }
@@ -382,6 +391,20 @@ void SherpaOnnxOnlineStreamInputFinished(const void *s) { ready = s != 0; }
         model.join("bpe.model"),
     )
     .unwrap();
+    let probe_wav = model.join("test_wavs/0.wav");
+    fs::create_dir_all(probe_wav.parent().unwrap()).unwrap();
+    let mut writer = hound::WavWriter::create(
+        &probe_wav,
+        hound::WavSpec {
+            channels: 1,
+            sample_rate: 16_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        },
+    )
+    .unwrap();
+    writer.write_sample(1_i16).unwrap();
+    writer.finalize().unwrap();
     let config_path = root.join("config/omawake/config.toml");
     let mut config = Config::default();
     config.model.directory = model.display().to_string();
@@ -433,6 +456,111 @@ const char *SherpaOnnxGetOnnxruntimeVersionStr(void) { return "1.29.0"; }
         assert!(discovery.status.success(), "{}", stderr(&discovery));
         assert!(stdout(&discovery).contains("runtime ready"));
     }
+    let probe_contents = fs::read(&probe_wav).unwrap();
+    fs::remove_file(&probe_wav).unwrap();
+    let deferred = run(
+        &root,
+        &[
+            "setup",
+            "runtime",
+            "--runtime",
+            "openvino",
+            "--device",
+            "npu",
+            "--apply",
+        ],
+    );
+    assert!(deferred.status.success(), "{}", stderr(&deferred));
+    assert!(stderr(&deferred).contains("model cache preparation deferred"));
+    assert!(
+        !root
+            .join("cache/omawake/openvino/npu/compiled/fixture.blob")
+            .exists()
+    );
+    let deferred_config = Config::load(&config_path).unwrap();
+    assert_eq!(
+        deferred_config.backend.runtime,
+        omawake::backend::Runtime::Openvino
+    );
+    assert_eq!(deferred_config.backend.device, "npu");
+    let deferred_check = run(&root, &["setup", "check", "--json"]);
+    assert!(!deferred_check.status.success());
+    let deferred_checks: serde_json::Value =
+        serde_json::from_slice(&deferred_check.stdout).unwrap();
+    let cache_check = deferred_checks
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|check| check["name"] == "model-cache")
+        .unwrap();
+    assert_eq!(cache_check["ok"], false);
+
+    fs::write(&probe_wav, probe_contents).unwrap();
+    let prepared = run(
+        &root,
+        &[
+            "setup",
+            "runtime",
+            "--runtime",
+            "openvino",
+            "--device",
+            "npu",
+            "--apply",
+        ],
+    );
+    assert!(prepared.status.success(), "{}", stderr(&prepared));
+    assert!(stderr(&prepared).contains("preparing OpenVINO NPU model cache"));
+    assert!(stderr(&prepared).contains("prepared OpenVINO NPU model cache"));
+    let cache_artifact = root.join("cache/omawake/openvino/npu/compiled/fixture.blob");
+    assert_eq!(fs::read(&cache_artifact).unwrap(), b"cache");
+    let prepared_config = Config::load(&config_path).unwrap();
+    assert_eq!(
+        prepared_config.backend.runtime,
+        omawake::backend::Runtime::Openvino
+    );
+    assert_eq!(prepared_config.backend.device, "npu");
+    let prepared_check = run(&root, &["setup", "check", "--json"]);
+    let prepared_checks: serde_json::Value =
+        serde_json::from_slice(&prepared_check.stdout).unwrap();
+    let cache_check = prepared_checks
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|check| check["name"] == "model-cache")
+        .unwrap();
+    assert_eq!(cache_check["ok"], true);
+
+    let prepared_gpu = run(
+        &root,
+        &[
+            "setup",
+            "runtime",
+            "--runtime",
+            "openvino",
+            "--device",
+            "gpu",
+            "--apply",
+        ],
+    );
+    assert!(prepared_gpu.status.success(), "{}", stderr(&prepared_gpu));
+    assert!(stderr(&prepared_gpu).contains("preparing OpenVINO GPU model cache"));
+    assert!(stderr(&prepared_gpu).contains("prepared OpenVINO GPU model cache"));
+    assert_eq!(
+        fs::read(root.join("cache/omawake/openvino/gpu/compiled/fixture.blob")).unwrap(),
+        b"cache"
+    );
+    let gpu_config = Config::load(&config_path).unwrap();
+    assert_eq!(gpu_config.backend.device, "gpu");
+    let gpu_check = run(&root, &["setup", "check", "--json"]);
+    let gpu_checks: serde_json::Value = serde_json::from_slice(&gpu_check.stdout).unwrap();
+    let cache_check = gpu_checks
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|check| check["name"] == "model-cache")
+        .unwrap();
+    assert_eq!(cache_check["ok"], true);
+
     config.backend.runtime = omawake::backend::Runtime::Openvino;
     config.backend.device = "npu".into();
     config.backend.provider_library = compile_shared(

@@ -97,9 +97,7 @@ jobs:
           version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
           if [[ "${GITHUB_REF_TYPE:-}" == tag ]]; then
             tag_version=${GITHUB_REF_NAME#v}
-            tag_base=${tag_version%%-rc*}
-            cargo_base=${version%%-rc*}
-            [[ "${tag_base}" == "${cargo_base}" ]] || {
+            [[ "${tag_version}" == "${version}" ]] || {
               echo "Cargo.toml version ${version} does not match tag ${GITHUB_REF_NAME}" >&2
               exit 1
             }
@@ -119,8 +117,9 @@ jobs:
           cp "${OMA_NATIVE_ROOT}/sherpa-onnx/LICENSE" "dist/${package}/licenses/SHERPA-ONNX-LICENSE"
           cp LICENSE "dist/${package}/licenses/OMAWAKE-LICENSE"
           cp THIRD_PARTY_NOTICES.md "dist/${package}/licenses/OMAWAKE-THIRD-PARTY-NOTICES"
-          cp licenses/OMARCHY-LICENSE "dist/${package}/licenses/OMARCHY-LICENSE"
           cp native/sherpa/NOTICE "dist/${package}/licenses/SHERPA-ONNX-NOTICE"
+          cp README.md INSTALL.md ACCELERATOR_SETUP.md CHANGELOG.md RELEASE_NOTES.md DEMO.md config.example.toml "dist/${package}/"
+          cp -a assets benchmarks native/sherpa packaging scripts "dist/${package}/"
           native_licenses=(
             EIGEN-APACHE-2.0
             EIGEN-BSD
@@ -149,8 +148,20 @@ jobs:
         run: |
           set -euo pipefail
           package='${{ steps.package.outputs.name }}'
-          binary="dist/${package}/omawake"
-          "${binary}" --version
+          smoke_root="${RUNNER_TEMP}/${package}-smoke"
+          mkdir -p "${smoke_root}"
+          tar -C "${smoke_root}" -xJf "dist/${package}.tar.xz"
+          binary="${smoke_root}/${package}/omawake"
+          for document in README.md INSTALL.md ACCELERATOR_SETUP.md CHANGELOG.md RELEASE_NOTES.md DEMO.md config.example.toml RUNTIME.md; do
+            test -s "${smoke_root}/${package}/${document}"
+          done
+          test -s "${smoke_root}/${package}/assets/omawake-mark.svg"
+          test -s "${smoke_root}/${package}/benchmarks/openvino-dell-xps-2026-09-14.md"
+          test -x "${smoke_root}/${package}/native/sherpa/build.sh"
+          test -s "${smoke_root}/${package}/packaging/systemd/omawake.service"
+          expected_version="${package#omawake-}"
+          expected_version="${expected_version%-linux-x86_64}"
+          [[ "$("${binary}" --version)" == "omawake ${expected_version}" ]]
           "${binary}" setup runtime --json > /tmp/runtime.json
           python3 - <<'PY'
           import json
@@ -198,7 +209,6 @@ jobs:
             NLOHMANN-JSON-MIT
             OMAWAKE-LICENSE
             OMAWAKE-THIRD-PARTY-NOTICES
-            OMARCHY-LICENSE
             ONNX-RUNTIME-LICENSE
             ONNX-RUNTIME-THIRD-PARTY-NOTICES
             OPENFST-AUTHORS
@@ -219,7 +229,6 @@ jobs:
             "${licenses}/SHERPA-ONNX-LICENSE"
           cmp LICENSE "${licenses}/OMAWAKE-LICENSE"
           cmp THIRD_PARTY_NOTICES.md "${licenses}/OMAWAKE-THIRD-PARTY-NOTICES"
-          cmp licenses/OMARCHY-LICENSE "${licenses}/OMARCHY-LICENSE"
           cmp native/sherpa/NOTICE "${licenses}/SHERPA-ONNX-NOTICE"
           for notice in \
             EIGEN-APACHE-2.0 EIGEN-BSD EIGEN-COPYING-README EIGEN-MINPACK \
@@ -257,6 +266,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           prerelease: ${{ contains(github.ref_name, '-rc') }}
+          body_path: RELEASE_NOTES.md
           files: |
             dist/${{ steps.package.outputs.name }}.tar.xz
             dist/SHA256SUMS.txt

@@ -1,0 +1,3 @@
+file	expected	default_cpu	openvino_npu	parity
+0.wav	light-up	light-up	light-up	true
+1.wav	forever,lovely-child	forever,lovely-child	forever,lovely-child	true

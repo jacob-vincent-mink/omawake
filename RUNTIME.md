@@ -12,3 +12,6 @@ previews and probes a candidate. Add `--apply` to save after a successful probe.
 The guided setup offers a separate Apply/Cancel review. Model installation is
 separate and subject to its license policy. Only `setup systemd` installs or
 starts the optional service. Runtime readiness does not prove model placement.
+
+See `ACCELERATOR_SETUP.md` for tested Arch/Omarchy Intel packages and complete
+OpenVINO and CUDA runtime bundle recipes.

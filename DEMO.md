@@ -46,16 +46,18 @@ The CPU binary with `runtime = "openvino"`, `device = "npu"`, and `fallback = "e
 
 ## 2026-09-13 — setup proof
 
-Ran the one-command network install in an isolated environment:
+Ran one-command setup from a locally supplied, pinned archive in an isolated
+environment:
 
 ```bash
-omawake setup all --archive /tmp/recon/kws-model.tar.bz2 --no-start
+omawake setup all --archive /tmp/recon/kws-model.tar.bz2
 ```
-
-The same setup path was also tested without `--archive`, downloading the pinned model from GitHub and verifying the archive and every required asset before installation.
 
 It succeeded and was idempotent (a second run reported `already-installed` with no re-download). Testing the bundled fixture then produced a `lovely-child` detection with a 338 ms model load:
 
 ```bash
-omawake test --audio MODEL/test_wavs/1.wav --json
+omawake test --audio "$HOME/.local/share/omawake/models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/test_wavs/1.wav" --json
 ```
+
+Automatic model download is disabled because the upstream model license is
+unclear. Supply an archive obtained under rights you have verified.

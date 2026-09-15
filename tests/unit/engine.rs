@@ -130,6 +130,7 @@ fn paths(root: &Path) -> AppPaths {
     AppPaths {
         config_file: root.join("config/config.toml"),
         data_dir: root.join("data"),
+        cache_dir: root.join("cache"),
         state_dir: root.join("state"),
         runtime_dir: root.join("run"),
     }
@@ -211,15 +212,15 @@ fn actions_report_success_exit_status_and_errors() {
             .run_action("other")
             .is_err()
     );
+}
 
-    let signaled = detector(
-        "known",
-        vec!["sh".into(), "-c".into(), "kill -TERM $$".into()],
-        "known",
-    )
-    .run_action("known")
-    .unwrap();
-    assert_eq!(signaled.status, -1);
+#[cfg(unix)]
+#[test]
+fn action_status_code_reports_a_signal_without_spawning_a_crashing_process() {
+    use std::os::unix::process::ExitStatusExt;
+
+    let signaled = std::process::ExitStatus::from_raw(15);
+    assert_eq!(super::action_status_code(&signaled), -1);
 }
 
 #[test]
@@ -255,6 +256,7 @@ fn injected_loader_exercises_complete_model_preparation_and_cpu_fallback() {
     let paths = AppPaths {
         config_file: root.join("config.toml"),
         data_dir: root.join("data"),
+        cache_dir: root.join("cache"),
         state_dir: root.join("state"),
         runtime_dir: root.join("run"),
     };
@@ -426,7 +428,7 @@ fn generates_private_cuda_config_with_device_and_options() {
     let provider_path = Path::new(provider.strip_prefix("cuda:").unwrap());
     assert_eq!(
         provider_path,
-        paths.state_dir.join("cache/cuda/device-2/provider.config")
+        paths.cache_dir.join("cuda/device-2/provider.config")
     );
     let contents = fs::read_to_string(provider_path).unwrap();
     assert!(contents.contains("device_id=2\n"));
@@ -500,7 +502,7 @@ fn generates_private_openvino_config_with_npu_defaults_and_overrides() {
     assert!(provider_path.is_absolute());
     assert_eq!(
         provider_path,
-        paths.state_dir.join("cache/openvino/npu/provider.config")
+        paths.cache_dir.join("openvino/npu/provider.config")
     );
     let contents = fs::read_to_string(provider_path).unwrap();
     assert!(contents.contains("device_type=NPU\n"));
@@ -513,8 +515,8 @@ fn generates_private_openvino_config_with_npu_defaults_and_overrides() {
     assert_eq!(
         load_config["NPU"]["CACHE_DIR"],
         paths
-            .state_dir
-            .join("cache/openvino/npu/compiled")
+            .cache_dir
+            .join("openvino/npu/compiled")
             .display()
             .to_string()
     );
@@ -651,6 +653,7 @@ fn load_and_sherpa_backend_report_configuration_errors() {
     let paths = AppPaths {
         config_file: root.join("config.toml"),
         data_dir: root.join("data"),
+        cache_dir: root.join("cache"),
         state_dir: root.join("state"),
         runtime_dir: root.join("run"),
     };
@@ -723,12 +726,12 @@ fn provider_files_report_filesystem_failures_and_accept_absolute_paths() {
     );
 
     config.backend.provider_config.clear();
-    fs::write(&app_paths.state_dir, "not a directory").unwrap();
+    fs::write(&app_paths.cache_dir, "not a directory").unwrap();
     let error = cuda_provider(&config, &app_paths).unwrap_err();
     assert!(error.to_string().contains("create CUDA provider directory"));
 
-    app_paths.state_dir = root.join("openvino-state");
-    fs::write(&app_paths.state_dir, "not a directory").unwrap();
+    app_paths.cache_dir = root.join("openvino-cache");
+    fs::write(&app_paths.cache_dir, "not a directory").unwrap();
     config.backend.runtime = Runtime::Openvino;
     config.backend.device = "gpu".into();
     let error = openvino_provider(&config, &app_paths).unwrap_err();
@@ -738,8 +741,8 @@ fn provider_files_report_filesystem_failures_and_accept_absolute_paths() {
             .contains("create OpenVINO provider directory")
     );
 
-    app_paths.state_dir = root.join("cache-conflict-state");
-    let device_dir = app_paths.state_dir.join("cache/openvino/gpu");
+    app_paths.cache_dir = root.join("cache-conflict");
+    let device_dir = app_paths.cache_dir.join("openvino/gpu");
     fs::create_dir_all(&device_dir).unwrap();
     fs::write(device_dir.join("compiled"), "not a directory").unwrap();
     let error = openvino_provider(&config, &app_paths).unwrap_err();
@@ -749,8 +752,8 @@ fn provider_files_report_filesystem_failures_and_accept_absolute_paths() {
             .contains("create OpenVINO cache directory")
     );
 
-    app_paths.state_dir = root.join("install-conflict-state");
-    let provider_dir = app_paths.state_dir.join("cache/cuda/device-0");
+    app_paths.cache_dir = root.join("install-conflict-cache");
+    let provider_dir = app_paths.cache_dir.join("cuda/device-0");
     fs::create_dir_all(provider_dir.join("provider.config")).unwrap();
     config.backend.runtime = Runtime::Cuda;
     config.backend.device = "gpu".into();

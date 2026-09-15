@@ -9,6 +9,7 @@ fn fixture(name: &str) -> (std::path::PathBuf, AppPaths) {
     let paths = AppPaths {
         config_file: root.join("config/omawake/config.toml"),
         data_dir: root.join("data/omawake"),
+        cache_dir: root.join("cache/omawake"),
         state_dir: root.join("state/omawake"),
         runtime_dir: root.join("run/omawake"),
     };
@@ -148,4 +149,53 @@ fn checks_report_successful_engine_and_optional_service_states() {
     assert!(active_external.iter().any(|check| {
         check.name == "systemd" && check.detail.contains("active from an external unit")
     }));
+}
+
+#[test]
+fn checks_require_a_prepared_cache_for_openvino_accelerators() {
+    for device in ["gpu", "npu"] {
+        let (root, paths) = fixture(&format!("{device}-cache-check"));
+        let mut config = Config::default();
+        config.backend.runtime = crate::backend::Runtime::Openvino;
+        config.backend.device = device.into();
+        config.model.name = "custom".into();
+        config.model.directory = root.join("custom-model").display().to_string();
+        fs::create_dir_all(&config.model.directory).unwrap();
+        config.save(&paths.config_file).unwrap();
+        let launcher = menu::launcher_path(&paths);
+        fs::create_dir_all(launcher.parent().unwrap()).unwrap();
+        fs::write(launcher, "launcher").unwrap();
+
+        let missing = checks_with(
+            &paths.config_file,
+            &paths,
+            &|_, _| Ok("runtime ready".into()),
+            false,
+            &|| unreachable!(),
+        );
+        let cache = missing
+            .iter()
+            .find(|check| check.name == "model-cache")
+            .unwrap();
+        assert!(!cache.ok);
+        assert!(cache.detail.contains("not prepared"));
+        assert!(cache.detail.contains(&device.to_ascii_uppercase()));
+
+        let directory = crate::engine::openvino_cache_directory(&config, &paths).unwrap();
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(directory.join("compiled.blob"), b"ready").unwrap();
+        let ready = checks_with(
+            &paths.config_file,
+            &paths,
+            &|_, _| Ok("runtime ready".into()),
+            false,
+            &|| unreachable!(),
+        );
+        let cache = ready
+            .iter()
+            .find(|check| check.name == "model-cache")
+            .unwrap();
+        assert!(cache.ok);
+        assert!(cache.detail.contains("1 compiled artifact"));
+    }
 }

@@ -2,7 +2,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/omawake-mark.svg">
     <source media="(prefers-color-scheme: light)" srcset="assets/omawake-mark-on-light.svg">
-    <img alt="Omawake: an ear inside the Omarchy frame" src="assets/omawake-mark-on-light.svg" width="160">
+    <img alt="Omawake: a stylized ear" src="assets/omawake-mark-on-light.svg" width="160">
   </picture>
 </p>
 
@@ -12,12 +12,47 @@ Omawake is a local wake-word daemon written in Rust. It compiles configured phra
 
 Omawake supports multiple wake words, recorded and live input, `pause`/`resume`/`stop`, JSON status and schema output, and validated config mutation. The recognizer stays loaded while the microphone stream is released before every action and reopened after cooldown.
 
+## Install
+
+The 0.0.1-rc release supports Linux x86-64 with glibc 2.34 or newer and ALSA.
+It ships one executable plus a ready-to-use CPU runtime. Download the archive
+and `SHA256SUMS.txt` from the
+[GitHub release](https://github.com/jacob-vincent-mink/omawake/releases/tag/v0.0.1-rc),
+then verify and unpack it:
+
+```bash
+sha256sum --check --ignore-missing SHA256SUMS.txt
+tar -xJf omawake-0.0.1-rc-linux-x86_64.tar.xz
+cd omawake-0.0.1-rc-linux-x86_64
+./omawake setup runtime --json
+./omawake setup
+```
+
+Move the application to its final location before setup because a desktop
+launcher or an explicitly requested service records the executable path. See
+[INSTALL.md](INSTALL.md) for a per-user installation, source builds, and
+external OpenVINO or CUDA setup.
+[ACCELERATOR_SETUP.md](ACCELERATOR_SETUP.md) gives complete Intel iGPU/NPU and
+NVIDIA CUDA runtime bundle recipes.
+
+> **A model is required and is not bundled.** The sole 0.0.1-rc catalog model is
+> the [`sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2`](https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2)
+> archive published with sherpa-onnx. Omawake does not download it because its model
+> license is unclear. Inspect the pinned size, hash, and terms with
+> `omawake setup model --json`, obtain it under rights you have verified, then
+> supply it with `omawake setup all --archive /path/to/model.tar.bz2`.
+
 ## Build
 
 ```bash
 cargo build --release
 cargo test
 ```
+
+Run the source build as `target/release/omawake`. Building requires stable
+Rust, a C/C++ toolchain, `pkg-config`, and ALSA development headers. The release
+archive supplies the native CPU libraries; a source checkout requires a
+compatible external stack or a copied release `lib/` directory.
 
 Omawake does not link ONNX Runtime or sherpa-onnx at build time. The same Rust
 executable supports CPU, OpenVINO, and CUDA:
@@ -215,7 +250,7 @@ and package-relative paths into the unit. It never copies the caller's ambient
 `LD_LIBRARY_PATH`.
 
 For CUDA, an empty `backend.provider_config` makes Omawake write a private
-provider config below `$XDG_STATE_HOME/omawake/cache/cuda/device-<id>`. It maps
+provider config below `$XDG_CACHE_HOME/omawake/cuda/device-<id>`. It maps
 `backend.device_id` to ONNX Runtime's `device_id` and passes validated
 `[backend.options]` entries through as CUDA EP V2 options. Omawake manages the
 `device_id` entry and defaults `cudnn_conv_algo_search` to `HEURISTIC`; an
@@ -226,7 +261,18 @@ This provider-file behavior requires the tracked sherpa patch built by
 [`native/sherpa/build.sh`](native/sherpa/build.sh) against the selected ONNX
 Runtime SDK.
 
-For OpenVINO, an empty `backend.provider_config` makes Omawake atomically write a user-private config below `$XDG_STATE_HOME/omawake/cache/openvino/<device>/provider.config`. It includes the uppercase `device_type` used by sherpa to select the registered EP device and a typed `load_config` JSON object. Omawake puts the per-device `CACHE_DIR` in that JSON and defaults `NPU_QDQ_OPTIMIZATION` to `"YES"` for NPU. Put OpenVINO device properties in `backend.options.load_config`. Session controls such as `ProfilingFilePrefix`, `GraphOptimizationLevel`, and `SessionConfig.*` remain top-level. Unknown option keys fail during setup. A `device_type` option must match the selected device.
+For OpenVINO, an empty `backend.provider_config` makes Omawake atomically write a user-private config below `$XDG_CACHE_HOME/omawake/openvino/<device>/provider.config`. It includes the uppercase `device_type` used by sherpa to select the registered EP device and a typed `load_config` JSON object. Omawake puts the compiled models in the sibling `compiled/` directory and defaults `NPU_QDQ_OPTIMIZATION` to `"YES"` for NPU. Put OpenVINO device properties in `backend.options.load_config`. Session controls such as `ProfilingFilePrefix`, `GraphOptimizationLevel`, and `SessionConfig.*` remain top-level. Unknown option keys fail during setup. A `device_type` option must match the selected device.
+
+When an explicit GPU or NPU selection and a verified catalog model meet during
+full, runtime, or model setup, Omawake runs the pinned probe WAV through the detector
+in an isolated, no-fallback process. Setup succeeds only after OpenVINO writes a
+nonempty compiled `.blob` under
+`$XDG_CACHE_HOME/omawake/openvino/<device>/compiled`. If an external compiler
+terminates by signal, setup allows up to five isolated attempts and still requires
+a complete inference before applying the configuration. Runtime-only setup can record a
+validated accelerator selection before a model exists; `setup check` then reports the
+cache as incomplete until model setup performs the compilation. This keeps
+device compilation out of the first `test` or daemon inference.
 
 For catalog-managed models, the setup and config commands select the FP32
 encoder for OpenVINO GPU, NPU, and `auto`. Exact CPU retains the smaller INT8 encoder.

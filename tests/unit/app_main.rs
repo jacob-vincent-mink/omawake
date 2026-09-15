@@ -85,7 +85,12 @@ fn guided_setup_dispatch_and_runtime_actions_are_testable_without_a_terminal() {
 
     // Each partial flow must treat Back as a clean cancellation without writing
     // a config or installing anything.
-    guided_runtime_with(&paths.config_file, &mut ScriptedGuidedPrompts::default()).unwrap();
+    guided_runtime_with(
+        &paths.config_file,
+        &paths,
+        &mut ScriptedGuidedPrompts::default(),
+    )
+    .unwrap();
     guided_model_with(
         &paths.config_file,
         &paths,
@@ -412,6 +417,50 @@ fn guided_full_rolls_back_existing_and_new_configs_after_later_failures() {
 }
 
 #[test]
+fn full_setup_prepares_npu_cache_before_config_launcher_and_service_changes() {
+    let paths = test_paths("full-npu-cache-transaction");
+    let spec = &crate::catalog::models()[0];
+    let mut original = Config::default();
+    original.backend.runtime = Runtime::Openvino;
+    original.backend.device = "npu".into();
+    original.save(&paths.config_file).unwrap();
+    let original_bytes = fs::read(&paths.config_file).unwrap();
+    let model_installed = std::cell::Cell::new(false);
+
+    let error = install_everything_with_config_and_cache(
+        spec,
+        original,
+        &paths.config_file,
+        &paths,
+        None,
+        ProgressFormat::Human,
+        true,
+        |_, _, _, _| {
+            model_installed.set(true);
+            Ok(paths.data_dir.join("model"))
+        },
+        |candidate, path, received_paths, progress| {
+            assert!(model_installed.get());
+            assert_eq!(candidate.backend.runtime, Runtime::Openvino);
+            assert_eq!(candidate.backend.device, "npu");
+            assert_eq!(candidate.model.encoder, spec.openvino_accelerator_encoder);
+            assert_eq!(path, paths.config_file);
+            assert_eq!(received_paths, &paths);
+            assert_eq!(progress, ProgressFormat::Human);
+            assert_eq!(fs::read(path).unwrap(), original_bytes);
+            bail!("NPU cache compile failed")
+        },
+        |_| panic!("launcher must not be installed before cache preparation"),
+        |_| panic!("service must not restart before cache preparation"),
+        |_, _| panic!("checks must not run before cache preparation"),
+        |_, _| panic!("checks must not run before cache preparation"),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("NPU cache compile failed"));
+    assert_eq!(fs::read(&paths.config_file).unwrap(), original_bytes);
+}
+
+#[test]
 fn guided_model_catalog_exposes_status_metadata_and_selection() {
     let paths = test_paths("guided-model-catalog");
     let active = crate::catalog::models()[0].id;
@@ -461,7 +510,7 @@ fn terminal_prompt_adapter_reports_non_tty_errors() {
             )
             .is_err()
     );
-    assert!(guided_runtime(&paths.config_file).is_err());
+    assert!(guided_runtime(&paths.config_file, &paths).is_err());
     assert!(guided_model(&paths.config_file, &paths).is_err());
 }
 
@@ -555,6 +604,7 @@ fn test_paths(name: &str) -> AppPaths {
     AppPaths {
         config_file: root.join("config/config.toml"),
         data_dir: root.join("data"),
+        cache_dir: root.join("cache"),
         state_dir: root.join("state"),
         runtime_dir: root.join("run"),
     }
@@ -1053,6 +1103,51 @@ fn runtime_candidate_validation_failure_preserves_the_original_config() {
 }
 
 #[test]
+fn npu_runtime_cache_preparation_finishes_before_config_commit() {
+    let paths = test_paths("runtime-cache-transaction");
+    let original = Config::default();
+    original.save(&paths.config_file).unwrap();
+    let original_bytes = fs::read(&paths.config_file).unwrap();
+    let mut candidate = original.clone();
+    candidate.backend.runtime = Runtime::Openvino;
+    candidate.backend.device = "npu".into();
+
+    let error = prepare_and_save_runtime_candidate_with(
+        &candidate,
+        &paths.config_file,
+        &paths,
+        ProgressFormat::Json,
+        |received, path, received_paths, progress| {
+            assert_eq!(received.backend.runtime, Runtime::Openvino);
+            assert_eq!(path, paths.config_file);
+            assert_eq!(received_paths, &paths);
+            assert_eq!(progress, ProgressFormat::Json);
+            assert_eq!(fs::read(path).unwrap(), original_bytes);
+            bail!("cold NPU compile failed")
+        },
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("cold NPU compile failed"));
+    assert_eq!(fs::read(&paths.config_file).unwrap(), original_bytes);
+
+    prepare_and_save_runtime_candidate_with(
+        &candidate,
+        &paths.config_file,
+        &paths,
+        ProgressFormat::Human,
+        |_, path, _, _| {
+            assert_eq!(fs::read(path).unwrap(), original_bytes);
+            Ok(None)
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        Config::load(&paths.config_file).unwrap().backend.runtime,
+        Runtime::Openvino
+    );
+}
+
+#[test]
 fn guided_runtime_apply_and_cancel_share_the_review_step() {
     let paths = test_paths("guided-runtime-review");
     let selection = RuntimeSelection {
@@ -1064,7 +1159,7 @@ fn guided_runtime_apply_and_cancel_share_the_review_step() {
         confirm: false,
         ..Default::default()
     };
-    guided_runtime_with(&paths.config_file, &mut cancel).unwrap();
+    guided_runtime_with(&paths.config_file, &paths, &mut cancel).unwrap();
     assert!(!paths.config_file.exists());
 
     let mut apply = ScriptedGuidedPrompts {
@@ -1072,7 +1167,7 @@ fn guided_runtime_apply_and_cancel_share_the_review_step() {
         confirm: true,
         ..Default::default()
     };
-    guided_runtime_with(&paths.config_file, &mut apply).unwrap();
+    guided_runtime_with(&paths.config_file, &paths, &mut apply).unwrap();
     assert_eq!(
         Config::load(&paths.config_file).unwrap().backend.device,
         "cpu"
@@ -1099,14 +1194,25 @@ fn metadata_helpers_return_stable_shapes() {
     .unwrap();
     assert!(verify_selected_model("missing", &paths, |_, _| Ok(())).is_err());
     assert!(verify_selected_model(spec.id, &paths, |_, _| bail!("invalid model")).is_err());
-    set_selected_model(spec.id, &paths.config_file, &paths, |_, _| Ok(())).unwrap();
+    set_selected_model(
+        spec.id,
+        &paths.config_file,
+        &paths,
+        ProgressFormat::Human,
+        |_, _| Ok(()),
+    )
+    .unwrap();
     assert!(
-        set_selected_model(spec.id, &paths.config_file, &paths, |_, _| {
-            bail!("invalid model")
-        })
+        set_selected_model(
+            spec.id,
+            &paths.config_file,
+            &paths,
+            ProgressFormat::Human,
+            |_, _| bail!("invalid model"),
+        )
         .is_err()
     );
-    activate_model(&paths.config_file, spec).unwrap();
+    activate_model(&paths.config_file, &paths, spec, ProgressFormat::Human).unwrap();
     assert_eq!(
         Config::load(&paths.config_file).unwrap().model.name,
         spec.id
@@ -1233,6 +1339,36 @@ fn metadata_helpers_return_stable_shapes() {
     );
     assert_eq!(details["backend"]["kind"], "fake");
     assert_eq!(details["model_load_milliseconds"], 12);
+}
+
+#[test]
+fn model_activation_prepares_npu_cache_before_saving() {
+    let paths = test_paths("model-cache-transaction");
+    let spec = &crate::catalog::models()[0];
+    let mut original = Config::default();
+    original.backend.runtime = Runtime::Openvino;
+    original.backend.device = "npu".into();
+    original.model.encoder = "old-encoder.onnx".into();
+    original.save(&paths.config_file).unwrap();
+    let original_bytes = fs::read(&paths.config_file).unwrap();
+
+    let error = activate_model_with_cache(
+        &paths.config_file,
+        &paths,
+        spec,
+        ProgressFormat::Json,
+        |candidate, path, received_paths, progress| {
+            assert_eq!(candidate.model.encoder, spec.openvino_accelerator_encoder);
+            assert_eq!(path, paths.config_file);
+            assert_eq!(received_paths, &paths);
+            assert_eq!(progress, ProgressFormat::Json);
+            assert_eq!(fs::read(path).unwrap(), original_bytes);
+            bail!("model cache failed")
+        },
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("model cache failed"));
+    assert_eq!(fs::read(&paths.config_file).unwrap(), original_bytes);
 }
 
 #[test]

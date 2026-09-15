@@ -40,6 +40,7 @@ pub struct ModelSpec {
     pub cuda_joiner: &'static str,
     pub tokens: &'static str,
     pub bpe_model: &'static str,
+    pub probe_audio: &'static str,
     pub required_files: &'static [RequiredFile],
 }
 
@@ -129,6 +130,7 @@ const MODELS: &[ModelSpec] = &[ModelSpec {
     cuda_joiner: "joiner-epoch-12-avg-2-chunk-16-left-64.onnx",
     tokens: "tokens.txt",
     bpe_model: "bpe.model",
+    probe_audio: "test_wavs/0.wav",
     required_files: KWS_FILES,
 }];
 
