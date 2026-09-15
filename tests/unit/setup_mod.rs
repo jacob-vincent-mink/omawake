@@ -22,7 +22,7 @@ fn ensure_config_creates_and_reloads_defaults() {
     let created = ensure_config(&paths.config_file).unwrap();
     assert_eq!(created.wake_words.len(), 1);
     let loaded = ensure_config(&paths.config_file).unwrap();
-    assert_eq!(loaded.backend.kind, "sherpa-onnx");
+    assert_eq!(loaded.backend.kind, "omawake-onnx");
 }
 
 #[test]

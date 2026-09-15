@@ -21,7 +21,7 @@ fn lookup_and_activation_populate_config() {
     config.backend.kind = "other".into();
     config.model.directory = "/custom".into();
     spec.activate(&mut config);
-    assert_eq!(config.backend.kind, "sherpa-onnx");
+    assert_eq!(config.backend.kind, "omawake-onnx");
     assert_eq!(config.model.name, spec.id);
     assert!(config.model.directory.is_empty());
     assert_eq!(config.model.bpe_model, "bpe.model");
@@ -30,11 +30,15 @@ fn lookup_and_activation_populate_config() {
     config.backend.runtime = Runtime::Openvino;
     config.backend.device = "npu".into();
     spec.activate(&mut config);
-    assert_eq!(config.model.encoder, spec.openvino_accelerator_encoder);
+    assert_eq!(config.model.encoder, spec.openvino_npu_encoder);
+    assert_eq!(config.model.decoder, spec.openvino_npu_decoder);
+    assert_eq!(config.model.joiner, spec.openvino_npu_joiner);
 
     config.backend.device = "gpu".into();
     spec.apply_runtime_compatibility(&mut config);
-    assert_eq!(config.model.encoder, spec.openvino_accelerator_encoder);
+    assert_eq!(config.model.encoder, spec.encoder);
+    assert_eq!(config.model.decoder, spec.decoder);
+    assert_eq!(config.model.joiner, spec.joiner);
 
     config.backend.device = "cpu".into();
     spec.apply_runtime_compatibility(&mut config);
@@ -42,7 +46,7 @@ fn lookup_and_activation_populate_config() {
 
     config.backend.device = "auto".into();
     spec.apply_runtime_compatibility(&mut config);
-    assert_eq!(config.model.encoder, spec.openvino_accelerator_encoder);
+    assert_eq!(config.model.encoder, spec.encoder);
 
     config.backend.runtime = Runtime::Cuda;
     config.backend.device = "gpu".into();

@@ -225,8 +225,8 @@ write_config() {
   fi
   {
     printf '[backend]\n'
-    printf 'kind = "sherpa-onnx"\nruntime = "%s"\ndevice = "%s"\n' "$runtime" "$device"
-    printf 'threads = %s\nfallback = "error"\ndevice_id = 0\nprovider_config = ""\n\n' "$threads"
+    printf 'kind = "omawake-onnx"\nruntime = "%s"\ndevice = "%s"\n' "$runtime" "$device"
+    printf 'threads = %s\nfallback = "error"\ndevice_id = 0\n\n' "$threads"
     printf '[backend.options]\n'
     if [[ $runtime == openvino ]]; then
       printf 'ProfilingFilePrefix = "%s"\n' "$escaped_profile"
@@ -315,11 +315,6 @@ for lane in "${lanes[@]}"; do
     set -e
 
     printf '%s\n' "$status" >"$lane_dir/$phase.exit-status.txt"
-    provider_config=$(find "$lane_dir/state/omawake/cache/openvino" -type f \
-      -name provider.config -print -quit 2>/dev/null || true)
-    if [[ -n $provider_config ]]; then
-      cp -- "$provider_config" "$lane_dir/$phase.provider.config"
-    fi
     validation_status=$status
     if [[ $lane == openvino-* ]]; then
       if grep -aE 'Failed to enable OpenVINO Execution Provider|Fallback to cpu|Device (CPU|GPU|NPU) is not available' \

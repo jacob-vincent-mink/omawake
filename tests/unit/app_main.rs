@@ -188,20 +188,23 @@ fn guided_model_activates_installed_and_downloaded_choices() {
         spec.id
     );
 
-    let paths = test_paths("guided-model-archive-cancel");
-    let mut cancelled_archive = ScriptedGuidedPrompts {
+    let paths = test_paths("guided-model-download");
+    let mut downloadable = ScriptedGuidedPrompts {
         model: Some(spec),
         ..Default::default()
     };
     guided_model_with_services(
         &paths.config_file,
         &paths,
-        &mut cancelled_archive,
+        &mut downloadable,
         |_, _| bail!("missing"),
-        |_, _, _, _| unreachable!(),
+        |paths, model, archive, _| {
+            assert!(archive.is_none());
+            Ok(app_setup::model::model_directory(paths, model))
+        },
     )
     .unwrap();
-    assert!(!paths.config_file.exists());
+    assert!(paths.config_file.exists());
 
     let mut no_model = ScriptedGuidedPrompts::default();
     guided_model_with_services(
@@ -443,7 +446,7 @@ fn full_setup_prepares_npu_cache_before_config_launcher_and_service_changes() {
             assert!(model_installed.get());
             assert_eq!(candidate.backend.runtime, Runtime::Openvino);
             assert_eq!(candidate.backend.device, "npu");
-            assert_eq!(candidate.model.encoder, spec.openvino_accelerator_encoder);
+            assert_eq!(candidate.model.encoder, spec.openvino_npu_encoder);
             assert_eq!(path, paths.config_file);
             assert_eq!(received_paths, &paths);
             assert_eq!(progress, ProgressFormat::Human);
@@ -467,8 +470,8 @@ fn guided_model_catalog_exposes_status_metadata_and_selection() {
     let selected = choose_model_with(&paths, active, |items, preferred| {
         assert_eq!(preferred, 0);
         assert!(items[0].enabled);
-        assert!(items[0].label.contains("user-supplied archive required"));
-        assert!(items[0].detail.contains("licensed local archive"));
+        assert!(items[0].label.contains("download required"));
+        assert!(items[0].detail.contains("Apache-2.0 (verified)"));
         Ok(Some(0))
     })
     .unwrap();
@@ -496,7 +499,8 @@ fn terminal_prompt_adapter_reports_non_tty_errors() {
     assert!(
         prompts
             .model_archive(&paths, &crate::catalog::models()[0])
-            .is_err()
+            .unwrap()
+            .is_none()
     );
     assert!(
         prompts
@@ -783,15 +787,10 @@ fn config_helpers_cover_every_supported_key_and_validation() {
         ("backend.threads", "3"),
         ("backend.fallback", "CPU"),
         ("backend.device_id", "2"),
-        ("backend.provider_config", "provider.json"),
         ("backend.library_dirs", "/opt/oma/lib:/opt/vendor/lib"),
         (
             "backend.onnxruntime_library",
             "/opt/oma/lib/libonnxruntime.so",
-        ),
-        (
-            "backend.sherpa_library",
-            "/opt/oma/lib/libsherpa-onnx-c-api.so",
         ),
         (
             "backend.provider_library",
@@ -851,7 +850,7 @@ fn config_mutation_saves_and_wake_words_compile_when_model_exists() {
     let accelerated = Config::load(&paths.config_file).unwrap();
     assert_eq!(
         accelerated.model.encoder,
-        crate::catalog::models()[0].openvino_accelerator_encoder
+        crate::catalog::models()[0].encoder
     );
     config_mutation(
         ConfigCommand::Unset {
@@ -906,7 +905,6 @@ fn runtime_changes_reset_cuda_only_device_state() {
     cuda.backend.runtime = Runtime::Cuda;
     cuda.backend.device = "gpu".into();
     cuda.backend.device_id = 3;
-    cuda.backend.provider_config = "cuda.conf".into();
     cuda.backend.provider_library = "/old/libonnxruntime_providers_cuda.so".into();
     cuda.backend
         .options
@@ -925,7 +923,6 @@ fn runtime_changes_reset_cuda_only_device_state() {
     assert_eq!(openvino.backend.runtime, Runtime::Openvino);
     assert_eq!(openvino.backend.device, "auto");
     assert_eq!(openvino.backend.device_id, 0);
-    assert!(openvino.backend.provider_config.is_empty());
     assert!(openvino.backend.provider_library.as_os_str().is_empty());
     assert!(openvino.backend.options.is_empty());
 
@@ -941,7 +938,6 @@ fn runtime_changes_reset_cuda_only_device_state() {
     let default = Config::load(&paths.config_file).unwrap();
     assert_eq!(default.backend.runtime, Runtime::Default);
     assert_eq!(default.backend.device_id, 0);
-    assert!(default.backend.provider_config.is_empty());
     assert!(default.backend.provider_library.as_os_str().is_empty());
     assert!(default.backend.options.is_empty());
 
@@ -959,7 +955,6 @@ fn runtime_changes_reset_cuda_only_device_state() {
         assert_eq!(saved.backend.runtime, runtime);
         assert_eq!(saved.backend.device, device);
         assert_eq!(saved.backend.device_id, 0);
-        assert!(saved.backend.provider_config.is_empty());
         assert_ne!(
             saved.backend.provider_library,
             PathBuf::from("/old/libonnxruntime_providers_cuda.so")
@@ -972,44 +967,38 @@ fn runtime_changes_reset_cuda_only_device_state() {
 fn runtime_directory_populates_exact_external_library_paths() {
     let paths = test_paths("runtime-directory");
     let runtime = paths.data_dir.join("runtime");
-    let bundled_sherpa = paths.data_dir.join("package/lib/libsherpa-onnx-c-api.so");
     fs::create_dir_all(&runtime).unwrap();
-    fs::create_dir_all(bundled_sherpa.parent().unwrap()).unwrap();
-    fs::write(&bundled_sherpa, b"bundled patched fixture").unwrap();
     for library in [
-        "libonnxruntime.so.1.29.0",
+        "libonnxruntime.so.1.30.0",
         "libonnxruntime_providers_openvino.so",
     ] {
         fs::write(runtime.join(library), b"fixture").unwrap();
     }
-    let mut config = Config::default();
-    config.backend.runtime = Runtime::Openvino;
-    configure_runtime_directory_with(&mut config, &runtime, bundled_sherpa.clone()).unwrap();
+    save_runtime_selection_impl_with(
+        &paths.config_file,
+        &RuntimeSelection {
+            runtime: Runtime::Openvino,
+            device: "npu".into(),
+        },
+        Some(&runtime),
+        |_, _| Ok(()),
+    )
+    .unwrap();
+    let mut config = Config::load(&paths.config_file).unwrap();
     assert_eq!(
         config.backend.library_dirs.as_slice(),
-        [
-            runtime.clone(),
-            bundled_sherpa.parent().unwrap().to_path_buf()
-        ]
+        std::slice::from_ref(&runtime)
     );
     assert_eq!(
         config.backend.onnxruntime_library,
-        runtime.join("libonnxruntime.so.1.29.0")
+        runtime.join("libonnxruntime.so.1.30.0")
     );
-    assert_eq!(config.backend.sherpa_library, bundled_sherpa);
     assert_eq!(
         config.backend.provider_library,
         runtime.join("libonnxruntime_providers_openvino.so")
     );
 
-    assert!(
-        configure_runtime_directory_with(
-            &mut Config::default(),
-            Path::new("relative"),
-            PathBuf::from("unused")
-        )
-        .is_err()
-    );
+    assert!(configure_runtime_directory(&mut Config::default(), Path::new("relative")).is_err());
 
     let sdk = paths.data_dir.join("sdk");
     let base = sdk.join("lib");
@@ -1022,20 +1011,13 @@ fn runtime_directory_populates_exact_external_library_paths() {
         b"fixture",
     )
     .unwrap();
-    let packaged = paths.data_dir.join("other/lib/libsherpa-onnx-c-api.so");
-    fs::create_dir_all(packaged.parent().unwrap()).unwrap();
-    fs::write(&packaged, b"bundled patched fixture").unwrap();
-    configure_runtime_directory_with(&mut config, &sdk, packaged.clone()).unwrap();
-    assert_eq!(
-        config.backend.library_dirs,
-        [base, packaged.parent().unwrap().to_path_buf(), provider]
-    );
+    configure_runtime_directory(&mut config, &sdk).unwrap();
+    assert_eq!(config.backend.library_dirs, [base, provider]);
 }
 
 fn runtime_report(runtime: Runtime, loadable: bool) -> runtime_paths::RuntimeLibraryReport {
     runtime_paths::RuntimeLibraryReport {
         onnxruntime_library: None,
-        sherpa_library: None,
         provider_library: None,
         configured_library_dirs: Vec::new(),
         environment_library_dirs: Vec::new(),
@@ -1364,7 +1346,7 @@ fn model_activation_prepares_npu_cache_before_saving() {
         spec,
         ProgressFormat::Json,
         |candidate, path, received_paths, progress| {
-            assert_eq!(candidate.model.encoder, spec.openvino_accelerator_encoder);
+            assert_eq!(candidate.model.encoder, spec.openvino_npu_encoder);
             assert_eq!(path, paths.config_file);
             assert_eq!(received_paths, &paths);
             assert_eq!(progress, ProgressFormat::Json);

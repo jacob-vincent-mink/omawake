@@ -414,7 +414,7 @@ fn choose_runtime_directory_with(
         MenuItem::available("Use current discovery", configured),
         MenuItem::available(
             "Choose runtime directory",
-            "Point Omawake at an external ONNX Runtime provider and vendor libraries; Sherpa is bundled",
+            "Select Omawake's bundled ONNX Runtime and optional provider plugin",
         ),
     ];
     if prompter.choose(
@@ -476,7 +476,7 @@ fn choose_runtime_with(
 fn runtime_items(loadable: &BTreeMap<&str, bool>) -> [MenuItem; 3] {
     [
         if loadable.get("default").copied().unwrap_or(false) {
-            MenuItem::available("Default", "ONNX Runtime and sherpa detected · CPU")
+            MenuItem::available("Default", "Bundled ONNX Runtime · CPU")
         } else {
             MenuItem::available(
                 "Default",
@@ -619,7 +619,7 @@ fn device_items(runtime: Runtime) -> Vec<MenuItem> {
 
 fn device_values(runtime: Runtime) -> &'static [(&'static str, &'static str)] {
     match runtime {
-        Runtime::Default => &[("auto", "Let sherpa-onnx choose"), ("cpu", "CPU execution")],
+        Runtime::Default => &[("auto", "Use the available CPU"), ("cpu", "CPU execution")],
         Runtime::Openvino => &[
             ("auto", "Let OpenVINO choose"),
             ("npu", "Intel NPU"),

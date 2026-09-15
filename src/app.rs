@@ -385,7 +385,6 @@ fn config_mutation(command: ConfigCommand, mut config: Config, path: &Path) -> R
     let runtime_changed = config.backend.runtime != previous_runtime;
     if runtime_changed {
         config.backend.device = "auto".into();
-        config.backend.provider_config.clear();
         config.backend.provider_library.clear();
         config.backend.options.clear();
         if config.backend.runtime != Runtime::Cuda {
@@ -407,12 +406,10 @@ fn set_config(config: &mut Config, key: &str, value: &str) -> Result<()> {
         "backend.threads" => config.backend.threads = value.parse()?,
         "backend.fallback" => config.backend.fallback = parse_fallback(value)?,
         "backend.device_id" => config.backend.device_id = value.parse()?,
-        "backend.provider_config" => config.backend.provider_config = value.into(),
         "backend.library_dirs" => {
             config.backend.library_dirs = std::env::split_paths(value).collect()
         }
         "backend.onnxruntime_library" => config.backend.onnxruntime_library = value.into(),
-        "backend.sherpa_library" => config.backend.sherpa_library = value.into(),
         "backend.provider_library" => config.backend.provider_library = value.into(),
         "model.name" => config.model.name = value.into(),
         "model.directory" => config.model.directory = value.into(),
@@ -438,14 +435,10 @@ fn unset_config(config: &mut Config, key: &str) -> Result<()> {
         "backend.threads" => config.backend.threads = defaults.backend.threads,
         "backend.fallback" => config.backend.fallback = defaults.backend.fallback,
         "backend.device_id" => config.backend.device_id = defaults.backend.device_id,
-        "backend.provider_config" => {
-            config.backend.provider_config = defaults.backend.provider_config
-        }
         "backend.library_dirs" => config.backend.library_dirs = defaults.backend.library_dirs,
         "backend.onnxruntime_library" => {
             config.backend.onnxruntime_library = defaults.backend.onnxruntime_library
         }
-        "backend.sherpa_library" => config.backend.sherpa_library = defaults.backend.sherpa_library,
         "backend.provider_library" => {
             config.backend.provider_library = defaults.backend.provider_library
         }
@@ -1137,7 +1130,7 @@ fn choose_model(
     choose_model_with(paths, active_model, |items, preferred| {
         wizard::select(
             "Wake-word model",
-            "● active · ○ installed · unverified catalog models require a user-supplied archive",
+            "● active · ○ installed · verified catalog models can be downloaded",
             items,
             preferred,
         )
@@ -1241,7 +1234,6 @@ fn runtime_selection_candidate(
     config.backend.runtime = selection.runtime;
     config.backend.device = selection.device.clone();
     if runtime_changed {
-        config.backend.provider_config.clear();
         config.backend.provider_library.clear();
         config.backend.options.clear();
     }
@@ -1257,16 +1249,14 @@ fn runtime_selection_candidate(
     }
     // Keep packaged CPU paths relocatable. Persist exact paths for external stacks.
     let locations = runtime_paths::discover(&config.backend, config_path);
-    let packaged = [&locations.onnxruntime_library, &locations.sherpa_library]
-        .iter()
-        .all(|library| {
-            library.as_ref().is_some_and(|library| {
-                locations
-                    .package_library_dirs
-                    .iter()
-                    .any(|directory| library.starts_with(directory))
-            })
-        });
+    let packaged = [&locations.onnxruntime_library].iter().all(|library| {
+        library.as_ref().is_some_and(|library| {
+            locations
+                .package_library_dirs
+                .iter()
+                .any(|directory| library.starts_with(directory))
+        })
+    });
     if runtime_directory.is_some()
         || selection.runtime != Runtime::Default
         || !config.backend.library_dirs.is_empty()
@@ -1314,23 +1304,6 @@ fn configure_runtime_directory(config: &mut Config, directory: &Path) -> Result<
             directory.display()
         );
     }
-    let sherpa_library = runtime_paths::packaged_library("libsherpa-onnx-c-api.so").context(
-        "this Omawake installation is missing its bundled extended sherpa library; reinstall the release package or copy its lib directory beside the executable",
-    )?;
-    configure_runtime_directory_with(config, directory, sherpa_library)
-}
-
-fn configure_runtime_directory_with(
-    config: &mut Config,
-    directory: &Path,
-    sherpa_library: PathBuf,
-) -> Result<()> {
-    if !directory.is_absolute() || !directory.is_dir() {
-        bail!(
-            "runtime library directory must be an absolute existing directory: {}",
-            directory.display()
-        );
-    }
     let candidates = [
         directory.to_owned(),
         directory.join("lib"),
@@ -1363,25 +1336,21 @@ fn configure_runtime_directory_with(
     let onnxruntime_library = find("libonnxruntime.so")?;
     let provider_library = match config.backend.runtime {
         Runtime::Default => PathBuf::new(),
-        Runtime::Openvino => find("libonnxruntime_providers_openvino.so")?,
+        Runtime::Openvino => find("libonnxruntime_providers_openvino_plugin.so")
+            .or_else(|_| find("libonnxruntime_providers_openvino.so"))?,
         Runtime::Cuda => find("libonnxruntime_providers_cuda.so")?,
     };
-    config.backend.library_dirs = [
-        onnxruntime_library.parent(),
-        sherpa_library.parent(),
-        provider_library.parent(),
-    ]
-    .into_iter()
-    .flatten()
-    .map(Path::to_owned)
-    .fold(Vec::new(), |mut directories, path| {
-        if !directories.contains(&path) {
-            directories.push(path);
-        }
-        directories
-    });
+    config.backend.library_dirs = [onnxruntime_library.parent(), provider_library.parent()]
+        .into_iter()
+        .flatten()
+        .map(Path::to_owned)
+        .fold(Vec::new(), |mut directories, path| {
+            if !directories.contains(&path) {
+                directories.push(path);
+            }
+            directories
+        });
     config.backend.onnxruntime_library = onnxruntime_library;
-    config.backend.sherpa_library = sherpa_library;
     config.backend.provider_library = provider_library;
     Ok(())
 }
@@ -2612,12 +2581,11 @@ fn stopped_status(config: &Config, paths: &AppPaths) -> serde_json::Value {
 fn schema(config: &Config, config_path: &Path, paths: &AppPaths) -> serde_json::Value {
     json!({"schema_version":1,"app":"omawake","app_version":env!("CARGO_PKG_VERSION"),"daemon_version":env!("CARGO_PKG_VERSION"),"config_path":config_path,
         "keys":[
-            {"key":"backend.kind","type":"enum","section":"Backend","label":"Backend","description":"Inference engine","value":config.backend.kind,"file_value":null,"supported":true,"restart_required":true,"choices":["sherpa-onnx"]},
+            {"key":"backend.kind","type":"enum","section":"Backend","label":"Backend","description":"Inference engine","value":config.backend.kind,"file_value":null,"supported":true,"restart_required":true,"choices":["omawake-onnx"]},
             {"key":"backend.runtime","type":"enum","section":"Backend","label":"Runtime","description":"ONNX Runtime provider","value":config.backend.runtime,"file_value":null,"supported":true,"restart_required":true,"choices":[{"value":"default","available":true,"capability":"cpu"},{"value":"openvino","available":supported_capabilities().contains(&"openvino"),"capability":"openvino"},{"value":"cuda","available":supported_capabilities().contains(&"cuda"),"capability":"cuda"}]},
             {"key":"backend.device","type":"string","section":"Backend","label":"Device","description":"Runtime-specific device","value":config.backend.device,"file_value":null,"supported":true,"restart_required":true},
             {"key":"backend.library_dirs","type":"path-list","section":"Backend","label":"Native library directories","description":"App-owned vendor runtime search paths","value":config.backend.library_dirs,"file_value":null,"supported":true,"restart_required":true},
-            {"key":"backend.onnxruntime_library","type":"path","section":"Backend","label":"ONNX Runtime library","description":"Exact external ONNX Runtime shared library","value":config.backend.onnxruntime_library,"file_value":null,"supported":true,"restart_required":true},
-            {"key":"backend.sherpa_library","type":"path","section":"Backend","label":"Sherpa library","description":"Exact patched sherpa-onnx C API shared library","value":config.backend.sherpa_library,"file_value":null,"supported":true,"restart_required":true},
+            {"key":"backend.onnxruntime_library","type":"path","section":"Backend","label":"ONNX Runtime library","description":"Exact app-owned ONNX Runtime shared library","value":config.backend.onnxruntime_library,"file_value":null,"supported":true,"restart_required":true},
             {"key":"backend.provider_library","type":"path","section":"Backend","label":"Provider library","description":"Exact OpenVINO or CUDA execution-provider plugin","value":config.backend.provider_library,"file_value":null,"supported":true,"restart_required":true},
             {"key":"model.directory","type":"path","section":"Model","label":"Directory","description":"Model asset directory","value":config.model_directory(paths),"file_value":config.model.directory,"supported":true,"restart_required":true}],
         "collections":[{"key":"wake_words","id_key":"id","label":"Wake words","items":config.wake_words}],

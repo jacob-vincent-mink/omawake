@@ -53,80 +53,36 @@ pub fn name(runtime: Runtime) -> &'static str {
     }
 }
 
-pub(crate) fn remediation(runtime: Runtime, device: &str) -> String {
-    match runtime {
-        Runtime::Default => "Reinstall Omawake with its bundled lib directory; the default CPU runtime and extended sherpa library are supplied by Omawake.".into(),
-        Runtime::Openvino => format!("Omawake supplies the extended sherpa library. Supply an ABI-matched ONNX Runtime 1.29.0 OpenVINO provider stack and Intel OpenVINO dependencies, then run `omawake setup runtime --runtime openvino --device {device} --dir /absolute/runtime --apply`."),
-        Runtime::Cuda => format!("Omawake supplies the extended sherpa library. Supply an ABI-matched ONNX Runtime 1.29.0 CUDA provider stack and NVIDIA CUDA dependencies, then run `omawake setup runtime --runtime cuda --device {device} --dir /absolute/runtime --apply`."),
-    }
-}
-
 pub fn inventory(config: &BackendConfig, path: &Path) -> Vec<State> {
-    [
-        (Runtime::Default, &["auto", "cpu"][..]),
-        (Runtime::Openvino, &["auto", "cpu", "gpu", "npu"][..]),
-        (Runtime::Cuda, &["auto", "gpu"][..]),
-    ]
-    .into_iter()
-    .flat_map(|(runtime, devices)| devices.iter().map(move |device| (runtime, *device)))
+    [ (Runtime::Default, &["auto", "cpu"][..]),
+      (Runtime::Openvino, &["auto", "cpu", "gpu", "npu"][..]),
+      (Runtime::Cuda, &["auto", "gpu"][..]) ]
+    .into_iter().flat_map(|(runtime, devices)| devices.iter().map(move |device| (runtime, *device)))
     .map(|(runtime, device)| {
         let mut candidate = config.clone();
-        if runtime != config.runtime {
-            candidate.provider_library.clear();
-            candidate.device_id = 0;
-        }
+        if runtime != config.runtime { candidate.provider_library.clear(); candidate.device_id = 0; }
         candidate.runtime = runtime;
         candidate.device = device.into();
         let locations = runtime_paths::discover(&candidate, path);
         let exact = resolve(&candidate, path);
-        let anchor = if runtime == Runtime::Default {
-            &exact.onnxruntime_library
+        let anchor = if runtime == Runtime::Default { &exact.onnxruntime_library } else { &exact.provider_library };
+        let configured = path.is_file() && config.runtime == runtime && config.device.eq_ignore_ascii_case(device);
+        let source = if locations.configured_library_dirs.iter().any(|dir| anchor.starts_with(dir)) { "configured" }
+            else if locations.environment_library_dirs.iter().any(|dir| anchor.starts_with(dir)) { "environment" }
+            else if locations.package_library_dirs.iter().any(|dir| anchor.starts_with(dir)) { "package" }
+            else if env::var_os("LD_LIBRARY_PATH").is_some_and(|value| env::split_paths(&value).any(|dir| anchor.starts_with(dir))) { "environment" }
+            else if anchor.is_file() { "system" } else { "candidate" };
+        let remediation = if runtime == Runtime::Default {
+            "Reinstall Omawake to restore its ONNX Runtime 1.30.0 core.".into()
         } else {
-            &exact.provider_library
+            format!("Install a compatible official {} provider plugin, then run `omawake setup runtime --runtime {} --device {device} --dir /path/to/provider --apply`.", name(runtime), name(runtime))
         };
-        let configured = path.is_file()
-            && config.runtime == runtime
-            && config.device.eq_ignore_ascii_case(device);
-        let source = if locations
-            .configured_library_dirs
-            .iter()
-            .any(|dir| anchor.starts_with(dir))
-        {
-            "configured"
-        } else if locations
-            .environment_library_dirs
-            .iter()
-            .any(|dir| anchor.starts_with(dir))
-        {
-            "environment"
-        } else if locations
-            .package_library_dirs
-            .iter()
-            .any(|dir| anchor.starts_with(dir))
-        {
-            "package"
-        } else if env::var_os("LD_LIBRARY_PATH")
-            .is_some_and(|value| env::split_paths(&value).any(|dir| anchor.starts_with(dir)))
-        {
-            "environment"
-        } else if anchor.is_file() {
-            "system"
-        } else {
-            "candidate"
-        };
-        State {
-            runtime: name(runtime),
-            device: device.into(),
-            supported: true,
-            discovered: required(&exact).iter().all(|p| p.is_file()),
-            source,
-            configured,
-            probe: probe(&candidate, path),
-            paths: exact,
-            remediation: vec![remediation(runtime, device)],
+        State { runtime: name(runtime), device: device.into(), supported: true,
+            discovered: required(&exact).iter().all(|p| p.is_file()), source, configured,
+            probe: probe(&candidate, path), paths: exact,
+            remediation: vec![remediation],
         }
-    })
-    .collect()
+    }).collect()
 }
 
 pub fn resolve(config: &BackendConfig, path: &Path) -> BackendConfig {
@@ -140,7 +96,6 @@ fn resolve_with_locations(
 ) -> BackendConfig {
     let mut candidate = config.clone();
     candidate.onnxruntime_library = locations.onnxruntime_library.unwrap_or_default();
-    candidate.sherpa_library = locations.sherpa_library.unwrap_or_default();
     candidate.provider_library = locations.provider_library.unwrap_or_default();
     candidate.library_dirs = locations.configured_library_dirs;
     // The isolated child replaces LD_LIBRARY_PATH. Retain directories supplied
@@ -151,11 +106,7 @@ fn resolve_with_locations(
             candidate.library_dirs.push(directory);
         }
     }
-    for library in [
-        &candidate.onnxruntime_library,
-        &candidate.sherpa_library,
-        &candidate.provider_library,
-    ] {
+    for library in [&candidate.onnxruntime_library, &candidate.provider_library] {
         if let Some(parent) = library.parent().filter(|p| !p.as_os_str().is_empty())
             && !candidate.library_dirs.iter().any(|dir| dir == parent)
         {
@@ -166,10 +117,7 @@ fn resolve_with_locations(
 }
 
 fn required(config: &BackendConfig) -> Vec<&Path> {
-    let mut paths = vec![
-        config.onnxruntime_library.as_path(),
-        config.sherpa_library.as_path(),
-    ];
+    let mut paths = vec![config.onnxruntime_library.as_path()];
     if config.runtime != Runtime::Default {
         paths.push(&config.provider_library);
     }
@@ -180,17 +128,10 @@ pub fn probe(config: &BackendConfig, path: &Path) -> Probe {
     let exact = resolve(config, path);
     let result = (|| -> Result<Probe> {
         exact.validate_shape()?;
-        if exact.runtime == Runtime::Cuda && exact.device_id != 0 {
-            bail!(
-                "the sherpa device probe cannot verify CUDA device_id {}; select device_id 0",
-                exact.device_id
-            );
-        }
         for (library, required_name) in required(&exact).into_iter().zip([
-            "libonnxruntime.so (ONNX Runtime 1.29.0)",
-            "libsherpa-onnx-c-api.so (patched sherpa 1.13.8)",
+            "libonnxruntime.so (ONNX Runtime 1.30.0)",
             if exact.runtime == Runtime::Openvino {
-                "libonnxruntime_providers_openvino.so"
+                "libonnxruntime_providers_openvino_plugin.so"
             } else {
                 "libonnxruntime_providers_cuda.so"
             },
@@ -221,7 +162,7 @@ fn isolated(config: &BackendConfig) -> Result<Probe> {
         .arg("__inventory-probe")
         .arg(serde_json::to_string(config)?)
         .env("LD_LIBRARY_PATH", env::join_paths(&config.library_dirs)?)
-        // ORT 1.29 POSIX initializes telemetry storage unless explicitly disabled.
+        // ORT POSIX builds may initialize telemetry storage unless explicitly disabled.
         .env("ORT_DISABLE_TELEMETRY", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
@@ -249,35 +190,57 @@ fn isolated(config: &BackendConfig) -> Result<Probe> {
 pub fn child(config: &BackendConfig) -> Probe {
     let mut result = Probe::default();
     let attempt = (|| -> Result<()> {
-        crate::engine::sherpa::validate_runtime_libraries(
-            &config.onnxruntime_library,
-            &config.sherpa_library,
-        )?;
-        result.evidence.versions = vec![
-            "ONNX Runtime 1.29.0".into(),
-            "sherpa-onnx 1.13.8; extended sherpa API v1".into(),
-        ];
+        validate_runtime_version(&config.onnxruntime_library)?;
+        ort::init_from(&config.onnxruntime_library)?
+            .with_name("omawake-runtime-probe")
+            .commit();
+        let environment = ort::environment::Environment::current()?;
+        result.evidence.versions = vec!["ONNX Runtime 1.30.0".into()];
         if config.runtime != Runtime::Default {
             let device = config.canonical_device()?;
-            let (provider, target) = match (config.runtime, device.as_str()) {
-                (Runtime::Openvino, "auto") => ("OpenVINOExecutionProvider.AUTO", ""),
-                (Runtime::Openvino, _) => ("OpenVINOExecutionProvider", device.as_str()),
-                (Runtime::Cuda, _) => ("CUDAExecutionProvider", "gpu"),
+            let provider = match (config.runtime, device.as_str()) {
+                (Runtime::Openvino, "auto") => "OpenVINOExecutionProvider.AUTO",
+                (Runtime::Openvino, _) => "OpenVINOExecutionProvider",
+                (Runtime::Cuda, _) => "CUDAExecutionProvider",
                 _ => unreachable!(),
             };
-            crate::engine::sherpa::validate_runtime_provider_with(
-                &config.onnxruntime_library,
-                &config.sherpa_library,
+            let _library = environment.register_ep_library(
+                format!("omawake-probe-{}", name(config.runtime)),
                 &config.provider_library,
-                "omawake-setup-probe",
-                provider,
-                target,
-                || {
-                    result.loadable = true;
-                    result.evidence.provider_registration = true;
-                },
             )?;
             result.evidence.provider_registration = true;
+            let devices = environment
+                .devices()
+                .filter(|entry| {
+                    if entry.ep().ok() != Some(provider) {
+                        return false;
+                    }
+                    match (config.runtime, device.as_str()) {
+                        (Runtime::Openvino, "cpu") => {
+                            entry.hardware_device().ty() == ort::memory::DeviceType::CPU
+                        }
+                        (Runtime::Openvino, "gpu") | (Runtime::Cuda, _) => {
+                            entry.hardware_device().ty() == ort::memory::DeviceType::GPU
+                        }
+                        (Runtime::Openvino, "npu") => {
+                            entry.hardware_device().ty() == ort::memory::DeviceType::NPU
+                        }
+                        _ => true,
+                    }
+                })
+                .map(|entry| {
+                    format!(
+                        "{}:{:?}:{}",
+                        entry.ep().unwrap_or("unknown"),
+                        entry.hardware_device().ty(),
+                        entry.hardware_device().id()
+                    )
+                })
+                .collect::<Vec<_>>();
+            if devices.is_empty() {
+                bail!("provider registered but exposed no matching {device} device");
+            }
+            result.evidence.available_devices = devices;
         }
         result.loadable = true;
         result.device_accessible = true;
@@ -297,6 +260,28 @@ pub fn child(config: &BackendConfig) -> Probe {
         result.errors.push(format!("{error:#}"));
     }
     result
+}
+
+fn validate_runtime_version(path: &Path) -> Result<()> {
+    #[repr(C)]
+    struct OrtApiBase {
+        get_api: unsafe extern "system" fn(u32) -> *const std::ffi::c_void,
+        get_version_string: unsafe extern "system" fn() -> *const std::ffi::c_char,
+    }
+    type GetApiBase = unsafe extern "system" fn() -> *const OrtApiBase;
+    unsafe {
+        let library = libloading::Library::new(path)?;
+        let get_base: libloading::Symbol<GetApiBase> = library.get(b"OrtGetApiBase\0")?;
+        let base = get_base();
+        if base.is_null() {
+            bail!("OrtGetApiBase returned null");
+        }
+        let version = std::ffi::CStr::from_ptr(((*base).get_version_string)()).to_string_lossy();
+        if version != "1.30.0" {
+            bail!("Omawake requires ONNX Runtime 1.30.0, found {version}");
+        }
+    }
+    Ok(())
 }
 
 pub fn apply_with(

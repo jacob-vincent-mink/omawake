@@ -1,6 +1,6 @@
 # Omawake demo
 
-Validated on 2026-09-13 with `sherpa-onnx` 1.13.8 and the GigaSpeech 3.3M KWS model.
+Validated with Omawake's direct Rust keyword pipeline and the GigaSpeech 3.3M KWS model.
 
 ## Recorded routing
 
@@ -22,7 +22,7 @@ The detector returned both stable IDs and both direct actions exited 0.
 
 ## Live daemon path
 
-The live test created a temporary PipeWire null sink, routed Omawake's CPAL stream to its monitor, and played the same fixture into the sink. The daemon opened `pulse` at 44.1 kHz stereo; sherpa created its in-process 16 kHz resampler. It then logged:
+The live test created a temporary PipeWire null sink, routed Omawake's CPAL stream to its monitor, and played the same fixture into the sink. The daemon opened `pulse` at 44.1 kHz stereo; Omawake resampled it to the model's 16 kHz input. It then logged:
 
 ```text
 loaded wake-word model in 305 ms

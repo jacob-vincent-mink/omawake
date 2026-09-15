@@ -104,7 +104,7 @@ fn spec(archive_bytes: &[u8], url: &str) -> &'static ModelSpec {
     );
     Box::leak(Box::new(ModelSpec {
         id: "tiny",
-        backend: "sherpa-onnx",
+        backend: "omawake-onnx",
         family: "zipformer-kws",
         description: "test model",
         license: "MIT",
@@ -115,11 +115,13 @@ fn spec(archive_bytes: &[u8], url: &str) -> &'static ModelSpec {
         archive_sha256: leak(digest(archive_bytes)),
         archive_root: "tiny-root",
         encoder: "model.bin",
-        openvino_accelerator_encoder: "model.bin",
+        openvino_npu_encoder: "model.bin",
         cuda_encoder: "model.bin",
         decoder: "model.bin",
+        openvino_npu_decoder: "model.bin",
         cuda_decoder: "model.bin",
         joiner: "model.bin",
+        openvino_npu_joiner: "model.bin",
         cuda_joiner: "model.bin",
         tokens: "model.bin",
         bpe_model: "model.bin",

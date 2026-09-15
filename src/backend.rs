@@ -30,10 +30,8 @@ pub struct BackendConfig {
     pub threads: u16,
     pub fallback: Fallback,
     pub device_id: u32,
-    pub provider_config: String,
     pub library_dirs: Vec<PathBuf>,
     pub onnxruntime_library: PathBuf,
-    pub sherpa_library: PathBuf,
     pub provider_library: PathBuf,
     pub options: BTreeMap<String, String>,
 }
@@ -41,16 +39,14 @@ pub struct BackendConfig {
 impl Default for BackendConfig {
     fn default() -> Self {
         Self {
-            kind: "sherpa-onnx".into(),
+            kind: "omawake-onnx".into(),
             runtime: Runtime::Default,
             device: "auto".into(),
             threads: 2,
             fallback: Fallback::Error,
             device_id: 0,
-            provider_config: String::new(),
             library_dirs: Vec::new(),
             onnxruntime_library: PathBuf::new(),
-            sherpa_library: PathBuf::new(),
             provider_library: PathBuf::new(),
             options: BTreeMap::new(),
         }

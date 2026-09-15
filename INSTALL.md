@@ -1,20 +1,20 @@
 # Installing Omawake
 
-Omawake 0.0.1-rc supports Linux x86-64. The release archive contains one
+Omawake 0.0.1-rc supports Linux x86-64 and aarch64. Each release archive contains one
 runtime-neutral executable and a bundled CPU runtime. OpenVINO and CUDA remain
 external runtime choices configured after installation.
 
-There are no 0.0.1-rc prebuilt artifacts for aarch64, macOS, or Windows. CUDA has
-also been validated from source on aarch64 NVIDIA GB10 hardware.
+There are no 0.0.1-rc prebuilt artifacts for macOS or Windows. CUDA has been
+validated on aarch64 NVIDIA GB10 hardware.
 
 ## Release archive
 
-Download `omawake-0.0.1-rc-linux-x86_64.tar.xz` and `SHA256SUMS.txt` from the
+Download `omawake-0.0.1-rc-linux-x86_64.tar.xz` and its `.sha256` file from the
 [v0.0.1-rc release](https://github.com/jacob-vincent-mink/omawake/releases/tag/v0.0.1-rc),
 then verify and unpack it:
 
 ```bash
-sha256sum --check --ignore-missing SHA256SUMS.txt
+sha256sum --check omawake-0.0.1-rc-linux-x86_64.sha256
 tar -xJf omawake-0.0.1-rc-linux-x86_64.tar.xz
 cd omawake-0.0.1-rc-linux-x86_64
 ./omawake --version
@@ -35,10 +35,9 @@ Ensure `$HOME/.local/bin` is on `PATH`, then run the guided setup:
 omawake setup
 ```
 
-The current catalog does not automatically download its GigaSpeech wake-word
-model because the upstream model license is unclear. Setup asks for a local
-copy of the [pinned sherpa-onnx archive](https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2)
-obtained under terms you have verified:
+Setup automatically downloads and verifies the Apache-2.0 GigaSpeech wake-word
+model from its [pinned publisher archive](https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2).
+You can also provide an existing archive:
 
 ```bash
 omawake setup all --archive /path/to/model.tar.bz2
@@ -57,8 +56,9 @@ that file does not enable or start the daemon.
 
 ## OpenVINO or CUDA
 
-Install the vendor runtime and an ABI-matched ONNX Runtime 1.29 provider stack,
-then point setup at its root or library directory:
+Install an official ONNX Runtime 1.30 V2 provider plugin and its vendor runtime,
+then point setup at the plugin package root or library directory. The provider
+package must not include a second ONNX Runtime core:
 
 ```bash
 omawake setup runtime --runtime openvino --device npu \
@@ -82,8 +82,8 @@ Omawake contains that work in a child process and allows up to five total
 attempts while the vendor cache is populated. Only signal terminations are
 retried. Setup applies the runtime only after a complete detector pass succeeds.
 
-See [ACCELERATOR_SETUP.md](ACCELERATOR_SETUP.md) for tested Arch/Omarchy Intel
-iGPU and NPU packages and complete OpenVINO and CUDA runtime bundle recipes.
+See [ACCELERATOR_SETUP.md](ACCELERATOR_SETUP.md) for OpenVINO and CUDA package
+layout details.
 
 ## Build from source
 
@@ -96,7 +96,8 @@ cargo build --release --locked
 cargo test --locked
 ```
 
-The source-built executable is runtime-neutral and does not contain Omawake's
-CPU runtime or extended sherpa companion. Copy the release `lib/` directory
-beside the executable before running setup; accelerator setup can then replace
-the ONNX Runtime core/provider while retaining Omawake's companion library.
+The source-built executable is runtime-neutral and does not contain ONNX
+Runtime. Copy the release `lib/` directory beside the executable, or configure
+an exact ONNX Runtime 1.30 core path, before running setup. Optional accelerator
+setup adds a provider plugin and vendor libraries while continuing to use that
+same core.

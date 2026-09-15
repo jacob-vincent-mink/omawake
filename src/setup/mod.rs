@@ -348,13 +348,6 @@ pub fn print_runtime(config: &Config, config_path: &Path, json: bool) -> Result<
                 .map_or_else(|| "(not found)".into(), |path| path.display().to_string())
         );
         println!(
-            "  sherpa: {}",
-            libraries
-                .sherpa_library
-                .as_deref()
-                .map_or_else(|| "(not found)".into(), |path| path.display().to_string())
-        );
-        println!(
             "  provider: {}",
             libraries.provider_library.as_deref().map_or_else(
                 || "(not selected)".into(),

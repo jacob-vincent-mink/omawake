@@ -32,11 +32,13 @@ pub struct ModelSpec {
     pub archive_sha256: &'static str,
     pub archive_root: &'static str,
     pub encoder: &'static str,
-    pub openvino_accelerator_encoder: &'static str,
+    pub openvino_npu_encoder: &'static str,
     pub cuda_encoder: &'static str,
     pub decoder: &'static str,
+    pub openvino_npu_decoder: &'static str,
     pub cuda_decoder: &'static str,
     pub joiner: &'static str,
+    pub openvino_npu_joiner: &'static str,
     pub cuda_joiner: &'static str,
     pub tokens: &'static str,
     pub bpe_model: &'static str,
@@ -45,10 +47,10 @@ pub struct ModelSpec {
 }
 
 const BACKENDS: &[BackendSpec] = &[BackendSpec {
-    kind: "sherpa-onnx",
-    name: "sherpa-onnx",
+    kind: "omawake-onnx",
+    name: "Omawake ONNX",
     built: true,
-    description: "Local ONNX keyword spotting through a runtime-loaded sherpa adapter",
+    description: "Omawake's native Rust keyword pipeline with runtime-loaded ONNX inference",
 }];
 
 const KWS_FILES: &[RequiredFile] = &[
@@ -111,23 +113,25 @@ const KWS_FILES: &[RequiredFile] = &[
 
 const MODELS: &[ModelSpec] = &[ModelSpec {
     id: "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01",
-    backend: "sherpa-onnx",
+    backend: "omawake-onnx",
     family: "zipformer-kws",
     description: "GigaSpeech Zipformer streaming keyword spotter (3.3M parameters)",
-    license: "unknown",
-    license_status: "unverified",
-    downloadable: false,
+    license: "Apache-2.0",
+    license_status: "verified",
+    downloadable: true,
     archive_url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2",
     archive_size: 17_626_723,
     archive_sha256: "f170013b4716e41b62b9bfd809687c207cef798ef9bc6534d524e17af9b6561a",
     archive_root: "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01",
     encoder: "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
-    openvino_accelerator_encoder: "encoder-epoch-12-avg-2-chunk-16-left-64.onnx",
-    cuda_encoder: "encoder-epoch-12-avg-2-chunk-16-left-64.onnx",
+    openvino_npu_encoder: "encoder-epoch-12-avg-2-chunk-16-left-64.onnx",
+    cuda_encoder: "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
     decoder: "decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
-    cuda_decoder: "decoder-epoch-12-avg-2-chunk-16-left-64.onnx",
+    openvino_npu_decoder: "decoder-epoch-12-avg-2-chunk-16-left-64.onnx",
+    cuda_decoder: "decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
     joiner: "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
-    cuda_joiner: "joiner-epoch-12-avg-2-chunk-16-left-64.onnx",
+    openvino_npu_joiner: "joiner-epoch-12-avg-2-chunk-16-left-64.onnx",
+    cuda_joiner: "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
     tokens: "tokens.txt",
     bpe_model: "bpe.model",
     probe_audio: "test_wavs/0.wav",
@@ -161,11 +165,13 @@ impl ModelSpec {
         if !config.model.directory.trim().is_empty()
             || !matches!(
                 config.model.encoder.as_str(),
-                encoder if [self.encoder, self.openvino_accelerator_encoder, self.cuda_encoder]
+                encoder if [self.encoder, self.openvino_npu_encoder, self.cuda_encoder]
                     .contains(&encoder)
             )
-            || ![self.decoder, self.cuda_decoder].contains(&config.model.decoder.as_str())
-            || ![self.joiner, self.cuda_joiner].contains(&config.model.joiner.as_str())
+            || ![self.decoder, self.openvino_npu_decoder, self.cuda_decoder]
+                .contains(&config.model.decoder.as_str())
+            || ![self.joiner, self.openvino_npu_joiner, self.cuda_joiner]
+                .contains(&config.model.joiner.as_str())
         {
             return;
         }
@@ -174,25 +180,36 @@ impl ModelSpec {
             config.model.decoder = self.cuda_decoder.into();
             config.model.joiner = self.cuda_joiner.into();
         } else {
-            config.model.encoder = if self.uses_openvino_accelerator(config) {
-                self.openvino_accelerator_encoder
+            let npu = self.uses_openvino_npu(config);
+            config.model.encoder = if npu {
+                self.openvino_npu_encoder
             } else {
                 self.encoder
             }
             .into();
-            config.model.decoder = self.decoder.into();
-            config.model.joiner = self.joiner.into();
+            config.model.decoder = if npu {
+                self.openvino_npu_decoder
+            } else {
+                self.decoder
+            }
+            .into();
+            config.model.joiner = if npu {
+                self.openvino_npu_joiner
+            } else {
+                self.joiner
+            }
+            .into();
         }
     }
 
-    pub fn uses_openvino_accelerator(self, config: &Config) -> bool {
+    pub fn uses_openvino_npu(self, config: &Config) -> bool {
         if config.backend.runtime != Runtime::Openvino {
             return false;
         }
         config
             .backend
             .canonical_device()
-            .is_ok_and(|device| device == "auto" || device == "gpu" || device == "npu")
+            .is_ok_and(|device| device == "npu")
     }
 }
 

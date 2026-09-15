@@ -1,9 +1,11 @@
-use std::collections::BTreeMap;
-use std::env;
-use std::ffi::{OsStr, OsString};
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::{
+    collections::BTreeMap,
+    env,
+    ffi::{OsStr, OsString},
+    fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
@@ -13,13 +15,11 @@ use crate::backend::{BackendConfig, Runtime};
 pub const LIBRARY_PATH_ENV: &str = "OMAWAKE_LIBRARY_PATH";
 pub const LIBRARY_PATH_READY_ENV: &str = "OMAWAKE_LIBRARY_PATH_READY";
 pub const ONNXRUNTIME_LIBRARY_ENV: &str = "OMAWAKE_ONNXRUNTIME_LIBRARY";
-pub const SHERPA_LIBRARY_ENV: &str = "OMAWAKE_SHERPA_LIBRARY";
 pub const PROVIDER_LIBRARY_ENV: &str = "OMAWAKE_PROVIDER_LIBRARY";
 
 #[derive(Clone, Debug, Serialize)]
 pub struct RuntimeLibraryReport {
     pub onnxruntime_library: Option<PathBuf>,
-    pub sherpa_library: Option<PathBuf>,
     pub provider_library: Option<PathBuf>,
     pub configured_library_dirs: Vec<PathBuf>,
     pub environment_library_dirs: Vec<PathBuf>,
@@ -33,23 +33,20 @@ pub struct RuntimeLibraryReport {
 impl RuntimeLibraryReport {
     pub fn tui_context(&self) -> String {
         format!(
-            "Configured: {}\r\nEffective: {}\r\nONNX Runtime: {}\r\nSherpa: {}\r\nProvider: {}\r\nRemediation: {}",
-            display_paths_or_none(&self.configured_library_dirs),
-            display_paths_or_none(&self.effective_library_dirs),
+            "Configured: {}\r\nEffective: {}\r\nONNX Runtime: {}\r\nProvider: {}\r\nRemediation: {}",
+            display_or_none(&self.configured_library_dirs),
+            display_or_none(&self.effective_library_dirs),
             self.onnxruntime_library
-                .as_deref()
-                .map_or_else(|| "not found".into(), |path| path.display().to_string()),
-            self.sherpa_library
                 .as_deref()
                 .map_or_else(|| "not found".into(), |path| path.display().to_string()),
             self.provider_library
                 .as_deref()
                 .map_or_else(|| "not selected".into(), |path| path.display().to_string()),
             if self.remediation.is_empty() {
-                "none".to_owned()
+                "none".into()
             } else {
                 self.remediation.join("; ")
-            }
+            },
         )
     }
 }
@@ -59,346 +56,171 @@ pub fn report(config: &BackendConfig, config_path: &Path) -> RuntimeLibraryRepor
     report.remediation.clear();
     for runtime in [Runtime::Default, Runtime::Openvino, Runtime::Cuda] {
         let mut candidate = config.clone();
+        candidate.runtime = runtime;
+        candidate.device = "auto".into();
+        candidate.device_id = 0;
         if runtime != config.runtime {
             candidate.provider_library.clear();
-            candidate.device = "auto".into();
-            candidate.device_id = 0;
         }
-        candidate.runtime = runtime;
-        let state = crate::runtime_inventory::probe(&candidate, config_path);
-        if !state.ready {
-            report.remediation.push(format!(
-                "{}: {}; {}",
-                crate::runtime_inventory::name(runtime),
-                state.errors.join("; "),
-                crate::runtime_inventory::remediation(runtime, &candidate.device),
-            ));
-        }
+        let probe = crate::runtime_inventory::probe(&candidate, config_path);
         report
             .runtime_loadable
-            .insert(crate::runtime_inventory::name(runtime), state.ready);
+            .insert(crate::runtime_inventory::name(runtime), probe.ready);
+        if !probe.ready {
+            let action = if runtime == Runtime::Default {
+                "reinstall Omawake to restore its ONNX Runtime 1.30.0 core"
+            } else {
+                "install a compatible official provider plugin and select its directory with `omawake setup runtime`"
+            };
+            report.remediation.push(format!(
+                "{}: {}; {action}",
+                crate::runtime_inventory::name(runtime),
+                probe.errors.join("; ")
+            ));
+        }
     }
     report
 }
 
-/// Resolve candidates without loading native code or changing files.
+/// Resolve app-owned core and optional provider libraries without loading code.
 pub fn discover(config: &BackendConfig, config_path: &Path) -> RuntimeLibraryReport {
     let executable = env::current_exe().ok();
-    let mut app_environment_dirs = split_paths(env::var_os(LIBRARY_PATH_ENV).as_deref());
-    app_environment_dirs.extend(
-        [
-            env::var_os(ONNXRUNTIME_LIBRARY_ENV),
-            env::var_os(SHERPA_LIBRARY_ENV),
-            env::var_os(PROVIDER_LIBRARY_ENV),
-        ]
-        .into_iter()
-        .flatten()
-        .filter(|path| !path.is_empty())
-        .filter_map(|path| PathBuf::from(path).parent().map(Path::to_owned)),
-    );
-    let app_environment = env::join_paths(app_environment_dirs).ok();
-    let loader_environment = env::var_os("LD_LIBRARY_PATH");
-    let ldconfig = Command::new("ldconfig")
-        .arg("-p")
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| String::from_utf8_lossy(&output.stdout).into_owned());
-    report_with(
-        config,
-        config_path,
-        executable.as_deref(),
-        app_environment.as_deref(),
-        loader_environment.as_deref(),
-        ldconfig.as_deref(),
-        [
-            env::var_os(ONNXRUNTIME_LIBRARY_ENV).map(PathBuf::from),
-            env::var_os(SHERPA_LIBRARY_ENV).map(PathBuf::from),
-            env::var_os(PROVIDER_LIBRARY_ENV).map(PathBuf::from),
-        ],
-        |_, _| false,
-        |_, _| false,
-        |_, _, _, _, _, _| false,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn report_with(
-    config: &BackendConfig,
-    config_path: &Path,
-    executable: Option<&Path>,
-    app_environment: Option<&OsStr>,
-    loader_environment: Option<&OsStr>,
-    ldconfig: Option<&str>,
-    environment_libraries: [Option<PathBuf>; 3],
-    provider_loadable: impl Fn(&Path, &[PathBuf]) -> bool,
-    stack_loadable: impl Fn(&Path, &Path) -> bool,
-    provider_runtime_loadable: impl Fn(&Path, &Path, &Path, Runtime, &str, &[PathBuf]) -> bool,
-) -> RuntimeLibraryReport {
-    let absolute_config_path = if config_path.is_absolute() {
+    let absolute_config = if config_path.is_absolute() {
         config_path.to_owned()
     } else {
         env::current_dir()
             .unwrap_or_else(|_| PathBuf::from("."))
             .join(config_path)
     };
-    let config_directory = absolute_config_path
+    let config_directory = absolute_config
         .parent()
-        .unwrap_or_else(|| Path::new("."));
-    let configured_library_dirs = deduplicate_paths(
+        .map(Path::to_owned)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let configured_library_dirs = deduplicate(
         config
             .library_dirs
             .iter()
-            .map(|path| {
-                if path.is_absolute() {
-                    path.clone()
-                } else {
-                    config_directory.join(path)
-                }
-            })
+            .map(|path| absolute_from(path, &config_directory))
             .chain(
-                [
-                    &config.onnxruntime_library,
-                    &config.sherpa_library,
-                    &config.provider_library,
-                ]
-                .into_iter()
-                .filter(|path| !path.as_os_str().is_empty())
-                .filter_map(|path| {
-                    let path = if path.is_absolute() {
-                        path.clone()
-                    } else {
-                        config_directory.join(path)
-                    };
-                    path.parent().map(Path::to_owned)
-                }),
+                [&config.onnxruntime_library, &config.provider_library]
+                    .into_iter()
+                    .filter(|path| !path.as_os_str().is_empty())
+                    .filter_map(|path| {
+                        absolute_from(path, &config_directory)
+                            .parent()
+                            .map(Path::to_owned)
+                    }),
             ),
     );
-    let environment_library_dirs = split_paths(app_environment);
-    let package_library_dirs = executable.map_or_else(Vec::new, package_library_dirs);
-    let effective_library_dirs = deduplicate_paths(
+    let mut environment_library_dirs = split_paths(env::var_os(LIBRARY_PATH_ENV).as_deref());
+    environment_library_dirs.extend(
+        [
+            env::var_os(ONNXRUNTIME_LIBRARY_ENV),
+            env::var_os(PROVIDER_LIBRARY_ENV),
+        ]
+        .into_iter()
+        .flatten()
+        .filter_map(|path| PathBuf::from(path).parent().map(Path::to_owned)),
+    );
+    environment_library_dirs = deduplicate(environment_library_dirs);
+    let package_library_dirs = executable
+        .as_deref()
+        .map_or_else(Vec::new, package_library_dirs);
+    let effective_library_dirs = deduplicate(
         configured_library_dirs
             .iter()
             .chain(&environment_library_dirs)
             .chain(&package_library_dirs)
             .cloned(),
     );
-    let missing_library_dirs = effective_library_dirs
+    let missing_library_dirs: Vec<PathBuf> = effective_library_dirs
         .iter()
         .filter(|path| !path.is_absolute() || !path.is_dir())
         .cloned()
-        .collect::<Vec<_>>();
-    let search_dirs = deduplicate_paths(
-        effective_library_dirs
-            .iter()
-            .chain(split_paths(loader_environment).iter())
-            .cloned(),
-    );
-    let paths_valid = missing_library_dirs.is_empty();
-    let onnxruntime_library = effective_library(
+        .collect();
+    let loader_dirs = split_paths(env::var_os("LD_LIBRARY_PATH").as_deref());
+    let search_dirs = deduplicate(effective_library_dirs.iter().chain(&loader_dirs).cloned());
+    let ldconfig = Command::new("ldconfig")
+        .arg("-p")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).into_owned());
+    let onnxruntime_library = exact_or_discover(
         &config.onnxruntime_library,
-        environment_libraries[0].as_deref(),
+        env::var_os(ONNXRUNTIME_LIBRARY_ENV)
+            .as_deref()
+            .map(Path::new),
         "libonnxruntime.so",
-        config_directory,
+        &config_directory,
         &search_dirs,
-        ldconfig,
+        ldconfig.as_deref(),
     );
-    let sherpa_library = effective_packaged_library(
-        &config.sherpa_library,
-        environment_libraries[1].as_deref(),
-        "libsherpa-onnx-c-api.so",
-        config_directory,
-        &package_library_dirs,
-        &search_dirs,
-        ldconfig,
-    );
-    let provider_prefix = match config.runtime {
-        crate::backend::Runtime::Openvino => "libonnxruntime_providers_openvino.so",
-        crate::backend::Runtime::Cuda => "libonnxruntime_providers_cuda.so",
-        crate::backend::Runtime::Default => "",
-    };
-    let provider_library = (!provider_prefix.is_empty())
-        .then(|| {
-            effective_library(
-                &config.provider_library,
-                environment_libraries[2].as_deref(),
-                provider_prefix,
-                config_directory,
-                &search_dirs,
-                ldconfig,
-            )
-        })
-        .flatten();
-    let base_loadable = paths_valid
-        && onnxruntime_library.as_deref().is_some_and(Path::is_file)
-        && sherpa_library
-            .as_deref()
-            .is_some_and(|library| library.is_file() && provider_loadable(library, &search_dirs))
-        && onnxruntime_library
-            .as_deref()
-            .zip(sherpa_library.as_deref())
-            .is_some_and(|(ort, sherpa)| stack_loadable(ort, sherpa));
-    let openvino_library = if config.runtime == crate::backend::Runtime::Openvino {
-        provider_library.clone()
-    } else {
-        runtime_library(
+    let provider_names: &[&str] = match config.runtime {
+        Runtime::Default => &[],
+        Runtime::Openvino => &[
+            "libonnxruntime_providers_openvino_plugin.so",
             "libonnxruntime_providers_openvino.so",
-            &search_dirs,
-            ldconfig,
-        )
+        ],
+        Runtime::Cuda => &["libonnxruntime_providers_cuda.so"],
     };
-    let cuda_library = if config.runtime == crate::backend::Runtime::Cuda {
-        provider_library.clone()
+    let provider_library = if provider_names.is_empty() {
+        None
+    } else if !config.provider_library.as_os_str().is_empty() {
+        Some(absolute_from(&config.provider_library, &config_directory))
+    } else if let Some(path) = env::var_os(PROVIDER_LIBRARY_ENV).filter(|path| !path.is_empty()) {
+        Some(PathBuf::from(path))
     } else {
-        runtime_library("libonnxruntime_providers_cuda.so", &search_dirs, ldconfig)
+        provider_names
+            .iter()
+            .find_map(|name| runtime_library(name, &search_dirs, ldconfig.as_deref()))
     };
-    let openvino_device = if config.runtime == Runtime::Openvino {
-        config.canonical_device().ok()
-    } else {
-        Some("auto".to_owned())
-    };
-    let cuda_device = if config.runtime == Runtime::Cuda {
-        config.canonical_device().ok()
-    } else {
-        Some("auto".to_owned())
-    };
-    let provider_ready = |provider: Option<&Path>, runtime, device: Option<&str>| {
-        base_loadable
-            && provider.is_some_and(|provider| {
-                provider.is_file()
-                    && provider_loadable(provider, &search_dirs)
-                    && onnxruntime_library
-                        .as_deref()
-                        .zip(sherpa_library.as_deref())
-                        .zip(device)
-                        .is_some_and(|((ort, sherpa), device)| {
-                            provider_runtime_loadable(
-                                ort,
-                                sherpa,
-                                provider,
-                                runtime,
-                                device,
-                                &search_dirs,
-                            )
-                        })
-            })
-    };
-    let runtime_loadable = BTreeMap::from([
-        ("default", base_loadable),
-        (
-            "openvino",
-            provider_ready(
-                openvino_library.as_deref(),
-                Runtime::Openvino,
-                openvino_device.as_deref(),
-            ),
-        ),
-        (
-            "cuda",
-            provider_ready(
-                cuda_library.as_deref(),
-                Runtime::Cuda,
-                cuda_device.as_deref(),
-            ),
-        ),
-    ]);
+    let core_ready = missing_library_dirs.is_empty()
+        && onnxruntime_library.as_deref().is_some_and(Path::is_file);
     let mut remediation = Vec::new();
-    if !missing_library_dirs.is_empty() {
-        remediation.push(format!(
-            "remove or correct missing/non-absolute directories in backend.library_dirs or {LIBRARY_PATH_ENV}"
-        ));
-    }
-    if !base_loadable {
-        remediation.push(format!(
-            "restore Omawake's bundled lib directory for the default CPU runtime and extended sherpa library; accelerator setups only need an ABI-matched ONNX Runtime provider and vendor stack via backend.library_dirs or {LIBRARY_PATH_ENV}"
-        ));
-    }
-    if base_loadable {
-        for (runtime, provider, device) in [
-            (
-                "openvino",
-                openvino_library.as_deref(),
-                openvino_device.as_deref().unwrap_or("invalid"),
-            ),
-            (
-                "cuda",
-                cuda_library.as_deref(),
-                cuda_device.as_deref().unwrap_or("invalid"),
-            ),
-        ] {
-            if !runtime_loadable[runtime] {
-                remediation.push(provider.map_or_else(
-                    || {
-                        format!(
-                            "set backend.library_dirs or {LIBRARY_PATH_ENV} to the directory containing the {runtime} ONNX Runtime provider"
-                        )
-                    },
-                    |provider| {
-                        format!(
-                            "the {runtime} provider {} failed dependency resolution, registration, or its {device} device probe; supply a provider matching the selected ONNX Runtime and vendor stack",
-                            provider.display()
-                        )
-                    },
-                ));
-            }
-        }
+    if !core_ready {
+        remediation
+            .push("the app-owned ONNX Runtime 1.30.0 core is missing; reinstall Omawake".into());
+    } else if config.runtime != Runtime::Default
+        && !provider_library.as_deref().is_some_and(Path::is_file)
+    {
+        remediation.push(
+            "the selected provider plugin is missing; install a compatible official plugin package and select its directory with `omawake setup runtime`".into(),
+        );
     }
     RuntimeLibraryReport {
         onnxruntime_library,
-        sherpa_library,
         provider_library,
         configured_library_dirs,
         environment_library_dirs,
         package_library_dirs,
         effective_library_dirs,
         missing_library_dirs,
-        runtime_loadable,
+        runtime_loadable: BTreeMap::from([
+            ("default", core_ready),
+            (
+                "openvino",
+                core_ready
+                    && [
+                        "libonnxruntime_providers_openvino_plugin.so",
+                        "libonnxruntime_providers_openvino.so",
+                    ]
+                    .iter()
+                    .any(|name| runtime_library(name, &search_dirs, ldconfig.as_deref()).is_some()),
+            ),
+            (
+                "cuda",
+                core_ready
+                    && runtime_library(
+                        "libonnxruntime_providers_cuda.so",
+                        &search_dirs,
+                        ldconfig.as_deref(),
+                    )
+                    .is_some(),
+            ),
+        ]),
         remediation,
     }
-}
-
-fn effective_library(
-    configured: &Path,
-    environment: Option<&Path>,
-    prefix: &str,
-    config_directory: &Path,
-    search_dirs: &[PathBuf],
-    ldconfig: Option<&str>,
-) -> Option<PathBuf> {
-    if !configured.as_os_str().is_empty() {
-        return Some(if configured.is_absolute() {
-            configured.to_owned()
-        } else {
-            config_directory.join(configured)
-        });
-    }
-    if let Some(environment) = environment.filter(|path| !path.as_os_str().is_empty()) {
-        return Some(environment.to_owned());
-    }
-    runtime_library(prefix, search_dirs, ldconfig)
-}
-
-fn effective_packaged_library(
-    configured: &Path,
-    environment: Option<&Path>,
-    prefix: &str,
-    config_directory: &Path,
-    package_dirs: &[PathBuf],
-    search_dirs: &[PathBuf],
-    ldconfig: Option<&str>,
-) -> Option<PathBuf> {
-    if !configured.as_os_str().is_empty() {
-        return Some(if configured.is_absolute() {
-            configured.to_owned()
-        } else {
-            config_directory.join(configured)
-        });
-    }
-    if let Some(environment) = environment.filter(|path| !path.as_os_str().is_empty()) {
-        return Some(environment.to_owned());
-    }
-    runtime_library(prefix, package_dirs, None)
-        .or_else(|| runtime_library(prefix, search_dirs, ldconfig))
 }
 
 pub fn effective_library_path(
@@ -406,136 +228,108 @@ pub fn effective_library_path(
     config_path: &Path,
 ) -> Result<Option<OsString>> {
     let report = discover(config, config_path);
-    validate_report(&report)?;
-    if report.effective_library_dirs.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(
-            env::join_paths(&report.effective_library_dirs)
-                .context("backend library directory cannot be represented in a loader path")?,
-        ))
-    }
+    validate(&report)?;
+    (!report.effective_library_dirs.is_empty())
+        .then(|| env::join_paths(&report.effective_library_dirs))
+        .transpose()
+        .context("backend library paths cannot be represented in the loader environment")
 }
 
 #[cfg(target_os = "linux")]
 pub fn ensure_engine_library_path(config: &BackendConfig, config_path: &Path) -> Result<()> {
     use std::os::unix::process::CommandExt;
-
     let report = discover(config, config_path);
-    let current = env::var_os("LD_LIBRARY_PATH");
-    let sentinel = env::var_os(LIBRARY_PATH_READY_ENV).is_some();
-    let Some(library_path) = reexec_library_path(&report, current.as_deref(), sentinel)? else {
+    validate(&report)?;
+    if report.effective_library_dirs.is_empty() {
         return Ok(());
-    };
-    let executable = env::current_exe().context("locate the Omawake executable for re-exec")?;
-    let error = Command::new(executable)
+    }
+    let current = deduplicate(split_paths(env::var_os("LD_LIBRARY_PATH").as_deref()));
+    if report
+        .effective_library_dirs
+        .iter()
+        .all(|path| equivalent_in(&current, path))
+    {
+        return Ok(());
+    }
+    if env::var_os(LIBRARY_PATH_READY_ENV).is_some() {
+        bail!("app-owned native libraries remain unavailable after loader re-exec");
+    }
+    let combined = deduplicate(
+        report
+            .effective_library_dirs
+            .iter()
+            .chain(&current)
+            .cloned(),
+    );
+    let error = Command::new(env::current_exe()?)
         .args(env::args_os().skip(1))
-        .env("LD_LIBRARY_PATH", library_path)
+        .env("LD_LIBRARY_PATH", env::join_paths(combined)?)
         .env(LIBRARY_PATH_READY_ENV, "1")
         .exec();
-    Err(error).context("re-exec Omawake with its configured native library path")
+    Err(error).context("re-exec Omawake with its app-owned libraries")
 }
 
 #[cfg(not(target_os = "linux"))]
 pub fn ensure_engine_library_path(config: &BackendConfig, config_path: &Path) -> Result<()> {
-    validate_report(&discover(config, config_path))
+    validate(&discover(config, config_path))
 }
 
-fn reexec_library_path(
-    report: &RuntimeLibraryReport,
-    current: Option<&OsStr>,
-    sentinel: bool,
-) -> Result<Option<OsString>> {
-    validate_report(report)?;
-    if report.effective_library_dirs.is_empty() {
-        return Ok(None);
-    }
-    let current_paths = deduplicate_paths(split_paths(current));
-    let missing_from_loader = report
-        .effective_library_dirs
-        .iter()
-        .filter(|required| !contains_equivalent_path(&current_paths, required))
-        .cloned()
-        .collect::<Vec<_>>();
-    if missing_from_loader.is_empty() {
-        return Ok(None);
-    }
-    if sentinel {
-        bail!(
-            "configured native library directories are still absent after re-exec: {}",
-            display_paths(&missing_from_loader)
-        );
-    }
-    let augmented = deduplicate_paths(
-        report
-            .effective_library_dirs
-            .iter()
-            .chain(&current_paths)
-            .cloned(),
-    );
-    Ok(Some(env::join_paths(augmented).context(
-        "native library directories cannot be represented in LD_LIBRARY_PATH",
-    )?))
-}
-
-fn validate_report(report: &RuntimeLibraryReport) -> Result<()> {
+fn validate(report: &RuntimeLibraryReport) -> Result<()> {
     if !report.missing_library_dirs.is_empty() {
         bail!(
-            "native library directories must be absolute existing directories: {}; run `omawake setup runtime` for remediation",
-            display_paths(&report.missing_library_dirs)
+            "native library directories must be absolute existing directories: {}",
+            display(&report.missing_library_dirs)
         );
     }
     Ok(())
 }
 
-fn split_paths(value: Option<&OsStr>) -> Vec<PathBuf> {
-    value
-        .filter(|value| !value.is_empty())
-        .map(env::split_paths)
-        .into_iter()
-        .flatten()
-        .collect()
-}
-
 fn package_library_dirs(executable: &Path) -> Vec<PathBuf> {
-    let Some(binary_dir) = executable.parent() else {
+    let Some(binary) = executable.parent() else {
         return Vec::new();
     };
-    let candidates = [binary_dir.join("lib"), binary_dir.join("../lib/omawake")];
-    deduplicate_paths(
-        candidates
-            .into_iter()
-            .filter(|directory| contains_runtime_anchor(directory)),
+    deduplicate(
+        [
+            binary.join("lib"),
+            binary.to_owned(),
+            binary.join("../lib/omawake"),
+        ]
+        .into_iter()
+        .filter(|directory| {
+            library_in_directory("libonnxruntime.so", directory)
+                || library_in_directory("libonnxruntime_providers_openvino_plugin.so", directory)
+                || library_in_directory("libonnxruntime_providers_openvino.so", directory)
+                || library_in_directory("libonnxruntime_providers_cuda.so", directory)
+        }),
     )
 }
 
-pub(crate) fn packaged_library(name: &str) -> Option<PathBuf> {
-    env::current_exe()
-        .ok()
-        .into_iter()
-        .flat_map(|executable| package_library_dirs(&executable))
-        .find_map(|directory| library_path_in_directory(name, &directory))
+fn exact_or_discover(
+    configured: &Path,
+    environment: Option<&Path>,
+    name: &str,
+    base: &Path,
+    dirs: &[PathBuf],
+    ldconfig: Option<&str>,
+) -> Option<PathBuf> {
+    if !configured.as_os_str().is_empty() {
+        return Some(absolute_from(configured, base));
+    }
+    environment
+        .filter(|path| !path.as_os_str().is_empty())
+        .map(Path::to_owned)
+        .or_else(|| runtime_library(name, dirs, ldconfig))
 }
 
-fn contains_runtime_anchor(directory: &Path) -> bool {
-    library_in_directory("libonnxruntime.so", directory)
-        || library_in_directory("libsherpa-onnx-c-api.so", directory)
-        || library_in_directory("libonnxruntime_providers_openvino.so", directory)
-        || library_in_directory("libonnxruntime_providers_cuda.so", directory)
-}
-
-fn runtime_library(name: &str, search_dirs: &[PathBuf], ldconfig: Option<&str>) -> Option<PathBuf> {
-    search_dirs
-        .iter()
+fn runtime_library(name: &str, dirs: &[PathBuf], ldconfig: Option<&str>) -> Option<PathBuf> {
+    dirs.iter()
         .find_map(|directory| library_path_in_directory(name, directory))
         .or_else(|| {
-            ldconfig.and_then(|output| {
-                output.lines().find_map(|line| {
-                    let (description, path) = line.split_once("=>")?;
-                    description
-                        .contains(name)
-                        .then(|| PathBuf::from(path.trim()))
-                })
+            ldconfig?.lines().find_map(|line| {
+                let (description, path) = line.split_once("=>")?;
+                description
+                    .contains(name)
+                    .then(|| PathBuf::from(path.trim()))
             })
         })
 }
@@ -545,96 +339,66 @@ fn library_in_directory(name: &str, directory: &Path) -> bool {
 }
 
 fn library_path_in_directory(name: &str, directory: &Path) -> Option<PathBuf> {
-    fs::read_dir(directory).ok().and_then(|entries| {
-        let mut matches = entries
-            .filter_map(Result::ok)
-            .filter_map(|entry| {
-                let file_name = entry.file_name();
-                let file_name = file_name.to_string_lossy();
-                (entry
-                    .file_type()
-                    .is_ok_and(|kind| kind.is_file() || kind.is_symlink())
-                    && (file_name == name || file_name.starts_with(&format!("{name}."))))
-                .then(|| entry.path())
-            })
-            .collect::<Vec<_>>();
-        matches.sort();
-        matches.into_iter().next()
-    })
+    let mut matches = fs::read_dir(directory)
+        .ok()?
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let file_name = entry.file_name();
+            let file_name = file_name.to_string_lossy();
+            (entry
+                .file_type()
+                .is_ok_and(|kind| kind.is_file() || kind.is_symlink())
+                && (file_name == name || file_name.starts_with(&format!("{name}."))))
+            .then(|| entry.path())
+        })
+        .collect::<Vec<_>>();
+    matches.sort();
+    matches.into_iter().next()
 }
 
-#[cfg(test)]
-fn provider_dependencies_resolve(provider: &Path, search_dirs: &[PathBuf]) -> bool {
-    let library_path = env::join_paths(search_dirs).ok();
-    let Some(loader) = native_dynamic_loader() else {
-        return false;
-    };
-    let mut command = Command::new(loader);
-    command.arg("--list").arg(provider);
-    if let Some(library_path) = library_path {
-        command.env("LD_LIBRARY_PATH", library_path);
+fn absolute_from(path: &Path, base: &Path) -> PathBuf {
+    if path.is_absolute() {
+        path.to_owned()
+    } else {
+        base.join(path)
     }
-    command.output().is_ok_and(|output| {
-        output.status.success()
-            && !String::from_utf8_lossy(&output.stdout).contains("not found")
-            && !String::from_utf8_lossy(&output.stderr).contains("not found")
-    })
 }
-
-#[cfg(test)]
-fn native_dynamic_loader() -> Option<&'static Path> {
-    #[cfg(target_arch = "x86_64")]
-    const CANDIDATES: &[&str] = &[
-        "/lib64/ld-linux-x86-64.so.2",
-        "/usr/lib64/ld-linux-x86-64.so.2",
-    ];
-    #[cfg(target_arch = "aarch64")]
-    const CANDIDATES: &[&str] = &[
-        "/lib/ld-linux-aarch64.so.1",
-        "/usr/lib/ld-linux-aarch64.so.1",
-    ];
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    const CANDIDATES: &[&str] = &[];
-
-    CANDIDATES.iter().map(Path::new).find(|path| path.is_file())
+fn split_paths(value: Option<&OsStr>) -> Vec<PathBuf> {
+    value
+        .filter(|value| !value.is_empty())
+        .map(env::split_paths)
+        .into_iter()
+        .flatten()
+        .collect()
 }
-
-fn deduplicate_paths(paths: impl IntoIterator<Item = PathBuf>) -> Vec<PathBuf> {
-    let mut unique = Vec::new();
+fn deduplicate(paths: impl IntoIterator<Item = PathBuf>) -> Vec<PathBuf> {
+    let mut result = Vec::new();
     for path in paths {
-        if !contains_equivalent_path(&unique, &path) {
-            unique.push(path);
+        if !equivalent_in(&result, &path) {
+            result.push(path);
         }
     }
-    unique
+    result
 }
-
-fn contains_equivalent_path(paths: &[PathBuf], candidate: &Path) -> bool {
-    let canonical_candidate = candidate
+fn equivalent_in(paths: &[PathBuf], candidate: &Path) -> bool {
+    let canonical = candidate
         .canonicalize()
         .unwrap_or_else(|_| candidate.to_owned());
-    paths.iter().any(|existing| {
-        existing == candidate
-            || existing.canonicalize().unwrap_or_else(|_| existing.clone()) == canonical_candidate
+    paths.iter().any(|path| {
+        path == candidate || path.canonicalize().unwrap_or_else(|_| path.clone()) == canonical
     })
 }
-
-fn display_paths(paths: &[PathBuf]) -> String {
+fn display(paths: &[PathBuf]) -> String {
     paths
         .iter()
         .map(|path| path.display().to_string())
         .collect::<Vec<_>>()
         .join(", ")
 }
-
-fn display_paths_or_none(paths: &[PathBuf]) -> String {
+fn display_or_none(paths: &[PathBuf]) -> String {
     if paths.is_empty() {
-        "none".to_owned()
+        "none".into()
     } else {
-        display_paths(paths)
+        display(paths)
     }
 }
-
-#[cfg(test)]
-#[path = "../tests/unit/runtime_paths.rs"]
-mod tests;

@@ -47,11 +47,6 @@ pub fn status(config: &Config, paths: &AppPaths) -> Result<CacheReport> {
             elapsed_milliseconds: None,
         });
     }
-    if !config.backend.provider_config.trim().is_empty() {
-        bail!(
-            "setup cannot verify a persistent OpenVINO accelerator cache when backend.provider_config is supplied"
-        );
-    }
     let directory = crate::engine::openvino_cache_directory(config, paths)?;
     let (artifacts, bytes) = cache_artifacts(&directory)?;
     Ok(CacheReport {
@@ -92,11 +87,6 @@ fn prepare_for_runtime_with(
     if !required(config) {
         return Ok(None);
     }
-    if !config.backend.provider_config.trim().is_empty() {
-        bail!(
-            "setup-time OpenVINO accelerator cache preparation requires the managed provider config; unset backend.provider_config"
-        );
-    }
     let Some(probe_audio) = catalog_probe_audio(config, paths) else {
         emit_deferred(progress, config)?;
         return Ok(None);
@@ -131,11 +121,6 @@ fn prepare_with(
 }
 
 fn isolated(config: &Config, config_path: &Path, _paths: &AppPaths) -> Result<CacheReport> {
-    if !config.backend.provider_config.trim().is_empty() {
-        bail!(
-            "setup-time OpenVINO accelerator cache preparation requires the managed provider config; unset backend.provider_config"
-        );
-    }
     let mut candidate = config.clone();
     candidate.backend.fallback = Fallback::Error;
     candidate.backend = crate::runtime_inventory::resolve(&candidate.backend, config_path);
@@ -296,9 +281,6 @@ fn child_with(
     }
     if config.backend.fallback != Fallback::Error {
         bail!("model-cache preparation requires fallback = error");
-    }
-    if !config.backend.provider_config.trim().is_empty() {
-        bail!("model-cache preparation requires the managed OpenVINO provider config");
     }
     let spec = crate::catalog::model(&config.model.name)
         .with_context(|| format!("model {} has no catalog probe audio", config.model.name))?;

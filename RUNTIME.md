@@ -1,18 +1,30 @@
-Omawake ships one executable and a CPU runtime under lib/: ONNX Runtime 1.29.0
-and sherpa-onnx 1.13.8 with the extended sherpa API for keyword spotting.
-The extended sherpa library is required for the exception-safe KWS C boundary,
-but default CPU inference does not create or retain a provider-plugin runtime.
+# Runtime contract
 
-Run `omawake setup runtime --json` to inspect runtime/device availability.
-Omawake always supplies its extended sherpa companion. OpenVINO and CUDA are
-external: supply a matching ORT core/provider DSO and Intel/NVIDIA dependencies.
-Setup never installs those external files.
+Omawake releases own the ONNX Runtime core. Linux x86-64 and aarch64 archives contain
+ONNX Runtime 1.30.0 under `lib/`; the Rust executable resolves and loads it at
+startup and has no `DT_NEEDED` entry for ONNX Runtime.
 
-`omawake setup runtime --runtime openvino --device npu --dir /absolute/runtime`
-previews and probes a candidate. Add `--apply` to save after a successful probe.
-The guided setup offers a separate Apply/Cancel review. Model installation is
-separate and subject to its license policy. Only `setup systemd` installs or
-starts the optional service. Runtime readiness does not prove model placement.
+The `default` runtime uses ORT's CPU execution provider. The `openvino` and
+`cuda` runtimes register official V2 execution-provider plugin packages with
+`RegisterExecutionProviderLibrary` and select the requested device through the
+ORT 1.30 device API. Provider packages must not include another ORT core.
 
-See `ACCELERATOR_SETUP.md` for tested Arch/Omarchy Intel packages and complete
-OpenVINO and CUDA runtime bundle recipes.
+Discovery order is an exact configured path, `OMAWAKE_ONNXRUNTIME_LIBRARY` or
+`OMAWAKE_PROVIDER_LIBRARY`, `backend.library_dirs`, `OMAWAKE_LIBRARY_PATH`, and
+package-relative directories. On Linux Omawake re-executes once with its
+app-owned dependency directories in `LD_LIBRARY_PATH` before loading inference
+code.
+
+```bash
+omawake setup runtime --json
+omawake setup runtime --runtime openvino --device npu --dir /opt/omawake-openvino --apply
+```
+
+Setup probes ORT 1.30.0, provider registration, and matching device exposure in
+an isolated child process. Model setup additionally executes the catalog probe
+WAV for explicit OpenVINO GPU/NPU selections and requires a compiled cache
+artifact before applying the candidate.
+
+The model, feature extraction, transducer state, context graph, and keyword
+decoder are implemented by Omawake itself. No companion inference library is
+required.

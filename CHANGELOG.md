@@ -2,12 +2,14 @@
 
 ## Unreleased
 
-- Fixed runtime setup so stale or upstream sherpa libraries beside a developer
-  binary cannot shadow Omawake's extended companion library.
-- Accelerator setup now requires only the external ONNX Runtime provider and
-  vendor stack; Omawake always supplies its matching sherpa companion.
-- Added packaged-layout release coverage for conflicting adjacent native
-  libraries.
+- Replaced the patched sherpa runtime with an independent Rust implementation
+  of the published icefall keyword-spotting model contract.
+- Updated the packaged CPU runtime to ONNX Runtime 1.30.0 and optional
+  accelerators to its V2 execution-provider plugin interface.
+- Added Linux aarch64 release archives and direct CPU parity validation in
+  release CI.
+- Use the model's FP32 graphs and a fixed beam of eight on Intel NPU to preserve
+  the reference CPU detections and timestamps.
 
 ## 0.0.1-rc - 2026-09-14
 
@@ -22,6 +24,6 @@
   cleanup cannot call into an unloaded provider after inference completes.
 - Added Intel CPU, iGPU, NPU, and NVIDIA GB10 validation evidence.
 
-Known limits: the release artifact targets Linux x86-64 with glibc 2.34 or
-newer; accelerator stacks are external; the catalog model is bring-your-own
-because its upstream model license is unclear.
+Known limits: release artifacts target Linux with glibc; accelerator stacks are
+external. The separately downloaded catalog model is publisher-declared
+Apache-2.0.

@@ -62,10 +62,6 @@ fn cache_requirement_and_status_follow_explicit_accelerator_selection() {
 
     let cpu = openvino("cpu");
     assert!(!required(&cpu));
-
-    let mut external = config;
-    external.backend.provider_config = "provider.config".into();
-    assert!(status(&external, &paths).is_err());
 }
 
 #[test]
@@ -96,19 +92,6 @@ fn runtime_preparation_defers_until_the_catalog_probe_audio_is_installed() {
     .unwrap()
     .unwrap();
     assert!(prepared.prepared);
-
-    let mut custom = config;
-    custom.backend.provider_config = "custom-provider.config".into();
-    assert!(
-        prepare_for_runtime_with(
-            &custom,
-            &paths.config_file,
-            &paths,
-            ProgressFormat::Human,
-            |_, _, _| unreachable!(),
-        )
-        .is_err()
-    );
 }
 
 #[test]
@@ -167,9 +150,6 @@ fn child_requires_managed_accelerator_catalog_audio_and_real_cache_output() {
     config.backend.fallback = Fallback::Cpu;
     assert!(child_with(&config, &paths, |_, _, _| Ok(())).is_err());
     config.backend.fallback = Fallback::Error;
-    config.backend.provider_config = "custom".into();
-    assert!(child_with(&config, &paths, |_, _, _| Ok(())).is_err());
-    config.backend.provider_config.clear();
     config.model.name = "unknown".into();
     assert!(child_with(&config, &paths, |_, _, _| Ok(())).is_err());
     config.model.name = crate::catalog::models()[0].id.into();
@@ -213,15 +193,6 @@ fn child_requires_managed_accelerator_catalog_audio_and_real_cache_output() {
     .unwrap();
     assert!(gpu.prepared);
     assert_eq!(gpu.bytes, 12);
-}
-
-#[test]
-fn isolated_rejects_custom_provider_configs_before_spawning() {
-    let paths = fixture("isolated");
-    let mut config = openvino("npu");
-    config.backend.provider_config = "custom".into();
-    let error = isolated(&config, &paths.config_file, &paths).unwrap_err();
-    assert!(error.to_string().contains("managed provider config"));
 }
 
 #[test]
