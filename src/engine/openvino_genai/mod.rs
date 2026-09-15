@@ -164,7 +164,10 @@ impl ProviderSpec {
                 })?;
             }
         }
-        let audiocpp_library = super::audiocpp::resolve_bundled_library(paths, &library_dirs)?;
+        let audiocpp_library = super::audiocpp::resolve_bundled_library(paths, &library_dirs)
+            .context(
+                "OpenVINO GenAI uses Omawake's packaged audio.cpp CPU provider for Silero VAD; install the complete Omawake release layout or set OMAWAKE_AUDIOCPP_LIBRARY to that provider",
+            )?;
         let model_directory = config.model_directory(paths);
         let vad_model = if Path::new(&config.model.vad).is_absolute() {
             PathBuf::from(&config.model.vad)

@@ -32,7 +32,6 @@ fn missing_save_load_and_model_paths_round_trip() {
     let _ = fs::remove_dir_all(&root);
     let defaults = Config::load(&path).unwrap();
     assert_eq!(defaults.audio.device, "default");
-    assert_eq!(defaults.audio.channels, "mono");
     assert_eq!(defaults.daemon.queue_capacity, 8);
     defaults.save(&path).unwrap();
     assert_eq!(Config::load(&path).unwrap().wake_words.len(), 1);

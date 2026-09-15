@@ -28,13 +28,41 @@ pub fn install(paths: &AppPaths, config: &Path, start: bool) -> Result<PathBuf> 
     let path = service_path(paths);
     let binary = std::env::current_exe()?.canonicalize()?;
     let unit = generate(&binary, config);
-    write_atomic(&path, unit.as_bytes())?;
-    systemctl(["daemon-reload"])?;
-    if start {
+    let previous = match fs::read(&path) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error).context("snapshot existing Omawake service unit"),
+    };
+    let was_active = is_active();
+    let result = (|| {
+        write_atomic(&path, unit.as_bytes())?;
+        systemctl(["daemon-reload"])?;
         systemctl(["enable", UNIT])?;
-        restart()?;
-    } else {
-        systemctl(["enable", UNIT])?;
+        if start {
+            restart()?;
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        if previous.is_none() {
+            let _ = systemctl(["disable", "--now", UNIT]);
+        }
+        let restored = match previous {
+            Some(bytes) => write_atomic(&path, &bytes),
+            None => match fs::remove_file(&path) {
+                Ok(()) => Ok(()),
+                Err(remove) if remove.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(remove) => Err(remove.into()),
+            },
+        }
+        .and_then(|()| systemctl(["daemon-reload"]))
+        .and_then(|()| if was_active { restart() } else { Ok(()) });
+        return match restored {
+            Ok(()) => Err(error),
+            Err(restore) => Err(error.context(format!(
+                "service installation also failed to restore the previous unit: {restore:#}"
+            ))),
+        };
     }
     Ok(path)
 }
@@ -113,7 +141,21 @@ fn systemctl<const N: usize>(args: [&str; N]) -> Result<()> {
 }
 
 fn quote(path: &Path) -> String {
-    format!("\"{}\"", path.display().to_string().replace('"', "\\\""))
+    let mut escaped = String::with_capacity(path.as_os_str().len() + 2);
+    escaped.push('"');
+    for character in path.display().to_string().chars() {
+        match character {
+            '\\' => escaped.push_str("\\\\"),
+            '"' => escaped.push_str("\\\""),
+            '%' => escaped.push_str("%%"),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            character => escaped.push(character),
+        }
+    }
+    escaped.push('"');
+    escaped
 }
 
 pub(super) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {

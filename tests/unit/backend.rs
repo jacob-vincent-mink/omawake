@@ -15,7 +15,7 @@ fn validates_runtime_device_matrix() {
         (Runtime::Cuda, &["auto", "GPU"][..]),
         (Runtime::Vulkan, &["auto", "GPU"][..]),
         (Runtime::Hip, &["auto", "GPU"][..]),
-        (Runtime::Openvino, &["auto", "npu", "GPU", "cpu"][..]),
+        (Runtime::Openvino, &["npu", "GPU", "cpu"][..]),
     ] {
         for device in accepted {
             assert!(
@@ -24,6 +24,7 @@ fn validates_runtime_device_matrix() {
             );
         }
     }
+    assert!(canonical_device(Runtime::Openvino, "auto").is_err());
     assert!(canonical_device(Runtime::Default, "gpu").is_err());
     assert!(canonical_device(Runtime::Cuda, "cpu").is_err());
     assert!(canonical_device(Runtime::Openvino, "tpu").is_err());

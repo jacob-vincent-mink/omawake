@@ -23,3 +23,11 @@ fn launcher_path_falls_back_and_uninstall_is_idempotent() {
     assert!(!installed.exists());
     assert!(status(&isolated).is_err());
 }
+
+#[test]
+fn desktop_exec_path_escapes_reserved_characters() {
+    assert_eq!(
+        desktop_exec_path(Path::new("/opt/oma%wake/quote\"back\\dollar$`")),
+        r#"/opt/oma%%wake/quote\"back\\dollar\$\`"#
+    );
+}

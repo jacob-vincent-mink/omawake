@@ -8,8 +8,9 @@ use std::path::Path;
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 
-use crate::backend::{BackendConfig, Runtime};
+use crate::backend::Runtime;
 use crate::config::Config;
+use crate::paths::AppPaths;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Evidence {
@@ -38,13 +39,68 @@ pub const fn name(runtime: Runtime) -> &'static str {
     }
 }
 
+pub fn probe(config: &Config, config_path: &Path) -> Probe {
+    let backend = &config.backend;
+    let mut paths = AppPaths::discover();
+    paths.config_file = config_path.to_owned();
+    if backend.kind == "openvino-genai" && backend.runtime == Runtime::Openvino {
+        return match crate::engine::openvino_genai::probe_runtime(config, &paths) {
+            Ok(evidence) => Probe {
+                loadable: true,
+                device_accessible: true,
+                ready: true,
+                evidence: Evidence {
+                    versions: vec![format!(
+                        "OpenVINO {} · GenAI C {} · {}",
+                        evidence.runtime_build, evidence.genai_library, evidence.full_device_name
+                    )],
+                    provider_registration: true,
+                    available_devices: vec![evidence.available_device.to_ascii_lowercase()],
+                    selected_device: Some(evidence.requested_device.to_ascii_lowercase()),
+                },
+                errors: Vec::new(),
+            },
+            Err(error) => Probe {
+                errors: vec![format!("{error:#}")],
+                ..Default::default()
+            },
+        };
+    }
+    match crate::engine::audiocpp::probe_provider(config, &paths) {
+        Ok((library, version)) => Probe {
+            loadable: true,
+            device_accessible: true,
+            ready: true,
+            evidence: Evidence {
+                versions: vec![format!("{version} · {}", library.display())],
+                provider_registration: true,
+                available_devices: vec![
+                    backend
+                        .canonical_device()
+                        .unwrap_or_else(|_| backend.device.clone()),
+                ],
+                selected_device: Some(
+                    backend
+                        .canonical_device()
+                        .unwrap_or_else(|_| backend.device.clone()),
+                ),
+            },
+            errors: Vec::new(),
+        },
+        Err(error) => Probe {
+            errors: vec![format!("{error:#}")],
+            ..Default::default()
+        },
+    }
+}
+
 pub fn apply_with(
     config: &Config,
     path: &Path,
     apply: bool,
-    probe: impl FnOnce(&BackendConfig, &Path) -> Probe,
+    probe: impl FnOnce(&Config, &Path) -> Probe,
 ) -> Result<Probe> {
-    let result = probe(&config.backend, path);
+    let result = probe(config, path);
     if !result.ready {
         bail!(
             "runtime candidate rejected; config unchanged: {}",

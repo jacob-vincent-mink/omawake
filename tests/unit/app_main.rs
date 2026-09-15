@@ -299,7 +299,10 @@ fn guided_full_setup_waits_for_review_and_then_runs_selected_plan() {
 
     let paths = test_paths("guided-full-apply");
     let mut prompts = ScriptedGuidedPrompts {
-        runtime: Some(selection),
+        runtime: Some(RuntimeSelection {
+            runtime: Runtime::Cuda,
+            device: "gpu".into(),
+        }),
         model: Some(spec),
         archive: Some(paths.data_dir.join("licensed-model.tar.bz2")),
         confirm: true,
@@ -310,7 +313,11 @@ fn guided_full_setup_waits_for_review_and_then_runs_selected_plan() {
         &paths.config_file,
         &paths,
         &mut prompts,
-        |_, _| Ok(()),
+        |candidate, _| {
+            assert_eq!(candidate.backend.runtime, Runtime::Cuda);
+            assert_eq!(candidate.backend.device, "gpu");
+            Ok(())
+        },
         |paths, model, archive, format| {
             assert_eq!(
                 archive,
@@ -319,7 +326,11 @@ fn guided_full_setup_waits_for_review_and_then_runs_selected_plan() {
             assert_eq!(format, ProgressFormat::Human);
             Ok(app_setup::model::model_directory(paths, model))
         },
-        |_, _| Ok(()),
+        |candidate, _| {
+            assert_eq!(candidate.backend.runtime, Runtime::Cuda);
+            assert_eq!(candidate.backend.device, "gpu");
+            Ok(())
+        },
         |paths| Ok(paths.data_dir.join("applications/omawake.desktop")),
         |found| {
             assert_eq!(found.config_file, paths.config_file);
@@ -335,7 +346,8 @@ fn guided_full_setup_waits_for_review_and_then_runs_selected_plan() {
     )
     .unwrap();
     let saved = Config::load(&paths.config_file).unwrap();
-    assert_eq!(saved.backend.device, "cpu");
+    assert_eq!(saved.backend.runtime, Runtime::Cuda);
+    assert_eq!(saved.backend.device, "gpu");
     assert_eq!(saved.model.name, spec.id);
     assert_eq!(reloads.get(), 1);
     assert!(!app_setup::systemd::service_path(&paths).exists());
@@ -413,6 +425,9 @@ fn guided_full_rolls_back_existing_and_new_configs_after_later_failures() {
     let original =
         b"# byte-for-byte rollback\n[backend]\nruntime = \"default\"\ndevice = \"auto\"\n";
     fs::write(&existing.config_file, original).unwrap();
+    let existing_launcher = app_setup::menu::launcher_path(&existing);
+    fs::create_dir_all(existing_launcher.parent().unwrap()).unwrap();
+    fs::write(&existing_launcher, b"prior launcher").unwrap();
     let mut prompts = ScriptedGuidedPrompts {
         runtime: Some(selection.clone()),
         model: Some(spec),
@@ -427,15 +442,20 @@ fn guided_full_rolls_back_existing_and_new_configs_after_later_failures() {
         |_, _| Ok(()),
         |paths, model, _, _| Ok(app_setup::model::model_directory(paths, model)),
         |_, _| Ok(()),
-        |_| bail!("launcher failed after config save"),
+        |paths| {
+            let launcher = app_setup::menu::launcher_path(paths);
+            fs::write(&launcher, b"replacement launcher")?;
+            Ok(launcher)
+        },
         |_| false,
         |_| unreachable!(),
-        |_, _| unreachable!(),
+        |_, _| bail!("check failed after launcher install"),
         |_, _| unreachable!(),
     )
     .unwrap_err();
-    assert!(error.to_string().contains("launcher failed"));
+    assert!(error.to_string().contains("check failed"));
     assert_eq!(fs::read(&existing.config_file).unwrap(), original);
+    assert_eq!(fs::read(existing_launcher).unwrap(), b"prior launcher");
 
     let new = test_paths("guided-full-rollback-new");
     let mut prompts = ScriptedGuidedPrompts {
@@ -452,7 +472,12 @@ fn guided_full_rolls_back_existing_and_new_configs_after_later_failures() {
         |_, _| Ok(()),
         |paths, model, _, _| Ok(app_setup::model::model_directory(paths, model)),
         |_, _| Ok(()),
-        |paths| Ok(paths.data_dir.join("applications/omawake.desktop")),
+        |paths| {
+            let launcher = app_setup::menu::launcher_path(paths);
+            fs::create_dir_all(launcher.parent().unwrap())?;
+            fs::write(&launcher, b"new launcher")?;
+            Ok(launcher)
+        },
         |_| false,
         |_| unreachable!(),
         |_, _| bail!("final setup check failed"),
@@ -461,6 +486,37 @@ fn guided_full_rolls_back_existing_and_new_configs_after_later_failures() {
     .unwrap_err();
     assert!(error.to_string().contains("final setup check failed"));
     assert!(!new.config_file.exists());
+    assert!(!app_setup::menu::launcher_path(&new).exists());
+
+    let service = test_paths("guided-full-rollback-service");
+    Config::default().save(&service.config_file).unwrap();
+    let original = fs::read(&service.config_file).unwrap();
+    let restarts = Cell::new(0);
+    let error = install_everything(
+        spec,
+        &service.config_file,
+        &service,
+        None,
+        ProgressFormat::Human,
+        true,
+        |_, _| Ok(()),
+        |paths, model, _, _| Ok(app_setup::model::model_directory(paths, model)),
+        |_, _| Ok(()),
+        |paths| Ok(app_setup::menu::launcher_path(paths)),
+        |_| {
+            restarts.set(restarts.get() + 1);
+            if restarts.get() == 1 {
+                bail!("new config failed to restart")
+            }
+            Ok(true)
+        },
+        |_, _| Ok(()),
+        |_, _| unreachable!(),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("new config failed to restart"));
+    assert_eq!(restarts.get(), 2);
+    assert_eq!(fs::read(&service.config_file).unwrap(), original);
 }
 
 #[test]
@@ -798,6 +854,20 @@ fn command_line_surface_parses_representative_forms() {
         ],
         vec!["omawake", "setup", "check", "--json"],
         vec!["omawake", "setup", "runtime", "--json"],
+        vec![
+            "omawake",
+            "setup",
+            "runtime",
+            "--runtime",
+            "cuda",
+            "--device",
+            "gpu",
+            "--device-id",
+            "1",
+            "--dir",
+            "/opt/audiocpp-cuda",
+            "--apply",
+        ],
         vec!["omawake", "setup", "systemd", "--no-start"],
         vec!["omawake", "setup", "menu", "--status"],
         vec![
@@ -994,8 +1064,6 @@ fn config_helpers_cover_every_supported_key_and_validation() {
         ("model.vad", "ggml-silero-v6.2.0.bin"),
         ("model.sample_rate", "8000"),
         ("audio.device", "microphone"),
-        ("audio.channels", "stereo"),
-        ("audio.buffer_milliseconds", "80"),
         ("daemon.cooldown_milliseconds", "90"),
         ("daemon.queue_capacity", "5"),
     ] {
@@ -1108,8 +1176,8 @@ fn runtime_candidate_validation_failure_preserves_the_original_config() {
     let mut default = Config::default();
     default.backend.device = "cpu".into();
     let error = validate_runtime_candidate_with(&default, &paths.config_file, |backend, path| {
-        assert_eq!(backend.runtime, Runtime::Default);
-        assert_eq!(backend.device, "cpu");
+        assert_eq!(backend.backend.runtime, Runtime::Default);
+        assert_eq!(backend.backend.device, "cpu");
         assert_eq!(path, paths.config_file);
         crate::runtime_inventory::Probe {
             errors: vec!["default CPU payload is not staged".into()],
@@ -1131,7 +1199,7 @@ fn focused_runtime_preview_failure_and_apply_recover_invalid_config_transactiona
     let invalid = b"# obsolete pre-release config\n[backend]\nremoved_option = \"\"\n";
     fs::write(&paths.config_file, invalid).unwrap();
 
-    let ready = |_: &crate::backend::BackendConfig, _: &Path| crate::runtime_inventory::Probe {
+    let ready = |_: &Config, _: &Path| crate::runtime_inventory::Probe {
         loadable: true,
         device_accessible: true,
         ready: true,
@@ -1143,6 +1211,7 @@ fn focused_runtime_preview_failure_and_apply_recover_invalid_config_transactiona
         Some("default".into()),
         Some("cpu".into()),
         None,
+        None,
         false,
         ready,
         |_, _, _, _| Ok(None),
@@ -1151,7 +1220,7 @@ fn focused_runtime_preview_failure_and_apply_recover_invalid_config_transactiona
     .unwrap();
     assert_eq!(fs::read(&paths.config_file).unwrap(), invalid);
 
-    let rejected = |_: &crate::backend::BackendConfig, _: &Path| crate::runtime_inventory::Probe {
+    let rejected = |_: &Config, _: &Path| crate::runtime_inventory::Probe {
         errors: vec!["injected runtime validation failure".into()],
         ..Default::default()
     };
@@ -1160,6 +1229,7 @@ fn focused_runtime_preview_failure_and_apply_recover_invalid_config_transactiona
         &paths,
         Some("default".into()),
         Some("cpu".into()),
+        None,
         None,
         true,
         rejected,
@@ -1180,6 +1250,7 @@ fn focused_runtime_preview_failure_and_apply_recover_invalid_config_transactiona
         Some("default".into()),
         Some("cpu".into()),
         None,
+        None,
         true,
         ready,
         |_, _, _, _| Ok(None),
@@ -1194,6 +1265,48 @@ fn focused_runtime_preview_failure_and_apply_recover_invalid_config_transactiona
             .unwrap()
             .contains("removed_option")
     );
+}
+
+#[test]
+fn focused_openvino_runtime_probe_and_proof_receive_the_compatible_model() {
+    let paths = test_paths("runtime-openvino-model-candidate");
+    Config::default().save(&paths.config_file).unwrap();
+
+    configure_runtime_from_flags_with(
+        &paths.config_file,
+        &paths,
+        Some("openvino".into()),
+        Some("cpu".into()),
+        None,
+        None,
+        true,
+        |candidate, path| {
+            assert_eq!(path, paths.config_file);
+            assert_eq!(candidate.backend.kind, "openvino-genai");
+            assert_eq!(candidate.backend.runtime, Runtime::Openvino);
+            assert_eq!(candidate.model.name, crate::catalog::OPENVINO_MODEL_ID);
+            crate::runtime_inventory::Probe {
+                loadable: true,
+                device_accessible: true,
+                ready: true,
+                ..Default::default()
+            }
+        },
+        |candidate, _, _, _| {
+            assert_eq!(candidate.model.name, crate::catalog::OPENVINO_MODEL_ID);
+            Ok(None)
+        },
+        |candidate, _| {
+            assert_eq!(candidate.model.name, crate::catalog::OPENVINO_MODEL_ID);
+            Ok(())
+        },
+    )
+    .unwrap();
+
+    let saved = Config::load(&paths.config_file).unwrap();
+    assert_eq!(saved.backend.kind, "openvino-genai");
+    assert_eq!(saved.backend.runtime, Runtime::Openvino);
+    assert_eq!(saved.model.name, crate::catalog::OPENVINO_MODEL_ID);
 }
 
 #[test]
@@ -1565,7 +1678,20 @@ fn metadata_helpers_return_stable_shapes() {
     assert_eq!(status["daemon"]["state"], "stopped");
     let value = schema(&config, &paths.config_file, &paths);
     assert_eq!(value["schema_version"], 1);
-    assert_eq!(value["collections"][0]["key"], "wake_words");
+    assert_eq!(value["collections"][0]["prefix"], "backend.options.");
+    assert_eq!(value["collections"][1]["key"], "wake_words");
+    assert!(
+        value["keys"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["key"] == "backend.device_id")
+    );
+    assert_eq!(value["constraints"][0]["rows"].as_array().unwrap().len(), 5);
+    assert_eq!(
+        human_schema_lines(&value).unwrap().len(),
+        value["keys"].as_array().unwrap().len() + value["collections"].as_array().unwrap().len()
+    );
     assert!(model_spec(&config.model.name).is_ok());
     assert!(model_spec("missing").is_err());
     let spec = model_spec(&config.model.name).unwrap();
@@ -2935,6 +3061,7 @@ fn setup_dispatch_covers_checks_catalog_and_safe_failure_paths() {
                 json,
                 runtime: None,
                 device: None,
+                device_id: None,
                 dir: None,
                 apply: false,
             }),
@@ -3055,6 +3182,7 @@ fn noninteractive_setup_covers_safe_runtime_model_and_service_decisions() {
             json: false,
             runtime: Some("default".into()),
             device: Some("cpu".into()),
+            device_id: None,
             dir: Some(empty_runtime),
             apply: false,
         }),
@@ -3119,7 +3247,7 @@ fn noninteractive_setup_covers_safe_runtime_model_and_service_decisions() {
         .is_err()
     );
 
-    let ready = |_: &crate::backend::BackendConfig, _: &Path| crate::runtime_inventory::Probe {
+    let ready = |_: &Config, _: &Path| crate::runtime_inventory::Probe {
         loadable: true,
         device_accessible: true,
         ready: true,
@@ -3129,6 +3257,7 @@ fn noninteractive_setup_covers_safe_runtime_model_and_service_decisions() {
         &paths.config_file,
         &paths,
         Some("openvino".into()),
+        None,
         None,
         None,
         false,
@@ -3146,6 +3275,7 @@ fn noninteractive_setup_covers_safe_runtime_model_and_service_decisions() {
         &paths,
         Some("default".into()),
         Some("cpu".into()),
+        None,
         None,
         true,
         ready,
@@ -3191,7 +3321,7 @@ fn native_runtime_probe_reports_real_safe_audio_cpp_and_openvino_evidence() {
     let paths = test_paths("native-runtime-evidence");
     let mut audio_cpp = Config::default();
     audio_cpp.backend.library = crate::engine::audiocpp::tests::fake_library().to_path_buf();
-    let probe = native_runtime_probe(&audio_cpp.backend, &paths.config_file);
+    let probe = native_runtime_probe(&audio_cpp, &paths.config_file);
     assert!(probe.ready);
     assert_eq!(probe.evidence.selected_device.as_deref(), Some("cpu"));
     assert!(probe.evidence.versions[0].contains("fake-provider-1"));
@@ -3201,7 +3331,7 @@ fn native_runtime_probe_reports_real_safe_audio_cpp_and_openvino_evidence() {
     openvino.backend.runtime = Runtime::Openvino;
     openvino.backend.device = "npu".into();
     let probe = native_runtime_probe_with(
-        &openvino.backend,
+        &openvino,
         &paths.config_file,
         |_, _| {
             Ok(crate::engine::openvino_genai::RuntimeEvidence {
@@ -3224,7 +3354,7 @@ fn native_runtime_probe_reports_real_safe_audio_cpp_and_openvino_evidence() {
     assert!(probe.evidence.versions[0].contains("OpenVINO"));
 
     let failed = native_runtime_probe_with(
-        &openvino.backend,
+        &openvino,
         &paths.config_file,
         |_, _| bail!("controlled OpenVINO probe failure"),
         |_, _| unreachable!(),

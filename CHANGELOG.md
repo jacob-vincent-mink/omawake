@@ -9,6 +9,16 @@
 - Added a provider-neutral exact phrase-verifier evaluation report.
 - Added setup-time OpenVINO GPU/NPU cache compilation and transactional setup.
 - Completed provider and model license/provenance packaging.
+- Preserved accelerator runtime, device, library, and fallback choices when a
+  compatible model is activated.
+- Fixed focused runtime setup to probe the complete candidate configuration,
+  including its selected catalog model, before committing it.
+- Expanded runtime and configuration discovery, including CUDA, Vulkan, HIP,
+  OpenVINO, provider options, and explicit accelerator device indexes.
+- Restored the previous config, desktop launcher, and active service after a
+  late full-setup failure, and hardened generated launcher and systemd paths.
+- Removed unused audio configuration fields and made missing launchers an
+  optional setup-check result.
 
 ## 0.0.1-rc.2 - 2026-09-15
 

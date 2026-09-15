@@ -18,11 +18,17 @@ which keeps models warm and contains native crashes. Workers receive exact
 library and dependency directories; the parent executable and optional systemd
 unit remain runtime-neutral.
 
-A configured provider is one complete native installation. Setup never combines
-partial packages and never installs vendor software. It probes the provider ABI
-and requested device, runs a file-only model proof, and saves configuration only
-after the candidate succeeds. OpenVINO GPU/NPU setup also requires a persistent
-compiled cache artifact before activation.
+The OpenVINO path uses the packaged audio.cpp CPU library only for Silero VAD;
+Whisper inference and placement use the external OpenVINO GenAI installation.
+This keeps one VAD implementation across providers without asking an OpenVINO
+installation to supply audio.cpp.
+
+A configured external provider is one complete native installation. Setup never
+assembles a vendor runtime from partial packages and never installs vendor
+software. It probes the provider ABI and requested device, runs a file-only
+model proof, and saves configuration only after the candidate succeeds.
+OpenVINO GPU/NPU setup also requires a persistent compiled cache artifact before
+activation.
 
 ## Default pipeline
 

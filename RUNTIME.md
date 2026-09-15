@@ -13,6 +13,10 @@ sessions.
 | `hip` | audio.cpp public C ABI | AMD GPU | User-supplied complete build |
 | `openvino` | OpenVINO GenAI C API | Intel CPU/GPU/NPU | User-supplied complete install |
 
+The OpenVINO verifier shares the compact packaged audio.cpp CPU provider for
+Silero VAD. That provider is part of every release archive; it is not supplied
+by the user's OpenVINO installation.
+
 Discovery checks an exact `backend.library`, configured `library_dirs`, and
 package-relative `lib/` directories. `omawake setup runtime --dir DIR` records
 a complete provider only after its isolated ABI probe and silent file-only

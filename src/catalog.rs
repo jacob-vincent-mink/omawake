@@ -70,6 +70,12 @@ const BACKENDS: &[BackendSpec] = &[
         built: true,
         description: "External complete OpenVINO installation using the official GenAI Whisper C API",
     },
+    BackendSpec {
+        kind: "whispercpp",
+        name: "whisper.cpp",
+        built: true,
+        description: "External comparison provider using the public whisper.cpp C ABI",
+    },
 ];
 
 const MOONSHINE_REVISION: &str = "f8e9dfd8c562c257c151a907b7b7f2fe8ff8511a";
@@ -336,26 +342,28 @@ impl ModelSpec {
     }
 
     pub fn activate(self, config: &mut Config) {
-        config.backend.kind = self.backend.into();
-        let selected_runtime = match self.backend {
-            "openvino-genai" => Runtime::Openvino,
-            _ => Runtime::Default,
+        let runtime_is_compatible = match self.backend {
+            "audiocpp" => matches!(
+                config.backend.runtime,
+                Runtime::Default | Runtime::Cuda | Runtime::Vulkan | Runtime::Hip
+            ),
+            "openvino-genai" => config.backend.runtime == Runtime::Openvino,
+            _ => false,
         };
-        if config.backend.runtime != selected_runtime {
+        let preserve_provider = config.backend.kind == self.backend && runtime_is_compatible;
+        if !preserve_provider {
             config.backend.library.clear();
             config.backend.library_dirs.clear();
-        }
-        config.backend.runtime = selected_runtime;
-        if selected_runtime == Runtime::Default
-            || !matches!(
-                config.backend.device.to_ascii_lowercase().as_str(),
-                "cpu" | "gpu" | "npu"
-            )
-        {
+            config.backend.options.clear();
+            config.backend.fallback = Default::default();
+            config.backend.runtime = match self.backend {
+                "openvino-genai" => Runtime::Openvino,
+                _ => Runtime::Default,
+            };
             config.backend.device = "cpu".into();
+            config.backend.device_id = 0;
         }
-        config.backend.device_id = 0;
-        config.backend.fallback = Default::default();
+        config.backend.kind = self.backend.into();
         config.backend.options.remove("audiocpp.asr_family");
         if self.backend == "audiocpp" {
             config

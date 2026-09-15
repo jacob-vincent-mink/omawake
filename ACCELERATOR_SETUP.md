@@ -17,6 +17,13 @@ be built with its corresponding backend and include or locate every vendor
 dependency. `backend.device_id` chooses an accelerator ordinal. Omawake never
 invokes an audio.cpp executable.
 
+Select a non-default accelerator explicitly when needed:
+
+```bash
+omawake setup runtime --runtime cuda --device gpu --device-id 1 \
+  --dir /opt/audiocpp-cuda --apply
+```
+
 Focused `setup runtime --apply` expects the compatible catalog model to be
 installed already because it proves a real silent inference before committing
 the configuration. Use `omawake setup` for a fresh machine so runtime and model
@@ -33,6 +40,12 @@ omawake setup runtime --runtime openvino --device cpu --dir /opt/intel/openvino 
 omawake setup runtime --runtime openvino --device gpu --dir /opt/intel/openvino --apply
 omawake setup runtime --runtime openvino --device npu --dir /opt/intel/openvino --apply
 ```
+
+Whisper runs through OpenVINO while Silero VAD continues to use Omawake's
+packaged audio.cpp CPU provider. Release archives already include that small
+provider. A source-tree build must also place it under `target/release/lib/`
+or set `OMAWAKE_AUDIOCPP_LIBRARY` to the exact `libaudiocpp.so.0.1.0`; the
+OpenVINO directory itself does not need to contain audio.cpp.
 
 Install the matching Intel GPU or NPU driver separately. For GPU and NPU,
 setup downloads the OpenVINO model only when model setup is requested, compiles

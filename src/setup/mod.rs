@@ -227,10 +227,12 @@ fn checks_with(
     result.push(if launcher.is_file() {
         ok("launcher", launcher.display().to_string())
     } else {
-        fail(
+        ok(
             "launcher",
-            format!("desktop launcher is missing: {}", launcher.display()),
-            "run `omawake setup menu`",
+            format!(
+                "not installed (optional); run `omawake setup menu` to add {}",
+                launcher.display()
+            ),
         )
     });
     let service = systemd::service_path(paths);
@@ -305,10 +307,15 @@ pub fn print_checks_event(path: &Path, paths: &AppPaths) -> Result<()> {
 }
 
 pub fn print_runtime(config: &Config, config_path: &Path, json: bool) -> Result<()> {
+    let configured = crate::runtime_inventory::probe(config, config_path);
     let mut candidate = config.clone();
     candidate.backend.kind = "audiocpp".into();
     candidate.backend.runtime = crate::backend::Runtime::Default;
     candidate.backend.device = "cpu".into();
+    candidate.backend.device_id = 0;
+    candidate.backend.library.clear();
+    candidate.backend.library_dirs.clear();
+    candidate.backend.options.clear();
     let mut probe_paths = AppPaths::discover();
     probe_paths.config_file = config_path.to_owned();
     let provider = crate::engine::audiocpp::probe_provider(&candidate, &probe_paths);
@@ -333,6 +340,11 @@ pub fn print_runtime(config: &Config, config_path: &Path, json: bool) -> Result<
             "library": library,
             "version": version,
             "error": error,
+        },
+        "configured_provider": {
+            "runtime": crate::runtime_inventory::name(config.backend.runtime),
+            "device": config.backend.device,
+            "probe": configured,
         },
         "runtime_installation": "Omawake discovers complete provider directories supplied by the user; setup never installs vendor runtimes.",
         "loader_environment": std::env::var_os("LD_LIBRARY_PATH")
@@ -370,6 +382,19 @@ pub fn print_runtime(config: &Config, config_path: &Path, json: bool) -> Result<
             println!(
                 "  fix: install the Omawake release package or choose a complete libaudiocpp build directory"
             );
+        }
+        println!(
+            "Selected: {} / {} ({})",
+            crate::runtime_inventory::name(config.backend.runtime),
+            config.backend.device,
+            if configured.ready {
+                "ready"
+            } else {
+                "needs setup"
+            }
+        );
+        for error in &configured.errors {
+            println!("  selected provider: {error}");
         }
         println!("Runtime/device choices:");
         println!("  default   cpu                       integrated audio.cpp provider");

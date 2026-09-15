@@ -1,8 +1,12 @@
+use std::path::PathBuf;
+
 use super::*;
 
 #[test]
 fn catalog_pins_a_complete_originally_sourced_profile() {
     let spec = model(DEFAULT_MODEL_ID).unwrap();
+    assert_eq!(backends().len(), 3);
+    assert!(backends().iter().all(|backend| backend.built));
     assert_eq!(models().len(), 2);
     assert_eq!(spec.backend, "audiocpp");
     assert_eq!(spec.license, "MIT");
@@ -85,4 +89,27 @@ fn default_and_activation_are_the_qualified_audio_cpp_profile() {
             .map(String::as_str),
         Some("moonshine_asr")
     );
+
+    let provider = PathBuf::from("/opt/audiocpp-cuda/libaudiocpp.so");
+    let mut accelerated = Config::default();
+    accelerated.backend.runtime = Runtime::Cuda;
+    accelerated.backend.device = "gpu".into();
+    accelerated.backend.device_id = 2;
+    accelerated.backend.library = provider.clone();
+    accelerated.backend.library_dirs = vec![PathBuf::from("/opt/audiocpp-cuda")];
+    accelerated.backend.fallback = crate::backend::Fallback::Cpu;
+    spec.activate(&mut accelerated);
+    assert_eq!(accelerated.backend.runtime, Runtime::Cuda);
+    assert_eq!(accelerated.backend.device, "gpu");
+    assert_eq!(accelerated.backend.device_id, 2);
+    assert_eq!(accelerated.backend.library, provider);
+    assert_eq!(accelerated.backend.fallback, crate::backend::Fallback::Cpu);
+
+    let openvino = model(OPENVINO_MODEL_ID).unwrap();
+    openvino.activate(&mut accelerated);
+    assert_eq!(accelerated.backend.kind, "openvino-genai");
+    assert_eq!(accelerated.backend.runtime, Runtime::Openvino);
+    assert_eq!(accelerated.backend.device, "cpu");
+    assert!(accelerated.backend.library.as_os_str().is_empty());
+    assert!(accelerated.backend.library_dirs.is_empty());
 }

@@ -90,16 +90,12 @@ impl Default for ModelConfig {
 #[serde(default, deny_unknown_fields)]
 pub struct AudioConfig {
     pub device: String,
-    pub channels: String,
-    pub buffer_milliseconds: u32,
 }
 
 impl Default for AudioConfig {
     fn default() -> Self {
         Self {
             device: "default".into(),
-            channels: "mono".into(),
-            buffer_milliseconds: 200,
         }
     }
 }

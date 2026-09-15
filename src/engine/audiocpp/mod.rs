@@ -45,8 +45,7 @@ pub(crate) fn probe_provider(config: &Config, paths: &AppPaths) -> Result<(PathB
     if !(1..=64).contains(&config.backend.threads) {
         bail!("backend threads must be between 1 and 64");
     }
-    let configured_dirs = resolve_configured_library_dirs(config, paths)?;
-    let library = resolve_library(config, paths, &configured_dirs)?;
+    let library = discover_provider(config, paths)?;
     let api = AudioCppApi::load(&library)?;
     let version = unsafe { (api.build_version)() };
     let version = if version.is_null() {
@@ -58,6 +57,15 @@ pub(crate) fn probe_provider(config: &Config, paths: &AppPaths) -> Result<(PathB
         )
     };
     Ok((library, version))
+}
+
+pub(crate) fn discover_provider(config: &Config, paths: &AppPaths) -> Result<PathBuf> {
+    if config.backend.kind != "audiocpp" {
+        bail!("audio.cpp discovery requires backend.kind = audiocpp");
+    }
+    runtime_backend(config)?;
+    let configured_dirs = resolve_configured_library_dirs(config, paths)?;
+    resolve_library(config, paths, &configured_dirs)
 }
 
 struct AsrProfile {

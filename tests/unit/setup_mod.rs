@@ -81,6 +81,12 @@ fn checks_report_malformed_missing_custom_and_empty_states() {
     assert!(optional_service.ok);
     assert!(optional_service.detail.contains("optional"));
     assert!(optional_service.remediation.is_none());
+    let optional_launcher = missing
+        .iter()
+        .find(|check| check.name == "launcher")
+        .unwrap();
+    assert!(optional_launcher.ok);
+    assert!(optional_launcher.detail.contains("optional"));
     fs::create_dir_all(&config.model.directory).unwrap();
     let launcher = menu::launcher_path(&paths);
     fs::create_dir_all(launcher.parent().unwrap()).unwrap();

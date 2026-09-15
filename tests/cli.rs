@@ -548,8 +548,6 @@ fn config_commands_cover_supported_keys_and_errors() {
         ("model.directory", "/tmp/model"),
         ("model.sample_rate", "16000"),
         ("audio.device", "test"),
-        ("audio.channels", "mono"),
-        ("audio.buffer_milliseconds", "100"),
         ("daemon.cooldown_milliseconds", "500"),
         ("daemon.queue_capacity", "4"),
     ] {
@@ -606,8 +604,9 @@ fn runtime_discovery_reports_invalid_paths_without_reexec_and_engine_use_rejects
     let expected = root.join("config/omawake/missing-provider-libraries");
     assert_eq!(value["provider"]["kind"], "audiocpp");
     assert_eq!(value["provider"]["ready"], false);
+    assert_eq!(value["configured_provider"]["probe"]["ready"], false);
     assert!(
-        value["provider"]["error"]
+        value["configured_provider"]["probe"]["errors"][0]
             .as_str()
             .unwrap()
             .contains(&expected.display().to_string())
@@ -756,4 +755,5 @@ fn systemd_lifecycle_uses_user_manager_and_propagates_failures() {
             .status
             .success()
     );
+    assert!(!root.join("config/systemd/user/omawake.service").exists());
 }

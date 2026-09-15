@@ -9,6 +9,16 @@ fn unit_uses_absolute_binary_and_config() {
 }
 
 #[test]
+fn unit_escapes_systemd_specifiers_quotes_backslashes_and_controls() {
+    let unit = generate(
+        Path::new("/opt/oma%wake/quote\"back\\slash"),
+        Path::new("/tmp/config\nnext.toml"),
+    );
+    assert!(unit.contains(r#"ExecStart="/opt/oma%%wake/quote\"back\\slash""#));
+    assert!(unit.contains(r#"--config "/tmp/config\nnext.toml" daemon"#));
+}
+
+#[test]
 fn setup_reload_only_restarts_a_service_that_was_active() {
     use std::cell::Cell;
 

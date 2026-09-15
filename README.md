@@ -64,6 +64,8 @@ omawake setup runtime \
   --runtime default --device cpu --dir /absolute/path/to/provider --apply
 ```
 
+CUDA, Vulkan, and HIP also accept `--device-id N` for a zero-based GPU index.
+
 Ordinary setup does not install system runtimes. OpenVINO GenAI and audio.cpp
 CUDA, Vulkan, and HIP choices ask for a complete user-supplied provider
 directory. Setup probes the provider and requested device before it saves an

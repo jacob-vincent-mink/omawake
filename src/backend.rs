@@ -105,7 +105,6 @@ pub fn canonical_device(runtime: Runtime, raw: &str) -> Result<String, BackendEr
             }
         }
         Runtime::Openvino => match trimmed.to_ascii_lowercase().as_str() {
-            "auto" => Ok("auto".into()),
             "cpu" => Ok("cpu".into()),
             "gpu" => Ok("gpu".into()),
             "npu" => Ok("npu".into()),

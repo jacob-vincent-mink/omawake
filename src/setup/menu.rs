@@ -18,11 +18,26 @@ pub fn install(paths: &AppPaths) -> Result<PathBuf> {
     let binary = std::env::current_exe()?.canonicalize()?;
     let contents = format!(
         "[Desktop Entry]\nType=Application\nName=Omawake Setup\nComment=Install and configure a local wake-word model\nExec=\"{}\" setup model\nTerminal=true\nCategories=Settings;\nKeywords=voice;wake word;speech;\n",
-        binary.display().to_string().replace('"', "\\\"")
+        desktop_exec_path(&binary)
     );
     let path = launcher_path(paths);
     write_atomic(&path, contents.as_bytes())?;
     Ok(path)
+}
+
+fn desktop_exec_path(path: &Path) -> String {
+    let mut escaped = String::new();
+    for character in path.display().to_string().chars() {
+        match character {
+            '\\' => escaped.push_str("\\\\"),
+            '"' => escaped.push_str("\\\""),
+            '$' => escaped.push_str("\\$"),
+            '`' => escaped.push_str("\\`"),
+            '%' => escaped.push_str("%%"),
+            character => escaped.push(character),
+        }
+    }
+    escaped
 }
 
 pub fn uninstall(paths: &AppPaths) -> Result<()> {

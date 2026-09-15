@@ -12,9 +12,11 @@ cd omawake-0.0.1-rc.2-linux-x86_64
 ```
 
 The guided terminal flow discovers the packaged provider, downloads and
-verifies the pinned Moonshine and Silero assets, asks for the wake phrase and
-action, runs a silent file-only proof, and then saves the config. It installs a
-desktop launcher. It does not install or enable a service or a vendor runtime.
+verifies the pinned Moonshine and Silero assets, runs a silent file-only proof,
+and then saves the config. The initial mapping listens for `Computer` and runs
+`notify-send`; replace it with `omawake wake-word add` and `remove`. Full setup
+also installs a desktop launcher. It does not install or enable a service or a
+vendor runtime.
 
 To install for one user:
 

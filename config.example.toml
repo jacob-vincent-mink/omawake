@@ -21,8 +21,6 @@ sample_rate = 16000
 
 [audio]
 device = "default"
-channels = "mono"
-buffer_milliseconds = 200
 
 [daemon]
 cooldown_milliseconds = 1500

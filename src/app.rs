@@ -49,10 +49,7 @@ enum TopCommand {
         response: PathBuf,
     },
     #[command(name = "__native-json", hide = true)]
-    NativeJson {
-        request: String,
-        response: PathBuf,
-    },
+    NativeJson { request: String, response: PathBuf },
     #[command(name = "__whisper-worker", hide = true)]
     WhisperWorker {
         library: PathBuf,
@@ -88,13 +85,18 @@ enum TopCommand {
         audiocpp_library: PathBuf,
         device: String,
     },
+    /// Detect configured wake phrases from a WAV file or bounded live capture.
     Test {
+        /// Read audio from a WAV file without opening the microphone.
         #[arg(long, conflicts_with = "seconds")]
         audio: Option<PathBuf>,
+        /// Capture from the configured microphone for this many seconds.
         #[arg(long, conflicts_with = "audio")]
         seconds: Option<u64>,
+        /// Run mapped actions for detected phrases.
         #[arg(long)]
         execute: bool,
+        /// Emit a machine-readable result.
         #[arg(long)]
         json: bool,
     },
@@ -112,27 +114,36 @@ enum TopCommand {
         #[arg(value_name = "MANIFEST")]
         manifest: PathBuf,
     },
+    /// Show daemon state; a stopped daemon is reported successfully.
     Status {
         #[arg(long)]
         json: bool,
     },
+    /// Inspect or edit configuration.
     Config {
         #[command(subcommand)]
         command: ConfigCommand,
     },
     #[command(visible_alias = "word")]
+    /// Manage phrase-to-action mappings.
     WakeWord {
         #[command(subcommand)]
         command: WakeWordCommand,
     },
+    /// List available input devices.
     AudioDevices {
         #[arg(long)]
         json: bool,
     },
+    /// Run the foreground wake-phrase daemon.
     Daemon,
+    /// Pause an already-running daemon.
     Pause,
+    /// Resume an already-running daemon.
     Resume,
+    /// Stop an already-running daemon.
     Stop,
+    /// Configure providers, models, and optional integrations.
     Setup {
         #[command(subcommand)]
         command: Option<SetupCommand>,
@@ -242,6 +253,10 @@ enum SetupCommand {
         /// Select a compatible device without opening the TUI.
         #[arg(long, conflicts_with = "json")]
         device: Option<String>,
+        /// Select a zero-based GPU index for CUDA, Vulkan, or HIP.
+        #[arg(long, conflicts_with = "json")]
+        device_id: Option<u32>,
+        /// Complete provider or vendor runtime installation directory.
         #[arg(long, value_name = "DIRECTORY", conflicts_with = "json")]
         dir: Option<PathBuf>,
         /// Persist the candidate after its isolated probe succeeds.
@@ -624,9 +639,9 @@ where
             if as_json {
                 println!("{}", serde_json::to_string_pretty(&value)?);
             } else {
-                println!(
-                    "backend.runtime\tdefault|openvino|cuda|vulkan|hip\nbackend.device\truntime-dependent\nwake_words\tcollection"
-                );
+                for line in human_schema_lines(&value)? {
+                    println!("{line}");
+                }
             }
             Ok(())
         }
@@ -650,7 +665,11 @@ fn config_mutation(command: ConfigCommand, mut config: Config, path: &Path) -> R
     }
     let runtime_changed = config.backend.runtime != previous_runtime;
     if runtime_changed {
-        config.backend.device = "auto".into();
+        config.backend.device = if config.backend.runtime == Runtime::Openvino {
+            "cpu".into()
+        } else {
+            "auto".into()
+        };
         config.backend.library.clear();
         config.backend.library_dirs.clear();
         config.backend.options.clear();
@@ -678,8 +697,6 @@ fn set_config(config: &mut Config, key: &str, value: &str) -> Result<()> {
         "model.vad" => config.model.vad = value.into(),
         "model.sample_rate" => config.model.sample_rate = value.parse()?,
         "audio.device" => config.audio.device = value.into(),
-        "audio.channels" => config.audio.channels = value.into(),
-        "audio.buffer_milliseconds" => config.audio.buffer_milliseconds = value.parse()?,
         "daemon.cooldown_milliseconds" => config.daemon.cooldown_milliseconds = value.parse()?,
         "daemon.queue_capacity" => config.daemon.queue_capacity = value.parse()?,
         _ => bail!("unknown or unsupported config key {key}"),
@@ -704,10 +721,6 @@ fn unset_config(config: &mut Config, key: &str) -> Result<()> {
         "model.vad" => config.model.vad = defaults.model.vad,
         "model.sample_rate" => config.model.sample_rate = defaults.model.sample_rate,
         "audio.device" => config.audio.device = defaults.audio.device,
-        "audio.channels" => config.audio.channels = defaults.audio.channels,
-        "audio.buffer_milliseconds" => {
-            config.audio.buffer_milliseconds = defaults.audio.buffer_milliseconds
-        }
         "daemon.cooldown_milliseconds" => {
             config.daemon.cooldown_milliseconds = defaults.daemon.cooldown_milliseconds
         }
@@ -798,6 +811,7 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
             json,
             runtime: None,
             device: None,
+            device_id: None,
             dir: None,
             apply: false,
         } if !json && setup_is_interactive() => guided_runtime(config_path, paths),
@@ -805,15 +819,17 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
             json,
             runtime,
             device,
+            device_id,
             dir,
             apply,
         } => {
-            if runtime.is_some() || device.is_some() || dir.is_some() {
+            if runtime.is_some() || device.is_some() || device_id.is_some() || dir.is_some() {
                 configure_runtime_from_flags(
                     config_path,
                     paths,
                     runtime,
                     device,
+                    device_id,
                     dir,
                     apply,
                     native_runtime_probe,
@@ -956,20 +972,23 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn configure_runtime_from_flags(
     config_path: &Path,
     paths: &AppPaths,
     runtime: Option<String>,
     device: Option<String>,
+    device_id: Option<u32>,
     directory: Option<PathBuf>,
     apply: bool,
-    probe: impl FnOnce(&crate::backend::BackendConfig, &Path) -> crate::runtime_inventory::Probe,
+    probe: impl FnOnce(&Config, &Path) -> crate::runtime_inventory::Probe,
 ) -> Result<()> {
     configure_runtime_from_flags_with(
         config_path,
         paths,
         runtime,
         device,
+        device_id,
         directory,
         apply,
         probe,
@@ -984,9 +1003,10 @@ fn configure_runtime_from_flags_with<FC, FP>(
     paths: &AppPaths,
     runtime: Option<String>,
     device: Option<String>,
+    device_id: Option<u32>,
     directory: Option<PathBuf>,
     apply: bool,
-    probe: impl FnOnce(&crate::backend::BackendConfig, &Path) -> crate::runtime_inventory::Probe,
+    probe: impl FnOnce(&Config, &Path) -> crate::runtime_inventory::Probe,
     prepare_cache: FC,
     prove: FP,
 ) -> Result<()>
@@ -1020,6 +1040,7 @@ where
             runtime: selected_runtime,
             device: selected_device,
         },
+        device_id,
         directory.as_deref(),
     )?;
     let evidence = crate::runtime_inventory::apply_with(&candidate, config_path, false, probe)?;
@@ -1095,7 +1116,7 @@ impl GuidedPrompts for TerminalGuidedPrompts {
     }
 
     fn runtime(&mut self, current: &Config) -> Result<Option<RuntimeSelection>> {
-        let probe = native_runtime_probe(&current.backend, &self.config_path);
+        let probe = native_runtime_probe(current, &self.config_path);
         let loadable = BTreeMap::from([
             (
                 "default",
@@ -1247,6 +1268,7 @@ fn guided_runtime_with(
         &current,
         config_path,
         &selection,
+        None,
         runtime_directory.as_deref(),
     )?;
     let evidence = prompts.probe_runtime(&candidate, config_path)?;
@@ -1375,7 +1397,7 @@ where
     ) -> Result<PathBuf>,
     FM: FnOnce(&AppPaths) -> Result<PathBuf>,
     FA: FnOnce(&AppPaths) -> bool,
-    FR: FnOnce(bool) -> Result<bool>,
+    FR: FnMut(bool) -> Result<bool>,
     CH: FnOnce(&Path, &AppPaths) -> Result<()>,
     CJ: FnOnce(&Path, &AppPaths) -> Result<()>,
 {
@@ -1418,7 +1440,7 @@ where
     FP: FnOnce(&Config, &AppPaths) -> Result<()>,
     FM: FnOnce(&AppPaths) -> Result<PathBuf>,
     FA: FnOnce(&AppPaths) -> bool,
-    FR: FnOnce(bool) -> Result<bool>,
+    FR: FnMut(bool) -> Result<bool>,
     CH: FnOnce(&Path, &AppPaths) -> Result<()>,
     CJ: FnOnce(&Path, &AppPaths) -> Result<()>,
     FV: FnOnce(&Config, &Path) -> Result<()>,
@@ -1433,6 +1455,7 @@ where
         &current,
         config_path,
         &selection,
+        None,
         runtime_directory.as_deref(),
     )?;
     validate_runtime(&candidate, config_path)?;
@@ -1549,7 +1572,8 @@ fn save_runtime_selection_impl_with(
     validate: impl FnOnce(&Config, &Path) -> Result<()>,
 ) -> Result<()> {
     let current = app_setup::load_config(config_path)?;
-    let config = runtime_selection_candidate(&current, config_path, selection, runtime_directory)?;
+    let config =
+        runtime_selection_candidate(&current, config_path, selection, None, runtime_directory)?;
     validate(&config, config_path)?;
     config.save(config_path)
 }
@@ -1581,6 +1605,7 @@ fn runtime_selection_candidate(
     current: &Config,
     config_path: &Path,
     selection: &RuntimeSelection,
+    device_id: Option<u32>,
     runtime_directory: Option<&Path>,
 ) -> Result<Config> {
     let mut config = current.clone();
@@ -1599,14 +1624,29 @@ fn runtime_selection_candidate(
             .context("runtime has no compatible catalog model")?
             .activate(&mut config);
     }
-    if config.backend.runtime != selection.runtime {
+    if config.backend.kind != backend_kind || config.backend.runtime != selection.runtime {
         config.backend.library.clear();
         config.backend.library_dirs.clear();
+        config.backend.options.clear();
     }
     config.backend.kind = backend_kind.into();
     config.backend.runtime = selection.runtime;
     config.backend.device = selection.device.clone();
-    config.backend.device_id = 0;
+    config.backend.device_id = if matches!(
+        selection.runtime,
+        Runtime::Cuda | Runtime::Vulkan | Runtime::Hip
+    ) {
+        device_id.unwrap_or_else(|| {
+            if current.backend.kind == backend_kind && current.backend.runtime == selection.runtime
+            {
+                current.backend.device_id
+            } else {
+                0
+            }
+        })
+    } else {
+        0
+    };
     config.backend.options.remove("audiocpp.asr_family");
     if backend_kind == "audiocpp" {
         config
@@ -1626,20 +1666,13 @@ fn validate_runtime_candidate(config: &Config, config_path: &Path) -> Result<()>
     validate_runtime_candidate_with(config, config_path, native_runtime_probe)
 }
 
-fn native_runtime_probe(
-    backend: &crate::backend::BackendConfig,
-    config_path: &Path,
-) -> crate::runtime_inventory::Probe {
-    native_runtime_probe_with(
-        backend,
-        config_path,
-        crate::engine::openvino_genai::probe_runtime,
-        crate::engine::audiocpp::probe_provider,
-    )
+fn native_runtime_probe(config: &Config, config_path: &Path) -> crate::runtime_inventory::Probe {
+    crate::runtime_inventory::probe(config, config_path)
 }
 
+#[cfg(test)]
 fn native_runtime_probe_with<OV, AC>(
-    backend: &crate::backend::BackendConfig,
+    config: &Config,
     config_path: &Path,
     openvino_probe: OV,
     audiocpp_probe: AC,
@@ -1648,14 +1681,11 @@ where
     OV: FnOnce(&Config, &AppPaths) -> Result<crate::engine::openvino_genai::RuntimeEvidence>,
     AC: FnOnce(&Config, &AppPaths) -> Result<(PathBuf, String)>,
 {
-    let config = Config {
-        backend: backend.clone(),
-        ..Default::default()
-    };
+    let backend = &config.backend;
     let mut paths = AppPaths::discover();
     paths.config_file = config_path.to_owned();
     if backend.kind == "openvino-genai" && backend.runtime == Runtime::Openvino {
-        return match openvino_probe(&config, &paths) {
+        return match openvino_probe(config, &paths) {
             Ok(evidence) => crate::runtime_inventory::Probe {
                 loadable: true,
                 device_accessible: true,
@@ -1677,7 +1707,7 @@ where
             },
         };
     }
-    match audiocpp_probe(&config, &paths) {
+    match audiocpp_probe(config, &paths) {
         Ok((library, version)) => crate::runtime_inventory::Probe {
             loadable: true,
             device_accessible: true,
@@ -1708,7 +1738,7 @@ where
 fn validate_runtime_candidate_with(
     config: &Config,
     config_path: &Path,
-    probe: impl FnOnce(&crate::backend::BackendConfig, &Path) -> crate::runtime_inventory::Probe,
+    probe: impl FnOnce(&Config, &Path) -> crate::runtime_inventory::Probe,
 ) -> Result<()> {
     crate::runtime_inventory::apply_with(config, config_path, false, probe)?;
     Ok(())
@@ -1836,7 +1866,7 @@ where
     ) -> Result<PathBuf>,
     FP: FnOnce(&Config, &AppPaths) -> Result<()>,
     FM: FnOnce(&AppPaths) -> Result<PathBuf>,
-    FR: FnOnce(bool) -> Result<bool>,
+    FR: FnMut(bool) -> Result<bool>,
     CH: FnOnce(&Path, &AppPaths) -> Result<()>,
     CJ: FnOnce(&Path, &AppPaths) -> Result<()>,
 {
@@ -1884,7 +1914,7 @@ where
     ) -> Result<PathBuf>,
     FP: FnOnce(&Config, &AppPaths) -> Result<()>,
     FM: FnOnce(&AppPaths) -> Result<PathBuf>,
-    FR: FnOnce(bool) -> Result<bool>,
+    FR: FnMut(bool) -> Result<bool>,
     CH: FnOnce(&Path, &AppPaths) -> Result<()>,
     CJ: FnOnce(&Path, &AppPaths) -> Result<()>,
 {
@@ -1919,7 +1949,7 @@ fn install_everything_with_config_and_cache<FI, FP, FC, FM, FR, CH, CJ>(
     prove_model: FP,
     prepare_cache: FC,
     install_menu: FM,
-    restart_service: FR,
+    mut restart_service: FR,
     check_human: CH,
     check_json: CJ,
 ) -> Result<()>
@@ -1938,11 +1968,13 @@ where
         ProgressFormat,
     ) -> Result<Option<app_setup::cache::CacheReport>>,
     FM: FnOnce(&AppPaths) -> Result<PathBuf>,
-    FR: FnOnce(bool) -> Result<bool>,
+    FR: FnMut(bool) -> Result<bool>,
     CH: FnOnce(&Path, &AppPaths) -> Result<()>,
     CJ: FnOnce(&Path, &AppPaths) -> Result<()>,
 {
     let original = config_snapshot(config_path)?;
+    let launcher_snapshot = FileSnapshot::capture(&app_setup::menu::launcher_path(paths))?;
+    let mut service_restart_attempted = false;
     let result = (|| {
         let directory = install_model(paths, spec, archive, progress_format)?;
         spec.activate(&mut config);
@@ -1954,6 +1986,7 @@ where
             ProgressFormat::Human => check_human(config_path, paths)?,
             ProgressFormat::Json => check_json(config_path, paths)?,
         }
+        service_restart_attempted = service_was_active;
         let service_restarted = restart_service(service_was_active)?;
         print_setup_complete(
             &directory,
@@ -1965,14 +1998,85 @@ where
         )
     })();
     if let Err(error) = result {
+        let mut rollback_errors = Vec::new();
         if let Err(restore_error) = restore_config_snapshot(config_path, original.as_deref()) {
+            rollback_errors.push(format!("restore prior config: {restore_error:#}"));
+        }
+        if let Err(restore_error) = launcher_snapshot.restore() {
+            rollback_errors.push(format!("restore prior launcher: {restore_error:#}"));
+        }
+        if service_restart_attempted && let Err(restore_error) = restart_service(true) {
+            rollback_errors.push(format!(
+                "restart the previously active service with restored config: {restore_error:#}"
+            ));
+        }
+        if !rollback_errors.is_empty() {
             return Err(error.context(format!(
-                "setup also failed to restore the prior config: {restore_error:#}"
+                "setup rollback was incomplete: {}",
+                rollback_errors.join("; ")
             )));
         }
         return Err(error);
     }
     Ok(())
+}
+
+struct FileSnapshot {
+    path: PathBuf,
+    contents: Option<(Vec<u8>, fs::Permissions)>,
+}
+
+impl FileSnapshot {
+    fn capture(path: &Path) -> Result<Self> {
+        match fs::symlink_metadata(path) {
+            Ok(metadata) if metadata.file_type().is_file() => Ok(Self {
+                path: path.to_owned(),
+                contents: Some((
+                    fs::read(path)
+                        .with_context(|| format!("read setup snapshot {}", path.display()))?,
+                    metadata.permissions(),
+                )),
+            }),
+            Ok(_) => bail!(
+                "setup-managed launcher is not a regular file: {}",
+                path.display()
+            ),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Self {
+                path: path.to_owned(),
+                contents: None,
+            }),
+            Err(error) => {
+                Err(error).with_context(|| format!("inspect setup snapshot {}", path.display()))
+            }
+        }
+    }
+
+    fn restore(&self) -> Result<()> {
+        let temporary = self.path.with_extension("desktop.tmp");
+        match &self.contents {
+            Some((contents, permissions)) => {
+                if let Some(parent) = self.path.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                fs::write(&temporary, contents)?;
+                fs::set_permissions(&temporary, permissions.clone())?;
+                fs::rename(&temporary, &self.path)?;
+            }
+            None => {
+                match fs::remove_file(&self.path) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error.into()),
+                }
+                match fs::remove_file(&temporary) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 fn config_snapshot(path: &Path) -> Result<Option<Vec<u8>>> {
@@ -3260,18 +3364,81 @@ fn stopped_status(config: &Config, paths: &AppPaths) -> serde_json::Value {
 }
 
 fn schema(config: &Config, config_path: &Path, paths: &AppPaths) -> serde_json::Value {
+    let selected_ready = match config.backend.kind.as_str() {
+        "audiocpp" => crate::engine::audiocpp::discover_provider(config, paths).is_ok(),
+        "openvino-genai" => {
+            crate::engine::openvino_genai::ProviderSpec::from_config(config, paths).is_ok()
+        }
+        _ => false,
+    };
+    let mut packaged = config.clone();
+    packaged.backend.kind = "audiocpp".into();
+    packaged.backend.runtime = Runtime::Default;
+    packaged.backend.device = "cpu".into();
+    packaged.backend.device_id = 0;
+    packaged.backend.library.clear();
+    packaged.backend.library_dirs.clear();
+    packaged.backend.options.clear();
+    let packaged_ready = crate::engine::audiocpp::discover_provider(&packaged, paths).is_ok();
+    let current_audio = |runtime| {
+        config.backend.kind == "audiocpp" && config.backend.runtime == runtime && selected_ready
+    };
+    let runtime_choices = vec![
+        json!({"value":"default","available":packaged_ready || current_audio(Runtime::Default),"capability":"cpu"}),
+        json!({"value":"cuda","available":current_audio(Runtime::Cuda),"capability":"cuda"}),
+        json!({"value":"vulkan","available":current_audio(Runtime::Vulkan),"capability":"vulkan"}),
+        json!({"value":"hip","available":current_audio(Runtime::Hip),"capability":"hip"}),
+        json!({"value":"openvino","available":config.backend.kind == "openvino-genai" && config.backend.runtime == Runtime::Openvino && selected_ready,"capability":"openvino"}),
+    ];
     json!({"schema_version":1,"app":"omawake","app_version":env!("CARGO_PKG_VERSION"),"daemon_version":env!("CARGO_PKG_VERSION"),"config_path":config_path,
         "keys":[
-            {"key":"backend.kind","type":"enum","section":"Backend","label":"Backend","description":"Complete native inference provider","value":config.backend.kind,"file_value":null,"supported":true,"restart_required":true,"choices":["audiocpp"]},
-            {"key":"backend.runtime","type":"enum","section":"Backend","label":"Runtime","description":"Qualified provider runtime","value":config.backend.runtime,"file_value":null,"supported":true,"restart_required":true,"choices":[{"value":"default","available":true,"capability":"cpu"},{"value":"openvino","available":false,"capability":"openvino"},{"value":"cuda","available":false,"capability":"cuda"}]},
+            {"key":"backend.kind","type":"enum","section":"Backend","label":"Backend","description":"Complete native inference provider","value":config.backend.kind,"file_value":null,"supported":true,"restart_required":true,"choices":["audiocpp","openvino-genai","whispercpp"]},
+            {"key":"backend.runtime","type":"enum","section":"Backend","label":"Runtime","description":"Qualified provider runtime; availability means a matching complete provider was detected","value":config.backend.runtime,"file_value":null,"supported":true,"restart_required":true,"choices":runtime_choices},
             {"key":"backend.device","type":"string","section":"Backend","label":"Device","description":"Runtime-specific device","value":config.backend.device,"file_value":null,"supported":true,"restart_required":true},
+            {"key":"backend.device_id","type":"integer","section":"Backend","label":"Device index","description":"Zero-based GPU index for CUDA, Vulkan, or HIP","value":config.backend.device_id,"file_value":null,"supported":true,"restart_required":true,"min":0},
+            {"key":"backend.threads","type":"integer","section":"Backend","label":"Threads","description":"Inference threads","value":config.backend.threads,"file_value":null,"supported":true,"restart_required":true,"min":1,"max":64},
+            {"key":"backend.fallback","type":"enum","section":"Backend","label":"Fallback","description":"Fallback policy within the selected provider and model","value":config.backend.fallback,"file_value":null,"supported":true,"restart_required":true,"choices":["error","cpu"]},
             {"key":"backend.library","type":"path","section":"Backend","label":"Provider library","description":"Exact shared library for the selected native backend","value":config.backend.library,"file_value":null,"supported":true,"restart_required":true},
-            {"key":"backend.library_dirs","type":"path-list","section":"Backend","label":"Native library directories","description":"Complete provider library search paths","value":config.backend.library_dirs,"file_value":null,"supported":true,"restart_required":true},
+            {"key":"backend.library_dirs","type":"path-list","section":"Backend","label":"Native library directories","description":"Complete provider and dependency library search paths","value":config.backend.library_dirs,"file_value":null,"supported":true,"restart_required":true},
+            {"key":"model.name","type":"string","section":"Model","label":"Model","description":"Active catalog or custom model profile","value":config.model.name,"file_value":null,"supported":true,"restart_required":true},
             {"key":"model.directory","type":"path","section":"Model","label":"Directory","description":"Model asset directory","value":config.model_directory(paths),"file_value":config.model.directory,"supported":true,"restart_required":true},
             {"key":"model.verifier","type":"string","section":"Model","label":"Verifier model","description":"Phrase verifier filename inside the model directory","value":config.model.verifier,"file_value":null,"supported":true,"restart_required":true},
-            {"key":"model.vad","type":"string","section":"Model","label":"VAD model","description":"Silero VAD filename inside the model directory","value":config.model.vad,"file_value":null,"supported":true,"restart_required":true}],
-        "collections":[{"key":"wake_words","id_key":"id","label":"Wake words","items":config.wake_words}],
-        "constraints":[{"kind":"matrix","keys":["backend.runtime","backend.device"],"rows":[{"backend.runtime":"default","backend.device":["cpu"]}]}]})
+            {"key":"model.vad","type":"string","section":"Model","label":"VAD model","description":"Silero VAD filename inside the model directory","value":config.model.vad,"file_value":null,"supported":true,"restart_required":true},
+            {"key":"model.sample_rate","type":"integer","section":"Model","label":"Sample rate","description":"Native model sample rate in hertz","value":config.model.sample_rate,"file_value":null,"supported":true,"restart_required":true,"min":1},
+            {"key":"audio.device","type":"string","section":"Audio","label":"Input device","description":"CPAL input device name or default","value":config.audio.device,"file_value":null,"supported":true,"restart_required":true},
+            {"key":"daemon.cooldown_milliseconds","type":"integer","section":"Daemon","label":"Cooldown","description":"Delay after an action before reopening capture","value":config.daemon.cooldown_milliseconds,"file_value":null,"supported":true,"restart_required":true,"min":0},
+            {"key":"daemon.queue_capacity","type":"integer","section":"Daemon","label":"Capture queue","description":"Bounded live-audio queue capacity","value":config.daemon.queue_capacity,"file_value":null,"supported":true,"restart_required":true,"min":1}],
+        "collections":[
+            {"prefix":"backend.options.","type":"string-map","section":"Backend","label":"Provider options","description":"Provider-specific load and session options","restart_required":true},
+            {"key":"wake_words","id_key":"id","label":"Wake words","description":"Phrase-to-command mappings","items":config.wake_words}],
+        "constraints":[
+            {"kind":"matrix","keys":["backend.runtime","backend.device"],"rows":[{"backend.runtime":"default","backend.device":["auto","cpu"]},{"backend.runtime":"cuda","backend.device":["auto","gpu"]},{"backend.runtime":"vulkan","backend.device":["auto","gpu"]},{"backend.runtime":"hip","backend.device":["auto","gpu"]},{"backend.runtime":"openvino","backend.device":["npu","gpu","cpu"]}]},
+            {"kind":"runtime-only","key":"backend.device_id","runtimes":["cuda","vulkan","hip"]}]})
+}
+
+fn human_schema_lines(schema: &Value) -> Result<Vec<String>> {
+    let keys = schema["keys"]
+        .as_array()
+        .context("configuration schema keys are not an array")?;
+    let collections = schema["collections"]
+        .as_array()
+        .context("configuration schema collections are not an array")?;
+    keys.iter()
+        .chain(collections)
+        .map(|entry| {
+            Ok(format!(
+                "{}\t{}",
+                entry
+                    .get("key")
+                    .or_else(|| entry.get("prefix"))
+                    .and_then(Value::as_str)
+                    .context("configuration schema entry has no key or prefix")?,
+                entry["description"]
+                    .as_str()
+                    .context("configuration schema entry has no description")?
+            ))
+        })
+        .collect()
 }
 
 #[cfg(test)]
