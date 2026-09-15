@@ -504,6 +504,10 @@ fn provider_selection(
             // chunks and needs f32 inference to preserve calibrated scores.
             properties.insert("INFERENCE_PRECISION_HINT".into(), "f32".into());
             properties.insert("EXECUTION_MODE_HINT".into(), "ACCURACY".into());
+            // Some Intel GPU compiler releases can fault when compiling several
+            // OpenCL kernels concurrently on a cold cache. Keep setup-time model
+            // compilation serialized; cached inference is unaffected.
+            properties.insert("COMPILATION_NUM_THREADS".into(), "1".into());
         }
         load_config.insert(device.to_ascii_uppercase(), properties.into());
         options.push((
@@ -851,10 +855,11 @@ mod tests {
                     .find(|(key, _)| key.ends_with(".load_config"))
                     .map(|(_, value)| value)
                     .unwrap();
-                assert!(load_config.contains("INFERENCE_PRECISION_HINT"));
-                assert!(load_config.contains("f32"));
-                assert!(load_config.contains("EXECUTION_MODE_HINT"));
-                assert!(load_config.contains("ACCURACY"));
+                let load_config: serde_json::Value = serde_json::from_str(load_config).unwrap();
+                let gpu = &load_config["GPU"];
+                assert_eq!(gpu["INFERENCE_PRECISION_HINT"], "f32");
+                assert_eq!(gpu["EXECUTION_MODE_HINT"], "ACCURACY");
+                assert_eq!(gpu["COMPILATION_NUM_THREADS"], "1");
             }
         }
 
