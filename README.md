@@ -20,9 +20,9 @@ Linux x86-64 and aarch64 releases include the official ONNX Runtime 1.30.0 CPU l
 Verify and unpack a release, then run setup:
 
 ```bash
-sha256sum --check omawake-0.0.1-rc-linux-x86_64.sha256
-tar -xJf omawake-0.0.1-rc-linux-x86_64.tar.xz
-cd omawake-0.0.1-rc-linux-x86_64
+sha256sum --check --ignore-missing SHA256SUMS.txt
+tar -xJf omawake-0.0.1-rc.1-linux-x86_64.tar.xz
+cd omawake-0.0.1-rc.1-linux-x86_64
 ./omawake setup
 ```
 
@@ -94,6 +94,10 @@ in status and benchmark JSON.
 
 See [ACCELERATOR_SETUP.md](ACCELERATOR_SETUP.md) and [RUNTIME.md](RUNTIME.md)
 for package layout details.
+
+The [current GB10 report](benchmarks/cuda-gb10-ort130-2026-09-14.md) records
+file-only detection parity and GPU telemetry with the official ORT 1.30 CUDA
+Plugin EP. Earlier accelerator reports are retained as historical evidence.
 
 ## Build
 

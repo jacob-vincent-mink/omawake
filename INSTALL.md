@@ -1,22 +1,21 @@
 # Installing Omawake
 
-Omawake 0.0.1-rc supports Linux x86-64 and aarch64. Each release archive contains one
+Omawake 0.0.1-rc.1 supports Linux x86-64 and aarch64. Each release archive contains one
 runtime-neutral executable and a bundled CPU runtime. OpenVINO and CUDA remain
 external runtime choices configured after installation.
 
-There are no 0.0.1-rc prebuilt artifacts for macOS or Windows. CUDA has been
-validated on aarch64 NVIDIA GB10 hardware.
+There are no 0.0.1-rc.1 prebuilt artifacts for macOS or Windows.
 
 ## Release archive
 
-Download `omawake-0.0.1-rc-linux-x86_64.tar.xz` and its `.sha256` file from the
-[v0.0.1-rc release](https://github.com/jacob-vincent-mink/omawake/releases/tag/v0.0.1-rc),
+Download `omawake-0.0.1-rc.1-linux-x86_64.tar.xz` and `SHA256SUMS.txt` from the
+[v0.0.1-rc.1 release](https://github.com/jacob-vincent-mink/omawake/releases/tag/v0.0.1-rc.1),
 then verify and unpack it:
 
 ```bash
-sha256sum --check omawake-0.0.1-rc-linux-x86_64.sha256
-tar -xJf omawake-0.0.1-rc-linux-x86_64.tar.xz
-cd omawake-0.0.1-rc-linux-x86_64
+sha256sum --check --ignore-missing SHA256SUMS.txt
+tar -xJf omawake-0.0.1-rc.1-linux-x86_64.tar.xz
+cd omawake-0.0.1-rc.1-linux-x86_64
 ./omawake --version
 ```
 

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.0.1-rc.1 - 2026-09-14
+
 - Added an independent Rust implementation of the published icefall
   keyword-spotting model contract.
 - Updated the packaged CPU runtime to ONNX Runtime 1.30.0 and optional

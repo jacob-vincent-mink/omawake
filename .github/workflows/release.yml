@@ -90,6 +90,11 @@ jobs:
           cp LICENSE "dist/${package}/licenses/OMAWAKE-LICENSE"
           cp THIRD_PARTY_NOTICES.md "dist/${package}/licenses/OMAWAKE-THIRD-PARTY-NOTICES"
           cp README.md INSTALL.md ACCELERATOR_SETUP.md CHANGELOG.md RELEASE_NOTES.md DEMO.md RUNTIME.md config.example.toml "dist/${package}/"
+          mkdir -p "dist/${package}/benchmarks"
+          cp benchmarks/README.md benchmarks/cuda-gb10-ort130-2026-09-14.md \
+            "dist/${package}/benchmarks/"
+          cp -a benchmarks/cuda-gb10-ort130-results-2026-09-14 \
+            "dist/${package}/benchmarks/"
           cp -a assets packaging scripts "dist/${package}/"
           tar -C dist -cJf "dist/${package}.tar.xz" "${package}"
           (cd dist && sha256sum "${package}.tar.xz" > "${package}.sha256")
@@ -105,11 +110,27 @@ jobs:
           lib="${root}/${package}/lib"
           test -x "${binary}"
           test -e "${lib}/libonnxruntime.so"
+          for document in README.md INSTALL.md ACCELERATOR_SETUP.md CHANGELOG.md RELEASE_NOTES.md DEMO.md RUNTIME.md config.example.toml; do
+            test -s "${root}/${package}/${document}"
+          done
+          test -s "${root}/${package}/assets/omawake-mark.svg"
+          test -s "${root}/${package}/benchmarks/cuda-gb10-ort130-2026-09-14.md"
+          test -s "${root}/${package}/packaging/systemd/omawake.service"
           [[ $(find "${lib}" -maxdepth 1 \( -type f -o -type l \) | wc -l) == 3 ]]
-          if readelf -d "${binary}" | grep -E 'libonnxruntime|libsherpa'; then
+          if readelf -d "${binary}" | grep -E 'NEEDED.*(onnxruntime|sherpa|openvino|cuda|cudnn|cublas|nvinfer)'; then
             echo "release executable must load ONNX Runtime dynamically" >&2
             exit 1
           fi
+          ! compgen -G "${lib}/libonnxruntime_providers_*.so*" >/dev/null
+          ! compgen -G "${lib}/libsherpa-onnx*.so*" >/dev/null
+          licenses="${root}/${package}/licenses"
+          [[ $(find "${licenses}" -maxdepth 1 -type f | wc -l) == 5 ]]
+          cmp "${OMA_ORT_ROOT}/LICENSE" "${licenses}/ONNX-RUNTIME-LICENSE"
+          cmp "${OMA_ORT_ROOT}/ThirdPartyNotices.txt" \
+            "${licenses}/ONNX-RUNTIME-THIRD-PARTY-NOTICES"
+          cmp LICENSE "${licenses}/OMAWAKE-LICENSE"
+          cmp THIRD_PARTY_NOTICES.md "${licenses}/OMAWAKE-THIRD-PARTY-NOTICES"
+          test -s "${licenses}/RUST-DEPENDENCIES.txt"
           "${binary}" setup runtime --json > /tmp/runtime.json
           python3 - <<'PY'
           import json

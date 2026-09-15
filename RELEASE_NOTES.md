@@ -1,11 +1,12 @@
-# Omawake 0.0.1-rc
+# Omawake 0.0.1-rc.1
 
-This first preview provides local wake-word detection from live audio or WAV
+This release candidate provides local wake-word detection from live audio or WAV
 files, multiple phrase-to-action mappings, foreground daemon controls, and
-guided setup. The Linux x86-64 archive includes the default CPU runtime. The
-same executable can use externally installed OpenVINO or CUDA stacks selected
-during setup. Explicit OpenVINO GPU and NPU setup compiles and verifies the
-fixed-shape wake-word model cache before the configuration is applied.
+guided setup. Linux x86-64 and aarch64 archives include the default CPU
+runtime. The same executable can use externally installed OpenVINO or CUDA
+stacks selected during setup. Explicit OpenVINO GPU and NPU setup compiles and
+verifies the fixed-shape wake-word model cache before the configuration is
+applied.
 
 Accelerator libraries remain mapped until process exit while sessions and runtime
 objects are still destroyed normally. This prevents late vendor worker cleanup
@@ -16,7 +17,7 @@ publisher archive whose included README marks the model as Apache License 2.0;
 `--archive` also accepts a previously downloaded copy.
 
 Validated configurations include default and OpenVINO CPU, Intel iGPU and NPU,
-and NVIDIA GB10 CUDA. Accelerator support requires matching external runtime
-libraries. See `INSTALL.md` and `RUNTIME.md` for the exact setup. Benchmark
-artifacts recorded before the direct Rust KWS implementation are identified as
-historical in `benchmarks/README.md`.
+and NVIDIA GB10 CUDA using the official ORT 1.30 Plugin EP. Accelerator support
+requires matching external runtime libraries. See `INSTALL.md` and `RUNTIME.md`
+for the exact setup. Benchmark artifacts recorded before the direct Rust KWS
+implementation are identified as historical in `benchmarks/README.md`.
