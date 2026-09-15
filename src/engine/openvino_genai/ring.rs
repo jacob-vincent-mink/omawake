@@ -3,6 +3,7 @@ use std::collections::VecDeque;
 use super::protocol::FRAME_SAMPLES;
 
 const PRE_ROLL_SAMPLES: usize = 16_000 * 320 / 1_000;
+const POST_ROLL_SAMPLES: usize = 16_000 * 320 / 1_000;
 const RETAINED_IDLE_FRAMES: usize = PRE_ROLL_SAMPLES / FRAME_SAMPLES + 2;
 const MAX_UTTERANCE_SAMPLES: usize = 16_000 * 30;
 
@@ -22,6 +23,7 @@ pub(super) struct Utterance {
 struct Active {
     samples: Vec<f32>,
     start_sample: u64,
+    pending_end_sample: Option<u64>,
 }
 
 pub(super) struct ActivityBuffer {
@@ -48,12 +50,20 @@ impl ActivityBuffer {
                 .samples
                 .extend_from_slice(&frame[..remaining.min(frame.len())]);
             self.cursor = frame_end;
+            // Silero may open another segment during the post-roll window.
+            // Treat that close speech as one utterance for phrase verification.
+            if activity.start_before_frame_end.is_some() {
+                active.pending_end_sample = None;
+            }
             if let Some(trim) = activity.end_before_frame_end {
                 let end_sample = frame_end.saturating_sub(trim as u64);
-                active
-                    .samples
-                    .truncate(active.samples.len().saturating_sub(trim));
-                return self.finish_at(end_sample);
+                active.pending_end_sample = Some(end_sample);
+            }
+            if let Some(end_sample) = active.pending_end_sample {
+                let close_sample = end_sample.saturating_add(POST_ROLL_SAMPLES as u64);
+                if frame_end >= close_sample {
+                    return self.finish_at(close_sample);
+                }
             }
             if active.samples.len() >= MAX_UTTERANCE_SAMPLES {
                 return self.finish_at(frame_end);
@@ -83,6 +93,7 @@ impl ActivityBuffer {
             self.active = Some(Active {
                 samples,
                 start_sample,
+                pending_end_sample: None,
             });
         }
         self.cursor = frame_end;
@@ -91,11 +102,8 @@ impl ActivityBuffer {
         {
             let end_sample = frame_end.saturating_sub(trim as u64);
             if let Some(active) = &mut self.active {
-                active
-                    .samples
-                    .truncate(active.samples.len().saturating_sub(trim));
+                active.pending_end_sample = Some(end_sample);
             }
-            return self.finish_at(end_sample);
         }
         None
     }
@@ -125,7 +133,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ring_is_bounded_and_preserves_endpoint_offsets() {
+    fn ring_is_bounded_and_adds_post_roll_to_provider_endpoint() {
         let frame = [0.0; FRAME_SAMPLES];
         let mut ring = ActivityBuffer::new();
         for _ in 0..20 {
@@ -141,20 +149,89 @@ mod tests {
             )
             .is_none()
         );
-        let utterance = ring
-            .push(
+        assert!(
+            ring.push(
                 &frame,
                 Activity {
                     start_before_frame_end: None,
                     end_before_frame_end: Some(32),
                 },
             )
-            .unwrap();
-        assert_eq!(utterance.end_sample, 22 * FRAME_SAMPLES as u64 - 32);
+            .is_none()
+        );
+        let endpoint = 22 * FRAME_SAMPLES as u64 - 32;
+        let mut utterance = None;
+        for _ in 0..11 {
+            utterance = ring.push(&frame, Activity::default());
+            if utterance.is_some() {
+                break;
+            }
+        }
+        let utterance = utterance.unwrap();
+        assert_eq!(utterance.end_sample, endpoint + POST_ROLL_SAMPLES as u64);
         assert_eq!(
             utterance.samples.len(),
             (utterance.end_sample - utterance.start_sample) as usize
         );
         assert!(utterance.samples.len() <= MAX_UTTERANCE_SAMPLES);
+    }
+
+    #[test]
+    fn close_speech_start_cancels_pending_end_and_merges_segments() {
+        let frame = [0.0; FRAME_SAMPLES];
+        let mut ring = ActivityBuffer::new();
+        assert!(
+            ring.push(
+                &frame,
+                Activity {
+                    start_before_frame_end: Some(0),
+                    end_before_frame_end: None,
+                },
+            )
+            .is_none()
+        );
+        assert!(
+            ring.push(
+                &frame,
+                Activity {
+                    start_before_frame_end: None,
+                    end_before_frame_end: Some(0),
+                },
+            )
+            .is_none()
+        );
+        for _ in 0..3 {
+            assert!(ring.push(&frame, Activity::default()).is_none());
+        }
+        assert!(
+            ring.push(
+                &frame,
+                Activity {
+                    start_before_frame_end: Some(0),
+                    end_before_frame_end: None,
+                },
+            )
+            .is_none()
+        );
+        for _ in 0..10 {
+            assert!(ring.push(&frame, Activity::default()).is_none());
+        }
+        assert!(
+            ring.push(
+                &frame,
+                Activity {
+                    start_before_frame_end: None,
+                    end_before_frame_end: Some(0),
+                },
+            )
+            .is_none()
+        );
+        let mut utterance = None;
+        for _ in 0..10 {
+            utterance = ring.push(&frame, Activity::default());
+        }
+        let utterance = utterance.expect("second endpoint closes after post-roll");
+        assert_eq!(utterance.start_sample, 0);
+        assert_eq!(utterance.end_sample, 27 * FRAME_SAMPLES as u64);
     }
 }

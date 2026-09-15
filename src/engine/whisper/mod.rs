@@ -570,11 +570,9 @@ impl WorkerProcess {
     }
 
     fn stop(&mut self, graceful: bool) {
-        if graceful {
-            if let Some(input) = self.input.as_mut() {
-                input.timeout = Duration::from_secs(1);
-                let _ = protocol::write_request(input, &Request::Shutdown, &[]);
-            }
+        if graceful && let Some(input) = self.input.as_mut() {
+            input.timeout = Duration::from_secs(1);
+            let _ = protocol::write_request(input, &Request::Shutdown, &[]);
         }
         self.input.take();
         self.output.take();

@@ -71,8 +71,14 @@ pub fn checks(path: &Path, paths: &AppPaths) -> Vec<Check> {
         paths,
         &|config, paths| {
             let detector = crate::engine::Detector::load(config, paths)?;
+            let integration = match detector.backend_kind {
+                "openvino-genai" => {
+                    "official OpenVINO GenAI Whisper C API plus audio.cpp Silero VAD C API"
+                }
+                _ => "audio.cpp public C ABI",
+            };
             Ok(format!(
-                "{} initialized in {:.1} ms; audio.cpp is integrated through its public C ABI",
+                "{} initialized in {:.1} ms through {integration}",
                 detector.backend_kind,
                 detector.load_time.as_secs_f64() * 1000.0
             ))

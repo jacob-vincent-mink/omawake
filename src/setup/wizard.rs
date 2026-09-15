@@ -416,7 +416,7 @@ fn choose_runtime_directory_with(
         MenuItem::available("Use current discovery", configured),
         MenuItem::available(
             "Choose runtime directory",
-            "Select a complete libaudiocpp provider build and its dependency libraries",
+            "Select a complete audio.cpp build or OpenVINO root; setup discovers its libraries and plugins",
         ),
     ];
     if prompter.choose(
@@ -488,10 +488,17 @@ fn runtime_items(loadable: &BTreeMap<&str, bool>) -> [MenuItem; 3] {
                 "Provider not detected · release packages include it, or choose a complete build directory",
             )
         },
-        MenuItem::unavailable(
-            "OpenVINO · Intel CPU/GPU/NPU",
-            "A complete native provider is still being qualified; setup will not install or save a partial stack",
-        ),
+        if loadable.get("openvino").copied().unwrap_or(false) {
+            MenuItem::available(
+                "OpenVINO GenAI · Intel CPU/GPU/NPU",
+                "Official Whisper C API provider detected",
+            )
+        } else {
+            MenuItem::available(
+                "OpenVINO GenAI · Intel CPU/GPU/NPU",
+                "Choose a complete OpenVINO installation root; setup never installs it",
+            )
+        },
         MenuItem::unavailable(
             "audio.cpp · CUDA/Vulkan",
             "Complete external accelerated provider builds will appear here after qualification",
@@ -615,7 +622,6 @@ fn device_values(runtime: Runtime) -> &'static [(&'static str, &'static str)] {
     match runtime {
         Runtime::Default => &[("cpu", "CPU execution")],
         Runtime::Openvino => &[
-            ("auto", "Let OpenVINO choose"),
             ("npu", "Intel NPU"),
             ("gpu", "Intel integrated or discrete GPU"),
             ("cpu", "CPU through OpenVINO"),

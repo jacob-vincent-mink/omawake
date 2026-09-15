@@ -30,10 +30,15 @@ fn catalog_pins_a_complete_originally_sourced_profile() {
     assert_eq!(openvino.assets.len(), 13);
     assert_eq!(openvino.total_size(), 84_208_878);
     assert_eq!(openvino.source_revision, OPENAI_WHISPER_REVISION);
-    assert_eq!(openvino.converted_source_revision, OPENVINO_WHISPER_REVISION);
-    assert!(openvino.assets[..12]
-        .iter()
-        .all(|asset| asset.source_revision == OPENVINO_WHISPER_REVISION));
+    assert_eq!(
+        openvino.converted_source_revision,
+        OPENVINO_WHISPER_REVISION
+    );
+    assert!(
+        openvino.assets[..12]
+            .iter()
+            .all(|asset| asset.source_revision == OPENVINO_WHISPER_REVISION)
+    );
     assert_eq!(openvino.assets[12].source_revision, SILERO_REVISION);
     assert!(model("missing").is_none());
 }

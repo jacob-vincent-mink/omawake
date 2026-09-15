@@ -84,6 +84,13 @@ enum TopCommand {
         device: String,
         vad_threads: u16,
     },
+    #[command(name = "__openvino-runtime-worker", hide = true)]
+    OpenVinoRuntimeWorker {
+        genai_library: PathBuf,
+        core_library: PathBuf,
+        audiocpp_library: PathBuf,
+        device: String,
+    },
     Test {
         #[arg(long, conflicts_with = "seconds")]
         audio: Option<PathBuf>,
@@ -281,6 +288,20 @@ pub fn entry() -> ExitCode {
 
 fn run_entry(cli: Cli) -> Result<()> {
     let paths = AppPaths::discover();
+    if let TopCommand::OpenVinoRuntimeWorker {
+        genai_library,
+        core_library,
+        audiocpp_library,
+        device,
+    } = &cli.command
+    {
+        return crate::engine::openvino_genai::runtime_worker_main(
+            genai_library,
+            core_library,
+            audiocpp_library,
+            device,
+        );
+    }
     if let TopCommand::OpenVinoGenAiWorker {
         genai_library,
         core_library,
@@ -638,6 +659,7 @@ where
         | TopCommand::NativeJson { .. }
         | TopCommand::AudioCppWorker { .. }
         | TopCommand::OpenVinoGenAiWorker { .. }
+        | TopCommand::OpenVinoRuntimeWorker { .. }
         | TopCommand::WhisperWorker { .. }
         | TopCommand::Setup { .. } => unreachable!(),
         TopCommand::Config { command } => config_mutation(command, config, &config_path),
@@ -1028,7 +1050,7 @@ fn configure_runtime_from_flags(
             .canonical_device()
             .ok()
             .filter(|_| selected_runtime == current.backend.runtime)
-            .map_or_else(|| "auto".to_owned(), |_| current.backend.device.clone())
+            .map_or_else(|| "cpu".to_owned(), |_| current.backend.device.clone())
     });
     let candidate = runtime_selection_candidate(
         &current,
@@ -1110,8 +1132,14 @@ impl GuidedPrompts for TerminalGuidedPrompts {
     fn runtime(&mut self, current: &Config) -> Result<Option<RuntimeSelection>> {
         let probe = native_runtime_probe(&current.backend, &self.config_path);
         let loadable = BTreeMap::from([
-            ("default", probe.ready),
-            ("openvino", false),
+            (
+                "default",
+                current.backend.runtime == Runtime::Default && probe.ready,
+            ),
+            (
+                "openvino",
+                current.backend.runtime == Runtime::Openvino && probe.ready,
+            ),
             ("cuda", false),
         ]);
         let provider = probe
@@ -1123,7 +1151,7 @@ impl GuidedPrompts for TerminalGuidedPrompts {
         wizard::choose_runtime(
             &loadable,
             &format!(
-                "audio.cpp is loaded through its public C ABI; Omawake never invokes the audio.cpp CLI.\r\nProvider discovery: {provider}"
+                "Omawake loads native providers through public library APIs and never invokes their CLIs.\r\nProvider discovery: {provider}"
             ),
             current.backend.runtime,
             &current.backend.device,
@@ -1431,10 +1459,18 @@ where
         runtime_directory.as_deref(),
     )?;
     validate_runtime(&candidate, config_path)?;
-    let Some(spec) = prompts.model(paths, &current)? else {
+    let Some(spec) = prompts.model(paths, &candidate)? else {
         println!("Setup cancelled.");
         return Ok(());
     };
+    if spec.backend != candidate.backend.kind {
+        bail!(
+            "{} requires the {} backend; choose a model compatible with the selected {} runtime",
+            spec.id,
+            spec.backend,
+            runtime_name(selection.runtime)
+        );
+    }
     let source_directory = prompts.model_source_directory(paths, spec)?;
     if !spec.downloadable
         && source_directory.is_none()
@@ -1566,23 +1602,42 @@ fn runtime_selection_candidate(
     selection: &RuntimeSelection,
     runtime_directory: Option<&Path>,
 ) -> Result<Config> {
-    if selection.runtime != Runtime::Default {
-        bail!(
-            "{} is not yet available in the native-provider setup; use the integrated audio.cpp CPU provider",
-            runtime_name(selection.runtime)
-        );
+    if selection.runtime == Runtime::Cuda {
+        bail!("CUDA is not yet available as a qualified native wake verifier");
     }
     let mut config = current.clone();
-    config.backend.kind = "audiocpp".into();
+    let backend_kind = match selection.runtime {
+        Runtime::Default => "audiocpp",
+        Runtime::Openvino => "openvino-genai",
+        Runtime::Cuda => unreachable!(),
+    };
+    if crate::catalog::model(&config.model.name).is_none_or(|model| model.backend != backend_kind) {
+        let model_id = match selection.runtime {
+            Runtime::Default => crate::catalog::DEFAULT_MODEL_ID,
+            Runtime::Openvino => crate::catalog::OPENVINO_MODEL_ID,
+            Runtime::Cuda => unreachable!(),
+        };
+        crate::catalog::model(model_id)
+            .context("runtime has no compatible catalog model")?
+            .activate(&mut config);
+    }
+    if config.backend.runtime != selection.runtime {
+        config.backend.library.clear();
+        config.backend.library_dirs.clear();
+    }
+    config.backend.kind = backend_kind.into();
     config.backend.runtime = selection.runtime;
     config.backend.device = selection.device.clone();
     config.backend.device_id = 0;
     config.backend.onnxruntime_library.clear();
     config.backend.provider_library.clear();
-    config
-        .backend
-        .options
-        .insert("audiocpp.asr_family".into(), "moonshine_asr".into());
+    config.backend.options.remove("audiocpp.asr_family");
+    if selection.runtime == Runtime::Default {
+        config
+            .backend
+            .options
+            .insert("audiocpp.asr_family".into(), "moonshine_asr".into());
+    }
     config.backend.validate_shape()?;
     if let Some(directory) = runtime_directory {
         configure_runtime_directory(&mut config, directory)?;
@@ -1605,6 +1660,29 @@ fn native_runtime_probe(
     };
     let mut paths = AppPaths::discover();
     paths.config_file = config_path.to_owned();
+    if backend.kind == "openvino-genai" && backend.runtime == Runtime::Openvino {
+        return match crate::engine::openvino_genai::probe_runtime(&config, &paths) {
+            Ok(evidence) => crate::runtime_inventory::Probe {
+                loadable: true,
+                device_accessible: true,
+                ready: true,
+                evidence: crate::runtime_inventory::Evidence {
+                    versions: vec![format!(
+                        "OpenVINO {} · GenAI C {} · {}",
+                        evidence.runtime_build, evidence.genai_library, evidence.full_device_name
+                    )],
+                    provider_registration: true,
+                    available_devices: vec![evidence.available_device.to_ascii_lowercase()],
+                    selected_device: Some(evidence.requested_device.to_ascii_lowercase()),
+                },
+                errors: Vec::new(),
+            },
+            Err(error) => crate::runtime_inventory::Probe {
+                errors: vec![format!("{error:#}")],
+                ..Default::default()
+            },
+        };
+    }
     match crate::engine::audiocpp::probe_provider(&config, &paths) {
         Ok((library, version)) => crate::runtime_inventory::Probe {
             loadable: true,
@@ -1696,10 +1774,26 @@ fn configure_runtime_directory(config: &mut Config, directory: &Path) -> Result<
             )
         })
     };
-    if config.backend.runtime != Runtime::Default {
-        bail!("only the audio.cpp CPU provider is available in this setup checkpoint");
-    }
-    let provider = find(&["libaudiocpp.so.0.1.0", "libaudiocpp.so.0", "libaudiocpp.so"])?;
+    let provider = match config.backend.runtime {
+        Runtime::Default => find(&["libaudiocpp.so.0.1.0", "libaudiocpp.so.0", "libaudiocpp.so"])?,
+        Runtime::Openvino => {
+            let provider = find(&["libopenvino_genai_c.so"])?;
+            find(&["libopenvino_c.so"])?;
+            let plugin = match config.backend.device.to_ascii_lowercase().as_str() {
+                "cpu" => "libopenvino_intel_cpu_plugin.so",
+                "gpu" => "libopenvino_intel_gpu_plugin.so",
+                "npu" => "libopenvino_intel_npu_plugin.so",
+                _ => bail!("OpenVINO setup requires an explicit CPU, GPU, or NPU device"),
+            };
+            find(&[plugin])?;
+            if config.backend.device.eq_ignore_ascii_case("npu") {
+                find(&["libopenvino_intel_npu_compiler_loader.so"])?;
+                find(&["libopenvino_intel_npu_compiler.so"])?;
+            }
+            provider
+        }
+        Runtime::Cuda => bail!("CUDA is not yet available as a qualified native wake verifier"),
+    };
     let selected_parents = std::iter::once(
         provider
             .parent()
@@ -1950,10 +2044,10 @@ fn prove_setup_candidate(config: &Config, paths: &AppPaths) -> Result<()> {
         }
         writer.finalize()?;
         let detector = Detector::load(config, paths)
-            .context("initialize the selected audio.cpp provider and both model assets")?;
+            .context("initialize the selected native provider and its model assets")?;
         let detections = detector
             .detect_file(&audio)
-            .context("run file-only setup proof through Silero and Moonshine")?;
+            .context("run the file-only setup proof through VAD and phrase verification")?;
         if !detections.is_empty() {
             bail!("silent setup proof unexpectedly produced a wake-word detection");
         }

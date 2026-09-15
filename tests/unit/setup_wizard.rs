@@ -192,16 +192,16 @@ fn guided_setup_metadata_covers_modes_runtimes_devices_and_review() {
 
     let cpu_only = runtime_items(&cpu_loadable);
     assert!(cpu_only[0].enabled);
-    assert!(!cpu_only[1].enabled);
+    assert!(cpu_only[1].enabled);
     assert!(!cpu_only[2].enabled);
     let all_loadable = BTreeMap::from([("default", true), ("openvino", true), ("cuda", true)]);
     let all = runtime_items(&all_loadable);
     assert!(all[0].enabled);
-    assert!(!all[1].enabled && !all[2].enabled);
-    assert!(all[1].detail.contains("qualified"));
+    assert!(all[1].enabled && !all[2].enabled);
+    assert!(all[1].detail.contains("Official"));
     let compiled_only = runtime_items(&BTreeMap::from([("default", true)]));
-    assert!(!compiled_only[1].enabled);
-    assert!(compiled_only[1].detail.contains("qualified"));
+    assert!(compiled_only[1].enabled);
+    assert!(compiled_only[1].detail.contains("complete OpenVINO"));
 
     for (index, runtime) in [Runtime::Default, Runtime::Openvino, Runtime::Cuda]
         .into_iter()
@@ -214,7 +214,7 @@ fn guided_setup_metadata_covers_modes_runtimes_devices_and_review() {
     assert_eq!(runtime_name(Runtime::Default), "default");
     assert_eq!(runtime_name(Runtime::Openvino), "openvino");
     assert_eq!(runtime_name(Runtime::Cuda), "cuda");
-    assert_eq!(device_values(Runtime::Openvino)[1].0, "npu");
+    assert_eq!(device_values(Runtime::Openvino)[0].0, "npu");
 
     let review = apply_items(Runtime::Openvino, "npu", "wake-model", false);
     assert!(review[0].detail.contains("openvino / npu"));
@@ -347,7 +347,7 @@ fn guided_flows_map_scripted_choices_and_preserve_preferences() {
     assert_eq!(choose_setup_mode_with(&mut cancelled).unwrap(), None);
 
     let mut npu = ScriptedPrompter {
-        choices: VecDeque::from([Some(1), Some(1)]),
+        choices: VecDeque::from([Some(1), Some(0)]),
         preferred: vec![],
     };
     assert_eq!(
@@ -364,7 +364,7 @@ fn guided_flows_map_scripted_choices_and_preserve_preferences() {
             device: "npu".into(),
         })
     );
-    assert_eq!(npu.preferred, [1, 1]);
+    assert_eq!(npu.preferred, [1, 0]);
 
     for choices in [VecDeque::from([None]), VecDeque::from([Some(0), None])] {
         let mut prompt = ScriptedPrompter {

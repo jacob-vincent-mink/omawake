@@ -11,17 +11,17 @@ use std::cell::{Cell, RefCell};
 use std::env;
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::fs::{self, File, OpenOptions};
-use std::io;
-use std::os::fd::OwnedFd;
+use std::io::{self, BufReader};
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::PermissionsExt;
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use libloading::Library;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use self::protocol::{FRAME_SAMPLES, PlacementEvidence, Request, Response, Transcript};
@@ -49,6 +49,20 @@ pub(crate) const WHISPER_BASE_EN_PROFILE: VerifierProfile = VerifierProfile {
     languages: &["en"],
     multilingual: false,
 };
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct RuntimeEvidence {
+    pub runtime_build: String,
+    pub runtime_description: String,
+    pub requested_device: String,
+    pub available_device: String,
+    pub full_device_name: String,
+    pub device_architecture: String,
+    pub driver_version: String,
+    pub genai_library: String,
+    pub core_library: String,
+    pub audiocpp_library: String,
+}
 
 /// Exact external runtime and model selected by setup.
 #[derive(Clone, Debug)]
@@ -87,10 +101,30 @@ impl ProviderSpec {
                 library_dirs.push(directory);
             }
         }
+        if let Some(loader_path) = env::var_os("LD_LIBRARY_PATH") {
+            for directory in env::split_paths(&loader_path) {
+                if let Ok(directory) = canonical_directory(&directory, "loader library directory")
+                    && !library_dirs.contains(&directory)
+                {
+                    library_dirs.push(directory);
+                }
+            }
+        }
+        for directory in ["/usr/lib", "/usr/local/lib", "/usr/lib64"] {
+            let directory = PathBuf::from(directory);
+            if directory.is_dir() && !library_dirs.contains(&directory) {
+                library_dirs.push(directory);
+            }
+        }
         let genai_library = if config.backend.library.as_os_str().is_empty() {
-            find_library(&library_dirs, &["libopenvino_genai_c.so"]).context(
-                "libopenvino_genai_c was not found in the selected OpenVINO installation",
-            )?
+            env::var_os("OMAWAKE_OPENVINO_GENAI_LIBRARY")
+                .map(PathBuf::from)
+                .map(|path| canonical_file(&path, "OMAWAKE_OPENVINO_GENAI_LIBRARY"))
+                .transpose()?
+                .or_else(|| find_library(&library_dirs, &["libopenvino_genai_c.so"]))
+                .context(
+                    "libopenvino_genai_c was not found in the selected OpenVINO installation",
+                )?
         } else {
             let candidate = if config.backend.library.is_absolute() {
                 config.backend.library.clone()
@@ -314,7 +348,6 @@ pub(crate) struct OpenVinoGenAiBackend {
     worker: RefCell<Worker>,
     matcher: PhraseMatcher,
     next_stream_id: Cell<u64>,
-    evidence: PlacementEvidence,
 }
 
 struct OpenVinoGenAiStream<'a> {
@@ -335,17 +368,11 @@ impl OpenVinoGenAiBackend {
         let spec = spec.validate()?;
         let matcher = PhraseMatcher::compile(wake_words)?;
         let worker = Worker::spawn(spec)?;
-        let evidence = worker.evidence.clone();
         Ok(Self {
             worker: RefCell::new(worker),
             matcher,
             next_stream_id: Cell::new(1),
-            evidence,
         })
-    }
-
-    pub(crate) fn evidence(&self) -> &PlacementEvidence {
-        &self.evidence
     }
 
     fn detections(&self, transcripts: Vec<Transcript>) -> Vec<Detection> {
@@ -373,6 +400,41 @@ pub(crate) fn prepare(spec: ProviderSpec) -> Result<PlacementEvidence> {
     let evidence = worker.evidence.clone();
     worker.shutdown();
     Ok(evidence)
+}
+
+pub(crate) fn probe_runtime(config: &Config, paths: &AppPaths) -> Result<RuntimeEvidence> {
+    let spec = ProviderSpec::from_config(config, paths)?;
+    let executable = env::current_exe().context("resolve Omawake executable")?;
+    let mut command = Command::new(executable);
+    command
+        .arg("__openvino-runtime-worker")
+        .arg(&spec.genai_library)
+        .arg(&spec.core_library)
+        .arg(&spec.audiocpp_library)
+        .arg(&spec.device)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    prepend_library_directories(&mut command, &spec.library_dirs)?;
+    let mut child = command
+        .spawn()
+        .context("spawn isolated OpenVINO runtime probe")?;
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        if child.try_wait()?.is_some() {
+            break;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("OpenVINO runtime probe timed out after 30 seconds");
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    let output = child.wait_with_output()?;
+    if !output.status.success() {
+        bail!("OpenVINO runtime probe failed: {}", output.status);
+    }
+    serde_json::from_slice(&output.stdout).context("read OpenVINO runtime probe evidence")
 }
 
 impl WakeWordBackend for OpenVinoGenAiBackend {
@@ -491,19 +553,12 @@ impl Drop for OpenVinoGenAiStream<'_> {
 
 struct WorkerProcess {
     child: Child,
-    stream: UnixStream,
+    input: Option<ChildStdin>,
+    output: BufReader<ChildStdout>,
 }
 
 impl WorkerProcess {
     fn launch(spec: &ProviderSpec) -> Result<(Self, PlacementEvidence)> {
-        let (stream, child_stream) = UnixStream::pair().context("create OpenVINO worker IPC")?;
-        stream.set_read_timeout(Some(WORKER_STARTUP_TIMEOUT))?;
-        stream.set_write_timeout(Some(WORKER_STARTUP_TIMEOUT))?;
-        let child_input: OwnedFd = child_stream
-            .try_clone()
-            .context("clone OpenVINO worker IPC")?
-            .into();
-        let child_output: OwnedFd = child_stream.into();
         let executable = env::current_exe().context("resolve Omawake executable")?;
         let log = OpenOptions::new()
             .create(true)
@@ -521,26 +576,37 @@ impl WorkerProcess {
             .arg(&spec.cache_directory)
             .arg(&spec.device)
             .arg(spec.vad_threads.to_string())
-            .stdin(Stdio::from(child_input))
-            .stdout(Stdio::from(child_output))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
             .stderr(Stdio::from(log));
         prepend_library_directories(&mut command, &spec.library_dirs)?;
-        let child = command
+        let mut child = command
             .spawn()
             .context("spawn isolated OpenVINO GenAI worker")?;
-        let mut process = Self { child, stream };
-        let handshake =
-            protocol::read_response(&mut process.stream).context("read OpenVINO worker handshake");
+        let input = child
+            .stdin
+            .take()
+            .context("OpenVINO worker stdin is unavailable")?;
+        let output = child
+            .stdout
+            .take()
+            .context("OpenVINO worker stdout is unavailable")?;
+        let mut process = Self {
+            child,
+            input: Some(input),
+            output: BufReader::new(output),
+        };
+        let handshake = wait_for_io(
+            process.output.get_ref().as_raw_fd(),
+            libc::POLLIN,
+            WORKER_STARTUP_TIMEOUT,
+        )
+        .context("wait for OpenVINO worker handshake")
+        .and_then(|()| {
+            protocol::read_response(&mut process.output).context("read OpenVINO worker handshake")
+        });
         match handshake {
-            Ok(Response::Ready { evidence }) => {
-                process
-                    .stream
-                    .set_read_timeout(Some(WORKER_REQUEST_TIMEOUT))?;
-                process
-                    .stream
-                    .set_write_timeout(Some(WORKER_REQUEST_TIMEOUT))?;
-                Ok((process, evidence))
-            }
+            Ok(Response::Ready { evidence }) => Ok((process, *evidence)),
             Ok(Response::Error { message, .. }) => {
                 process.stop(false);
                 bail!(message)
@@ -557,11 +623,13 @@ impl WorkerProcess {
     }
 
     fn stop(&mut self, graceful: bool) {
-        if graceful {
-            let _ = self.stream.set_write_timeout(Some(Duration::from_secs(1)));
-            let _ = protocol::write_request(&mut self.stream, &Request::Shutdown, &[]);
+        if graceful
+            && let Some(input) = self.input.as_mut()
+            && wait_for_io(input.as_raw_fd(), libc::POLLOUT, Duration::from_secs(1)).is_ok()
+        {
+            let _ = protocol::write_request(input, &Request::Shutdown, &[]);
         }
-        let _ = self.stream.shutdown(std::net::Shutdown::Both);
+        self.input.take();
         if !wait_for_exit(&mut self.child, WORKER_STOP_TIMEOUT) {
             let _ = self.child.kill();
             let _ = wait_for_exit(&mut self.child, WORKER_STOP_TIMEOUT);
@@ -576,6 +644,43 @@ fn wait_for_exit(child: &mut Child, timeout: Duration) -> bool {
             Ok(Some(_)) => return true,
             Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
             Ok(None) | Err(_) => return false,
+        }
+    }
+}
+
+fn wait_for_io(fd: c_int, events: i16, timeout: Duration) -> io::Result<()> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let milliseconds = if remaining.is_zero() {
+            0
+        } else {
+            i32::try_from(remaining.as_millis().max(1)).unwrap_or(i32::MAX)
+        };
+        let mut descriptor = libc::pollfd {
+            fd,
+            events,
+            revents: 0,
+        };
+        let status = unsafe { libc::poll(&mut descriptor, 1, milliseconds) };
+        if status > 0 {
+            if descriptor.revents & (libc::POLLERR | libc::POLLNVAL) != 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "OpenVINO worker IPC failed",
+                ));
+            }
+            return Ok(());
+        }
+        if status == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "OpenVINO worker IPC timed out",
+            ));
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted {
+            return Err(error);
         }
     }
 }
@@ -621,9 +726,21 @@ impl Worker {
                 .process
                 .as_mut()
                 .context("OpenVINO worker is unavailable")?;
-            protocol::write_request(&mut process.stream, request, pcm)
+            let input = process
+                .input
+                .as_mut()
+                .context("OpenVINO worker stdin is closed")?;
+            wait_for_io(input.as_raw_fd(), libc::POLLOUT, WORKER_REQUEST_TIMEOUT)
+                .context("wait to write OpenVINO worker request")?;
+            protocol::write_request(input, request, pcm)
                 .context("write OpenVINO worker request")?;
-            protocol::read_response(&mut process.stream).context("read OpenVINO worker response")
+            wait_for_io(
+                process.output.get_ref().as_raw_fd(),
+                libc::POLLIN,
+                WORKER_REQUEST_TIMEOUT,
+            )
+            .context("wait for OpenVINO worker response")?;
+            protocol::read_response(&mut process.output).context("read OpenVINO worker response")
         })();
         if result.is_err() {
             self.disconnect();
@@ -1253,6 +1370,7 @@ impl OpenVinoProvider {
         let static_key = CString::new("STATIC_PIPELINE")?;
         let true_value = CString::new("true")?;
         let mut pipeline = std::ptr::null_mut();
+        let pipeline_started = Instant::now();
         let status = unsafe {
             if spec.static_pipeline() {
                 (genai.pipeline_create)(
@@ -1280,6 +1398,7 @@ impl OpenVinoProvider {
         if pipeline.is_null() {
             bail!("OpenVINO GenAI returned a null Whisper pipeline");
         }
+        let pipeline_load_milliseconds = pipeline_started.elapsed().as_secs_f64() * 1_000.0;
         let (cache_files, cache_bytes) = cache_artifacts(&spec.cache_directory)?;
         if spec.device != "CPU" && cache_files == 0 {
             unsafe { (genai.pipeline_free)(pipeline) };
@@ -1315,6 +1434,7 @@ impl OpenVinoProvider {
             device_architecture: device.device_architecture,
             driver_version: device.driver_version,
             static_pipeline: spec.static_pipeline(),
+            pipeline_load_milliseconds,
             cache_directory: spec.cache_directory.display().to_string(),
             cache_files,
             cache_bytes,
@@ -1393,7 +1513,10 @@ fn cache_artifacts(directory: &Path) -> Result<(usize, u64)> {
             let metadata = entry.metadata()?;
             if metadata.is_dir() {
                 walk(&entry.path(), count, bytes)?;
-            } else if metadata.is_file() {
+            } else if metadata.is_file()
+                && metadata.len() > 0
+                && entry.file_name() != "placement.log"
+            {
                 *count += 1;
                 *bytes = bytes.saturating_add(metadata.len());
             }
@@ -1430,6 +1553,36 @@ impl WorkerStream {
             end_sample: utterance.end_sample,
         })
     }
+}
+
+pub(crate) fn runtime_worker_main(
+    genai_library: &Path,
+    core_library: &Path,
+    audiocpp_library: &Path,
+    requested_device: &str,
+) -> Result<()> {
+    harden_worker_process()?;
+    let requested_device = canonical_device(requested_device)?;
+    let core = CoreApi::load(core_library)?;
+    let device = core.inspect(requested_device)?;
+    let _genai = GenAiApi::load(genai_library)?;
+    let _audiocpp = VadApi::load(audiocpp_library)?;
+    serde_json::to_writer(
+        std::io::stdout().lock(),
+        &RuntimeEvidence {
+            runtime_build: device.runtime_build,
+            runtime_description: device.runtime_description,
+            requested_device: requested_device.into(),
+            available_device: device.available_device,
+            full_device_name: device.full_device_name,
+            device_architecture: device.device_architecture,
+            driver_version: device.driver_version,
+            genai_library: genai_library.display().to_string(),
+            core_library: core_library.display().to_string(),
+            audiocpp_library: audiocpp_library.display().to_string(),
+        },
+    )?;
+    Ok(())
 }
 
 pub(crate) fn worker_main(spec: ProviderSpec) -> Result<()> {
@@ -1481,10 +1634,19 @@ fn worker_main_io(
             return Ok(());
         }
     };
+    if let Ok(mut evidence_log) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&spec.placement_log)
+    {
+        let _ = serde_json::to_writer(&mut evidence_log, &provider.evidence);
+        use std::io::Write;
+        let _ = evidence_log.write_all(b"\n");
+    }
     protocol::write_response(
         output,
         &Response::Ready {
-            evidence: provider.evidence.clone(),
+            evidence: Box::new(provider.evidence.clone()),
         },
     )?;
     let mut active: Option<WorkerStream> = None;

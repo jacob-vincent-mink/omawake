@@ -35,6 +35,7 @@ pub(crate) struct PlacementEvidence {
     pub device_architecture: String,
     pub driver_version: String,
     pub static_pipeline: bool,
+    pub pipeline_load_milliseconds: f64,
     pub cache_directory: String,
     pub cache_files: usize,
     pub cache_bytes: u64,
@@ -46,7 +47,7 @@ pub(crate) struct PlacementEvidence {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub(super) enum Response {
     Ready {
-        evidence: PlacementEvidence,
+        evidence: Box<PlacementEvidence>,
     },
     Ack {
         id: u64,
@@ -173,7 +174,7 @@ mod tests {
     #[test]
     fn placement_evidence_is_stable_json() {
         let response = Response::Ready {
-            evidence: PlacementEvidence {
+            evidence: Box::new(PlacementEvidence {
                 profile_id: "whisper-base.en-int8-ov".into(),
                 languages: vec!["en".into()],
                 multilingual: false,
@@ -185,12 +186,13 @@ mod tests {
                 device_architecture: "5010".into(),
                 driver_version: "1.18".into(),
                 static_pipeline: true,
+                pipeline_load_milliseconds: 42.5,
                 cache_directory: "/cache".into(),
                 cache_files: 3,
                 cache_bytes: 42,
                 genai_library: "/runtime/libopenvino_genai_c.so".into(),
                 core_library: "/runtime/libopenvino_c.so".into(),
-            },
+            }),
         };
         let mut encoded = Vec::new();
         write_response(&mut encoded, &response).unwrap();

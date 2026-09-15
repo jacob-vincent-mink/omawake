@@ -83,7 +83,7 @@ impl BackendConfig {
 }
 
 pub const fn supported_capabilities() -> &'static [&'static str] {
-    &["cpu"]
+    &["cpu", "openvino"]
 }
 
 pub fn canonical_device(runtime: Runtime, raw: &str) -> Result<String, BackendError> {

@@ -40,5 +40,5 @@ fn validates_runtime_device_matrix() {
 
 #[test]
 fn reports_all_supported_runtimes() {
-    assert_eq!(supported_capabilities(), &["cpu"]);
+    assert_eq!(supported_capabilities(), &["cpu", "openvino"]);
 }

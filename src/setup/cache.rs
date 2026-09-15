@@ -87,6 +87,16 @@ fn prepare_for_runtime_with(
     if !required(config) {
         return Ok(None);
     }
+    if config.backend.kind == "openvino-genai" {
+        if crate::engine::openvino_genai::ProviderSpec::from_config(config, paths)
+            .and_then(crate::engine::openvino_genai::ProviderSpec::validate)
+            .is_ok()
+        {
+            return prepare_with(config, config_path, paths, progress, run);
+        }
+        emit_deferred(progress, config)?;
+        return Ok(None);
+    }
     let Some(probe_audio) = catalog_probe_audio(config, paths) else {
         emit_deferred(progress, config)?;
         return Ok(None);
@@ -340,6 +350,39 @@ fn exit_signal(_status: &ExitStatus) -> Option<i32> {
 }
 
 pub fn child(config: &Config, paths: &AppPaths) -> Result<CacheReport> {
+    if config.backend.kind == "openvino-genai" {
+        if !required(config) {
+            bail!(
+                "model-cache preparation is only valid for an explicit OpenVINO GPU or NPU runtime"
+            );
+        }
+        if config.backend.fallback != Fallback::Error {
+            bail!("model-cache preparation requires fallback = error");
+        }
+        let started = Instant::now();
+        let evidence = crate::engine::openvino_genai::prepare(
+            crate::engine::openvino_genai::ProviderSpec::from_config(config, paths)?,
+        )?;
+        if !evidence
+            .requested_device
+            .eq_ignore_ascii_case(&cache_device(config)?)
+        {
+            bail!("OpenVINO cache worker reported the wrong physical device");
+        }
+        if evidence.requested_device == "NPU" && !evidence.static_pipeline {
+            bail!("OpenVINO NPU cache worker did not use STATIC_PIPELINE=true");
+        }
+        let mut report = status(config, paths)?;
+        report.elapsed_milliseconds = Some(started.elapsed().as_secs_f64() * 1_000.0);
+        if !report.prepared {
+            bail!(
+                "OpenVINO {} pipeline produced no compiled cache artifact in {}",
+                evidence.requested_device,
+                evidence.cache_directory
+            );
+        }
+        return Ok(report);
+    }
     child_with(config, paths, |candidate, paths, audio| {
         let detector = Detector::load(candidate, paths)?;
         if detector.effective_runtime != Runtime::Openvino || detector.fallback_used {

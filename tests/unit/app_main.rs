@@ -2990,7 +2990,7 @@ fn noninteractive_setup_covers_safe_runtime_model_and_service_decisions() {
         ready: true,
         ..Default::default()
     };
-    let openvino = configure_runtime_from_flags(
+    configure_runtime_from_flags(
         &paths.config_file,
         &paths,
         Some("openvino".into()),
@@ -2999,8 +2999,11 @@ fn noninteractive_setup_covers_safe_runtime_model_and_service_decisions() {
         false,
         ready,
     )
-    .unwrap_err();
-    assert!(openvino.to_string().contains("not yet available"));
+    .unwrap();
+    assert_eq!(
+        Config::load(&paths.config_file).unwrap().backend.runtime,
+        Runtime::Default
+    );
     configure_runtime_from_flags(
         &paths.config_file,
         &paths,
