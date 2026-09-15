@@ -15,7 +15,7 @@ use std::{cell::RefCell, fs, path::Path};
 
 use self::{
     fbank::OnlineFbank,
-    keyword::{KeywordBeam, KeywordGraph},
+    keyword::{KeywordBeam, KeywordGraph, Match},
     model::{EncoderState, Model},
     resample::AudioResampler,
 };
@@ -110,22 +110,7 @@ impl OmaOnnxBackend {
                         .beam
                         .advance(&logits, stream.encoder_frame, &self.graph)?
                 {
-                    let tokens = matched
-                        .tokens
-                        .iter()
-                        .map(|&token| model.token(token).to_owned())
-                        .collect();
-                    let timestamps = matched
-                        .timestamps
-                        .iter()
-                        .map(|&frame| frame as f32 * 0.04)
-                        .collect();
-                    detections.push(Detection {
-                        id: matched.id,
-                        tokens,
-                        timestamps,
-                        start_time: 0.0,
-                    });
+                    detections.push(match_to_detection(&model, matched));
                 }
                 stream.encoder_frame += 1;
             }
@@ -135,6 +120,23 @@ impl OmaOnnxBackend {
             }
         }
         Ok(detections)
+    }
+}
+
+fn match_to_detection(model: &Model, matched: Match) -> Detection {
+    Detection {
+        id: matched.id,
+        tokens: matched
+            .tokens
+            .iter()
+            .map(|&token| model.token(token).to_owned())
+            .collect(),
+        timestamps: matched
+            .timestamps
+            .iter()
+            .map(|&frame| frame as f32 * 0.04)
+            .collect(),
+        start_time: 0.0,
     }
 }
 
@@ -190,7 +192,14 @@ impl WakeWordStream for OmaOnnxStream<'_> {
         let final_samples = stream.resampler.finish()?;
         stream.fbank.accept(&final_samples)?;
         stream.fbank.finish();
-        self.backend.decode_ready(&mut stream)
+        let mut detections = self.backend.decode_ready(&mut stream)?;
+        if let Some(matched) = stream.beam.finish(&self.backend.graph)? {
+            let model = self.backend.model.try_borrow().map_err(|_| {
+                anyhow::anyhow!("a second detector stream attempted inference concurrently")
+            })?;
+            detections.push(match_to_detection(&model, matched));
+        }
+        Ok(detections)
     }
 }
 

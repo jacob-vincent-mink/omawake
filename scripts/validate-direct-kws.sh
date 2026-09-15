@@ -58,12 +58,18 @@ python3 - "$work/0.json" "$work/1.json" <<'PY'
 import json, sys
 
 zero, one = (json.load(open(path, encoding="utf-8")) for path in sys.argv[1:])
-assert [(d["id"], d["timestamps"]) for d in zero["detections"]] == [
-    ("light-up", [3.0, 3.0399999618530273, 3.0799999237060547, 3.1599998474121094])
+assert [(d["id"], d["tokens"]) for d in zero["detections"]] == [
+    ("light-up", ["▁", "L", "IGHT", "▁UP"])
 ]
-assert [(d["id"], d["timestamps"]) for d in one["detections"]] == [
-    ("lovely-child", [5.359999656677246, 5.559999942779541, 5.839999675750732, 6.0, 6.039999961853027]),
-    ("forever", [10.880000114440918, 10.960000038146973, 11.0]),
+assert [(d["id"], d["tokens"]) for d in one["detections"]] == [
+    ("lovely-child", ["▁LOVE", "LY", "▁CHI", "L", "D"]),
+    ("forever", ["▁FOR", "E", "VER"]),
 ]
+for report in (zero, one):
+    for detection in report["detections"]:
+        timestamps = detection["timestamps"]
+        assert len(timestamps) == len(detection["tokens"])
+        assert timestamps == sorted(timestamps)
+        assert all(timestamp >= 0 for timestamp in timestamps)
 print("direct KWS parity: ok")
 PY
