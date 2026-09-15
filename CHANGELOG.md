@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.0.1 - 2026-09-15
+
+- Promoted the native-provider architecture after the rc.3 CPU, Intel
+  CPU/iGPU/NPU, and NVIDIA CUDA qualification pass.
+- Fixed guided runtime changes so the library prompt and saved configuration
+  cannot reuse paths from a previously selected provider.
+- Made wake-word actions fire-and-forget with detached standard streams and
+  background child reaping so long-running commands do not block detection.
+- Hardened release packaging checks around provider discovery and isolated
+  test environments.
+
 ## 0.0.1-rc.3 - 2026-09-15
 
 - Replaced the prototype inference path with native audio.cpp and direct

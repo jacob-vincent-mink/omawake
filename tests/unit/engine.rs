@@ -172,11 +172,12 @@ fn empty_detection_batches_are_successful_no_match_results() {
 }
 
 #[test]
-fn actions_report_success_exit_status_and_errors() {
+fn actions_start_in_the_background_and_report_launch_errors() {
     let success = detector("known", vec!["true".into()], "known")
         .run_action("known")
         .unwrap();
-    assert_eq!(success.status, 0);
+    assert_eq!(success.state, "started");
+    assert!(success.pid > 0);
     assert_eq!(success.program, "true");
 
     let failure = detector(
@@ -186,7 +187,8 @@ fn actions_report_success_exit_status_and_errors() {
     )
     .run_action("known")
     .unwrap();
-    assert_eq!(failure.status, 7);
+    assert_eq!(failure.state, "started");
+    assert!(failure.pid > 0);
     assert!(
         detector("known", vec![], "known")
             .run_action("known")
@@ -204,13 +206,44 @@ fn actions_report_success_exit_status_and_errors() {
     );
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[test]
-fn action_status_code_reports_a_signal_without_spawning_a_crashing_process() {
-    use std::os::unix::process::ExitStatusExt;
+fn blocked_action_dispatch_returns_immediately_and_the_child_is_reaped() {
+    let root = crate::test_support::unique_directory("engine", "detached-action");
+    let completed = root.join("completed");
+    let script = "sleep 1; printf complete > \"$1\"";
+    let started = Instant::now();
+    let action = detector(
+        "known",
+        vec![
+            "sh".into(),
+            "-c".into(),
+            script.into(),
+            "omawake-action".into(),
+            completed.display().to_string(),
+        ],
+        "known",
+    )
+    .run_action("known")
+    .unwrap();
+    assert!(
+        started.elapsed() < Duration::from_millis(500),
+        "dispatch waited for the blocked child"
+    );
+    assert!(Path::new(&format!("/proc/{}/stat", action.pid)).exists());
+    assert!(!completed.exists());
 
-    let signaled = std::process::ExitStatus::from_raw(15);
-    assert_eq!(super::action_status_code(&signaled), -1);
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < deadline
+        && (!completed.exists() || Path::new(&format!("/proc/{}/stat", action.pid)).exists())
+    {
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(completed.exists(), "background action did not finish");
+    assert!(
+        !Path::new(&format!("/proc/{}/stat", action.pid)).exists(),
+        "finished background action was not reaped"
+    );
 }
 
 #[test]

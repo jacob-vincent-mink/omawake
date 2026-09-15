@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command, Stdio};
+use std::sync::OnceLock;
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
@@ -58,8 +61,18 @@ pub struct ActionResult {
     pub id: String,
     pub program: String,
     pub arguments: Vec<String>,
-    pub status: i32,
+    pub state: &'static str,
+    pub pid: u32,
 }
+
+struct SpawnedAction {
+    id: String,
+    program: String,
+    child: Child,
+}
+
+static ACTION_REAPER: OnceLock<std::result::Result<Sender<SpawnedAction>, String>> =
+    OnceLock::new();
 
 pub fn wav_duration(path: &Path) -> Result<Duration> {
     let (sample_rate, samples) =
@@ -272,21 +285,86 @@ impl Detector {
             .command
             .split_first()
             .context("empty action command")?;
-        let status = Command::new(program)
+        let reaper = action_reaper()?;
+        let mut child = Command::new(program)
             .args(arguments)
-            .status()
-            .with_context(|| format!("run wake-word action {program}"))?;
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .with_context(|| format!("start wake-word action {program}"))?;
+        let pid = child.id();
+        if let Err(error) = reaper.send(SpawnedAction {
+            id: id.into(),
+            program: program.clone(),
+            child,
+        }) {
+            child = error.0.child;
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("action reaper stopped before it accepted {program}");
+        }
         Ok(ActionResult {
             id: id.into(),
             program: program.clone(),
             arguments: arguments.to_vec(),
-            status: action_status_code(&status),
+            state: "started",
+            pid,
         })
     }
 }
 
-fn action_status_code(status: &std::process::ExitStatus) -> i32 {
-    status.code().unwrap_or(-1)
+fn action_reaper() -> Result<&'static Sender<SpawnedAction>> {
+    match ACTION_REAPER.get_or_init(start_action_reaper) {
+        Ok(sender) => Ok(sender),
+        Err(error) => bail!("start action reaper: {error}"),
+    }
+}
+
+fn start_action_reaper() -> std::result::Result<Sender<SpawnedAction>, String> {
+    let (sender, receiver) = channel();
+    thread::Builder::new()
+        .name("omawake-action-reaper".into())
+        .spawn(move || reap_actions(receiver))
+        .map_err(|error| error.to_string())?;
+    Ok(sender)
+}
+
+fn reap_actions(receiver: Receiver<SpawnedAction>) {
+    let mut actions = Vec::new();
+    loop {
+        match receiver.recv_timeout(Duration::from_millis(50)) {
+            Ok(action) => actions.push(action),
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => break,
+        }
+        actions.extend(receiver.try_iter());
+
+        let mut index = 0;
+        while index < actions.len() {
+            match actions[index].child.try_wait() {
+                Ok(Some(status)) => {
+                    let action = actions.swap_remove(index);
+                    if !status.success() {
+                        eprintln!(
+                            "action for {} ({}) exited with {status}",
+                            action.id, action.program
+                        );
+                    }
+                }
+                Ok(None) => index += 1,
+                Err(error) => {
+                    let mut action = actions.swap_remove(index);
+                    eprintln!(
+                        "action for {} ({}) could not be reaped: {error}",
+                        action.id, action.program
+                    );
+                    let _ = action.child.kill();
+                    let _ = action.child.wait();
+                }
+            }
+        }
+    }
 }
 
 impl DetectionSession<'_> {

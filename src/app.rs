@@ -1077,7 +1077,7 @@ trait GuidedPrompts {
     }
     fn setup_mode(&mut self) -> Result<Option<SetupMode>>;
     fn runtime(&mut self, current: &Config) -> Result<Option<RuntimeSelection>>;
-    fn runtime_library_dir(&mut self, _current: &Config) -> Result<Option<PathBuf>> {
+    fn runtime_library_dir(&mut self, _candidate: &Config) -> Result<Option<PathBuf>> {
         Ok(None)
     }
     fn confirm_runtime(
@@ -1155,8 +1155,8 @@ impl GuidedPrompts for TerminalGuidedPrompts {
         )
     }
 
-    fn runtime_library_dir(&mut self, current: &Config) -> Result<Option<PathBuf>> {
-        wizard::choose_runtime_directory(&current.backend.library_dirs)
+    fn runtime_library_dir(&mut self, candidate: &Config) -> Result<Option<PathBuf>> {
+        wizard::choose_runtime_directory(&candidate.backend.library_dirs)
     }
 
     fn confirm_runtime(
@@ -1263,15 +1263,23 @@ fn guided_runtime_with(
         println!("Setup cancelled.");
         return Ok(());
     };
-    let runtime_directory = prompts.runtime_library_dir(&current)?;
-    let candidate = runtime_selection_candidate(
-        &current,
-        config_path,
-        &selection,
-        None,
-        runtime_directory.as_deref(),
-    )?;
-    let evidence = prompts.probe_runtime(&candidate, config_path)?;
+    let mut candidate = runtime_selection_candidate(&current, config_path, &selection, None, None)?;
+    let evidence = match prompts.probe_runtime(&candidate, config_path) {
+        Ok(evidence) => evidence,
+        Err(initial_error) => {
+            let Some(runtime_directory) = prompts.runtime_library_dir(&candidate)? else {
+                return Err(initial_error);
+            };
+            candidate = runtime_selection_candidate(
+                &current,
+                config_path,
+                &selection,
+                None,
+                Some(&runtime_directory),
+            )?;
+            prompts.probe_runtime(&candidate, config_path)?
+        }
+    };
     if !prompts.confirm_runtime(&candidate, &evidence)? {
         println!("Runtime setup cancelled; no changes were made.");
         return Ok(());
@@ -1421,7 +1429,7 @@ fn guided_all_with_services_and_validator<FI, FP, FM, FA, FR, CH, CJ, FV>(
     config_path: &Path,
     paths: &AppPaths,
     prompts: &mut impl GuidedPrompts,
-    validate_runtime: FV,
+    mut validate_runtime: FV,
     install_model: FI,
     prove_model: FP,
     install_menu: FM,
@@ -1443,22 +1451,27 @@ where
     FR: FnMut(bool) -> Result<bool>,
     CH: FnOnce(&Path, &AppPaths) -> Result<()>,
     CJ: FnOnce(&Path, &AppPaths) -> Result<()>,
-    FV: FnOnce(&Config, &Path) -> Result<()>,
+    FV: FnMut(&Config, &Path) -> Result<()>,
 {
     let current = app_setup::load_config(config_path)?;
     let Some(selection) = prompts.runtime(&current)? else {
         println!("Setup cancelled.");
         return Ok(());
     };
-    let runtime_directory = prompts.runtime_library_dir(&current)?;
-    let candidate = runtime_selection_candidate(
-        &current,
-        config_path,
-        &selection,
-        None,
-        runtime_directory.as_deref(),
-    )?;
-    validate_runtime(&candidate, config_path)?;
+    let mut candidate = runtime_selection_candidate(&current, config_path, &selection, None, None)?;
+    if let Err(initial_error) = validate_runtime(&candidate, config_path) {
+        let Some(runtime_directory) = prompts.runtime_library_dir(&candidate)? else {
+            return Err(initial_error);
+        };
+        candidate = runtime_selection_candidate(
+            &current,
+            config_path,
+            &selection,
+            None,
+            Some(&runtime_directory),
+        )?;
+        validate_runtime(&candidate, config_path)?;
+    }
     let Some(spec) = prompts.model(paths, &candidate)? else {
         println!("Setup cancelled.");
         return Ok(());
@@ -2992,7 +3005,10 @@ where
 {
     for detection in detections {
         match run(&detection.id) {
-            Ok(result) => eprintln!("detected {}; action exited {}", detection.id, result.status),
+            Ok(result) => eprintln!(
+                "detected {}; action started as pid {}",
+                detection.id, result.pid
+            ),
             Err(error) => eprintln!("action for {} failed: {error:#}", detection.id),
         }
     }
@@ -3406,7 +3422,7 @@ fn schema(config: &Config, config_path: &Path, paths: &AppPaths) -> serde_json::
             {"key":"model.vad","type":"string","section":"Model","label":"VAD model","description":"Silero VAD filename inside the model directory","value":config.model.vad,"file_value":null,"supported":true,"restart_required":true},
             {"key":"model.sample_rate","type":"integer","section":"Model","label":"Sample rate","description":"Native model sample rate in hertz","value":config.model.sample_rate,"file_value":null,"supported":true,"restart_required":true,"min":1},
             {"key":"audio.device","type":"string","section":"Audio","label":"Input device","description":"CPAL input device name or default","value":config.audio.device,"file_value":null,"supported":true,"restart_required":true},
-            {"key":"daemon.cooldown_milliseconds","type":"integer","section":"Daemon","label":"Cooldown","description":"Delay after an action before reopening capture","value":config.daemon.cooldown_milliseconds,"file_value":null,"supported":true,"restart_required":true,"min":0},
+            {"key":"daemon.cooldown_milliseconds","type":"integer","section":"Daemon","label":"Cooldown","description":"Delay after launching an action before reopening capture","value":config.daemon.cooldown_milliseconds,"file_value":null,"supported":true,"restart_required":true,"min":0},
             {"key":"daemon.queue_capacity","type":"integer","section":"Daemon","label":"Capture queue","description":"Bounded live-audio queue capacity","value":config.daemon.queue_capacity,"file_value":null,"supported":true,"restart_required":true,"min":1}],
         "collections":[
             {"prefix":"backend.options.","type":"string-map","section":"Backend","label":"Provider options","description":"Provider-specific load and session options","restart_required":true},

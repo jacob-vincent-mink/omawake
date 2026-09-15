@@ -21,8 +21,8 @@ unpack a release, then start the guided terminal setup:
 
 ```bash
 sha256sum --check --ignore-missing SHA256SUMS.txt
-tar -xJf omawake-0.0.1-rc.3-linux-x86_64.tar.xz
-cd omawake-0.0.1-rc.3-linux-x86_64
+tar -xJf omawake-0.0.1-linux-x86_64.tar.xz
+cd omawake-0.0.1-linux-x86_64
 ./omawake setup
 ```
 
@@ -87,7 +87,9 @@ omawake stop
 ```
 
 The recognizer remains loaded while the daemon releases the microphone before
-an action and reopens it after the configured cooldown. Actions do not pass
+launching an action and reopens it after the configured cooldown. Actions are
+started in the background with detached standard streams and reaped when they
+exit, so a long-running command cannot block detection. Actions do not pass
 through a shell.
 
 ```bash

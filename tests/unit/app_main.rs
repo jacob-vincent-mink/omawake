@@ -59,6 +59,8 @@ impl WakeWordBackend for InMemoryBackend {
 struct ScriptedGuidedPrompts {
     mode: Option<SetupMode>,
     runtime: Option<RuntimeSelection>,
+    runtime_library_candidates: Vec<Config>,
+    runtime_probe_error: Option<&'static str>,
     model: Option<&'static crate::catalog::ModelSpec>,
     archive: Option<PathBuf>,
     confirm: bool,
@@ -66,6 +68,9 @@ struct ScriptedGuidedPrompts {
 
 impl GuidedPrompts for ScriptedGuidedPrompts {
     fn probe_runtime(&mut self, _: &Config, _: &Path) -> Result<crate::runtime_inventory::Probe> {
+        if let Some(error) = self.runtime_probe_error {
+            bail!(error);
+        }
         Ok(crate::runtime_inventory::Probe {
             loadable: true,
             device_accessible: true,
@@ -79,6 +84,11 @@ impl GuidedPrompts for ScriptedGuidedPrompts {
 
     fn runtime(&mut self, _: &Config) -> Result<Option<RuntimeSelection>> {
         Ok(self.runtime.clone())
+    }
+
+    fn runtime_library_dir(&mut self, candidate: &Config) -> Result<Option<PathBuf>> {
+        self.runtime_library_candidates.push(candidate.clone());
+        Ok(None)
     }
 
     fn confirm_runtime(&mut self, _: &Config, _: &crate::runtime_inventory::Probe) -> Result<bool> {
@@ -649,7 +659,8 @@ impl DetectorControl for FakeControl {
             id: id.into(),
             program: "true".into(),
             arguments: Vec::new(),
-            status: 0,
+            state: "started",
+            pid: 1,
         })
     }
 }
@@ -1406,6 +1417,69 @@ fn guided_runtime_apply_and_cancel_share_the_review_step() {
 }
 
 #[test]
+fn guided_runtime_does_not_offer_openvino_paths_after_selecting_default_audiocpp() {
+    let paths = test_paths("guided-runtime-provider-switch");
+    let openvino = paths.data_dir.join("openvino_genai/runtime/lib/intel64");
+    fs::create_dir_all(&openvino).unwrap();
+    let mut current = Config::default();
+    current.backend.kind = "openvino-genai".into();
+    current.backend.runtime = Runtime::Openvino;
+    current.backend.device = "npu".into();
+    current.backend.library = openvino.join("libopenvino_genai_c.so");
+    current.backend.library_dirs = vec![openvino.clone()];
+    current.model.name = crate::catalog::OPENVINO_MODEL_ID.into();
+    current.save(&paths.config_file).unwrap();
+
+    let mut prompts = ScriptedGuidedPrompts {
+        runtime: Some(RuntimeSelection {
+            runtime: Runtime::Default,
+            device: "cpu".into(),
+        }),
+        confirm: true,
+        ..Default::default()
+    };
+    guided_runtime_with(&paths.config_file, &paths, &mut prompts).unwrap();
+
+    assert!(
+        prompts.runtime_library_candidates.is_empty(),
+        "a ready packaged provider must skip the runtime-directory prompt"
+    );
+
+    let saved = Config::load(&paths.config_file).unwrap();
+    assert_eq!(saved.backend.kind, "audiocpp");
+    assert_eq!(saved.backend.runtime, Runtime::Default);
+    assert!(saved.backend.library.as_os_str().is_empty());
+    assert!(saved.backend.library_dirs.is_empty());
+    assert!(!format!("{saved:?}").contains("openvino_genai"));
+}
+
+#[test]
+fn guided_runtime_prompts_for_each_missing_external_provider() {
+    for (runtime, device) in [
+        (Runtime::Cuda, "gpu"),
+        (Runtime::Vulkan, "gpu"),
+        (Runtime::Hip, "gpu"),
+        (Runtime::Openvino, "npu"),
+    ] {
+        let paths = test_paths(&format!("guided-missing-{runtime:?}"));
+        let mut prompts = ScriptedGuidedPrompts {
+            runtime: Some(RuntimeSelection {
+                runtime,
+                device: device.into(),
+            }),
+            runtime_probe_error: Some("selected provider is missing"),
+            ..Default::default()
+        };
+        let error = guided_runtime_with(&paths.config_file, &paths, &mut prompts).unwrap_err();
+        assert!(error.to_string().contains("selected provider is missing"));
+        assert_eq!(prompts.runtime_library_candidates.len(), 1);
+        let prompted = &prompts.runtime_library_candidates[0];
+        assert_eq!(prompted.backend.runtime, runtime);
+        assert!(prompted.backend.library_dirs.is_empty());
+    }
+}
+
+#[test]
 fn guided_cancellation_preserves_invalid_config_bytes() {
     let paths = test_paths("guided-invalid-config-cancel");
     fs::create_dir_all(paths.config_file.parent().unwrap()).unwrap();
@@ -1914,7 +1988,8 @@ fn detection_output_supports_human_and_diagnostic_json_forms() {
             id: "hello".into(),
             program: "true".into(),
             arguments: Vec::new(),
-            status: 0,
+            state: "started",
+            pid: 1,
         }],
         true,
         Duration::from_millis(3),
@@ -1936,7 +2011,8 @@ fn detection_output_supports_human_and_diagnostic_json_forms() {
             id: id.into(),
             program: "true".into(),
             arguments: Vec::new(),
-            status: 0,
+            state: "started",
+            pid: 1,
         })
     })
     .unwrap();
@@ -2398,7 +2474,8 @@ fn daemon_event_helpers_cover_controls_audio_and_action_results() {
             id: id.into(),
             program: "true".into(),
             arguments: Vec::new(),
-            status: 0,
+            state: "started",
+            pid: 1,
         })
     });
     execute_detected_actions(samples, |_| bail!("action failure"));
@@ -3600,8 +3677,8 @@ fn real_detector_forwards_control_metadata_without_native_backend() {
         "COMPUTER @computer"
     );
     assert_eq!(
-        DetectorControl::run(&detector, "computer").unwrap().status,
-        0
+        DetectorControl::run(&detector, "computer").unwrap().state,
+        "started"
     );
 
     let mut streams = VecDeque::from([ScriptedStream::responding_with(encoded_request(
