@@ -1,9 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.0.2 - Unreleased
 
 - Added exact per-wake-word transcript aliases for uncommon names and repeatable
   ASR spelling variants without enabling global fuzzy matching.
+- Added opt-in transcript diagnostics to file and microphone tests.
+- Added file-only Intel Vulkan validation and a shared-provider build example.
+- Reject phrases and aliases that normalize to no letters or numbers.
 
 ## 0.0.1 - 2026-09-15
 
