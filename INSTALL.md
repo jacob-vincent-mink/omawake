@@ -6,8 +6,8 @@ or newer.
 
 ```bash
 sha256sum --check --ignore-missing SHA256SUMS.txt
-tar -xJf omawake-0.0.1-linux-x86_64.tar.xz
-cd omawake-0.0.1-linux-x86_64
+tar -xJf omawake-0.0.2-linux-x86_64.tar.xz
+cd omawake-0.0.2-linux-x86_64
 ./omawake setup
 ```
 
@@ -44,6 +44,13 @@ unit from `packaging/systemd/omawake.service` without enabling it.
 For acceleration, install a complete audio.cpp CUDA, Vulkan, or HIP provider,
 or a complete OpenVINO GenAI runtime, then point `setup runtime --dir` at it.
 See [ACCELERATOR_SETUP.md](ACCELERATOR_SETUP.md).
+
+The guided picker recommends CUDA, Intel NPU, Intel GPU, Vulkan, or CPU in that
+order when both matching hardware and a provider are detected. It reports
+hardware, provider availability, and the pending model proof separately.
+Existing manual selections stay preselected. If the optional service is
+already active, a successful focused config, runtime, model, or wake-word edit
+restarts it once; failed startup restores the previous config and daemon.
 
 ## Build from source
 

@@ -308,6 +308,9 @@ pub fn print_checks_event(path: &Path, paths: &AppPaths) -> Result<()> {
 
 pub fn print_runtime(config: &Config, config_path: &Path, json: bool) -> Result<()> {
     let configured = crate::runtime_inventory::probe(config, config_path);
+    let hardware = crate::hardware::detect();
+    let providers = crate::app::setup_provider_availability(config, config_path);
+    let recommendation = crate::hardware::recommend(&hardware, providers);
     let mut candidate = config.clone();
     candidate.backend.kind = "audiocpp".into();
     candidate.backend.runtime = crate::backend::Runtime::Default;
@@ -346,6 +349,9 @@ pub fn print_runtime(config: &Config, config_path: &Path, json: bool) -> Result<
             "device": config.backend.device,
             "probe": configured,
         },
+        "hardware": hardware,
+        "provider_availability": providers,
+        "recommendation": recommendation,
         "runtime_installation": "Omawake discovers complete provider directories supplied by the user; setup never installs vendor runtimes.",
         "loader_environment": std::env::var_os("LD_LIBRARY_PATH")
             .map(|value| value.to_string_lossy().into_owned()),
@@ -354,6 +360,24 @@ pub fn print_runtime(config: &Config, config_path: &Path, json: bool) -> Result<
         println!("{}", serde_json::to_string_pretty(&value)?);
     } else {
         println!("Integration: direct audio.cpp public C ABI library; no audio.cpp CLI process");
+        println!("Recommendation: {}", recommendation.detail);
+        if hardware.devices.is_empty() {
+            println!("Detected accelerator hardware: none");
+        } else {
+            for device in &hardware.devices {
+                println!(
+                    "Detected hardware: {} vendor={} class={} driver={} capabilities={}",
+                    device.address,
+                    device.vendor,
+                    device.class,
+                    device.driver.as_deref().unwrap_or("unbound"),
+                    device.capabilities.join(",")
+                );
+            }
+        }
+        println!(
+            "Readiness: hardware discovery and provider availability are advisory; model proof runs only at Apply."
+        );
         println!("Backends:");
         for backend in catalog::backends() {
             println!(

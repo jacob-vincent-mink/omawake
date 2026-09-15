@@ -361,6 +361,27 @@ pub fn choose_runtime(
         library_context,
         current_runtime,
         current_device,
+        None,
+        false,
+    )
+}
+
+pub fn choose_runtime_with_recommendation(
+    loadable: &BTreeMap<&str, bool>,
+    library_context: &str,
+    current_runtime: Runtime,
+    current_device: &str,
+    recommendation: &crate::hardware::Recommendation,
+    prefer_recommendation: bool,
+) -> Result<Option<RuntimeSelection>> {
+    choose_runtime_with(
+        &mut TerminalPrompter,
+        loadable,
+        library_context,
+        current_runtime,
+        current_device,
+        Some(recommendation),
+        prefer_recommendation,
     )
 }
 
@@ -470,9 +491,19 @@ fn choose_runtime_with(
     library_context: &str,
     current_runtime: Runtime,
     current_device: &str,
+    recommendation: Option<&crate::hardware::Recommendation>,
+    prefer_recommendation: bool,
 ) -> Result<Option<RuntimeSelection>> {
-    let items = runtime_items(loadable);
-    let preferred = runtime_index(current_runtime);
+    let mut items = runtime_items(loadable);
+    if let Some(recommendation) = recommendation {
+        let item = &mut items[runtime_index(recommendation.runtime)];
+        item.label.push_str(" · Recommended");
+        item.detail = format!("{} · {}", recommendation.detail, item.detail);
+    }
+    let preferred_runtime = recommendation
+        .filter(|_| prefer_recommendation)
+        .map_or(current_runtime, |item| item.runtime);
+    let preferred = runtime_index(preferred_runtime);
     let help = format!(
         "Select a complete, supported provider. Setup discovers libraries but never installs system runtimes.\r\n{library_context}"
     );
@@ -480,10 +511,21 @@ fn choose_runtime_with(
         return Ok(None);
     };
     let runtime = runtime_at(index);
-    let devices = device_items(runtime);
+    let mut devices = device_items(runtime);
+    if let Some(recommendation) = recommendation.filter(|item| item.runtime == runtime)
+        && let Some(index) = device_values(runtime)
+            .iter()
+            .position(|(value, _)| value.eq_ignore_ascii_case(&recommendation.device))
+    {
+        devices[index].label.push_str(" · Recommended");
+        devices[index].detail = format!("{} · {}", recommendation.detail, devices[index].detail);
+    }
+    let preferred_device = recommendation
+        .filter(|item| prefer_recommendation && item.runtime == runtime)
+        .map_or(current_device, |item| item.device.as_str());
     let preferred = device_values(runtime)
         .iter()
-        .position(|(value, _)| value.eq_ignore_ascii_case(current_device))
+        .position(|(value, _)| value.eq_ignore_ascii_case(preferred_device))
         .unwrap_or(0);
     let Some(index) = prompter.choose(
         "Inference device",

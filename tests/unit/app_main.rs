@@ -1106,6 +1106,7 @@ fn config_mutation_saves_and_wake_words_validate_before_persisting() {
         },
         config.clone(),
         &paths.config_file,
+        &paths,
     )
     .unwrap();
     assert_eq!(Config::load(&paths.config_file).unwrap().backend.threads, 4);
@@ -1116,6 +1117,7 @@ fn config_mutation_saves_and_wake_words_validate_before_persisting() {
         },
         Config::load(&paths.config_file).unwrap(),
         &paths.config_file,
+        &paths,
     )
     .unwrap();
     let accelerated = Config::load(&paths.config_file).unwrap();
@@ -1126,6 +1128,7 @@ fn config_mutation_saves_and_wake_words_validate_before_persisting() {
         },
         Config::load(&paths.config_file).unwrap(),
         &paths.config_file,
+        &paths,
     )
     .unwrap();
 
@@ -1138,6 +1141,7 @@ fn config_mutation_saves_and_wake_words_validate_before_persisting() {
         },
         config.clone(),
         &paths.config_file,
+        &paths,
     )
     .unwrap();
     assert_eq!(
@@ -1154,9 +1158,122 @@ fn config_mutation_saves_and_wake_words_validate_before_persisting() {
             },
             config,
             &paths.config_file,
+            &paths,
         )
         .is_err()
     );
+}
+
+#[test]
+fn config_refresh_skips_inactive_and_unowned_services() {
+    let paths = test_paths("config-refresh-inactive");
+    let mut config = Config::default();
+    config.audio.device = "updated".into();
+    let reloads = std::cell::Cell::new(0);
+    let restarts = std::cell::Cell::new(0);
+    assert!(
+        !save_and_reload_active_with(
+            config.clone(),
+            &paths.config_file,
+            true,
+            || false,
+            |_| {
+                reloads.set(reloads.get() + 1);
+                Ok(true)
+            },
+            || {
+                restarts.set(restarts.get() + 1);
+                Ok(())
+            },
+        )
+        .unwrap()
+    );
+    assert_eq!(reloads.get(), 0);
+    assert_eq!(restarts.get(), 0);
+    assert_eq!(
+        Config::load(&paths.config_file).unwrap().audio.device,
+        "updated"
+    );
+
+    let activity_checks = std::cell::Cell::new(0);
+    config.audio.device = "custom-config".into();
+    assert!(
+        !save_and_reload_active_with(
+            config,
+            &paths.config_file,
+            false,
+            || {
+                activity_checks.set(activity_checks.get() + 1);
+                true
+            },
+            |_| unreachable!(),
+            || unreachable!(),
+        )
+        .unwrap()
+    );
+    assert_eq!(activity_checks.get(), 0);
+}
+
+#[test]
+fn config_refresh_restarts_once_and_explicitly_resurrects_after_rollback() {
+    let paths = test_paths("config-refresh-rollback");
+    let mut original = Config::default();
+    original.audio.device = "old".into();
+    original.save(&paths.config_file).unwrap();
+
+    let mut updated = original.clone();
+    updated.audio.device = "new".into();
+    let reloads = std::cell::Cell::new(0);
+    let restarted = save_and_reload_active_with(
+        updated,
+        &paths.config_file,
+        true,
+        || true,
+        |_| {
+            reloads.set(reloads.get() + 1);
+            assert_eq!(
+                Config::load(&paths.config_file).unwrap().audio.device,
+                "new"
+            );
+            Ok(true)
+        },
+        || unreachable!(),
+    )
+    .unwrap();
+    assert!(restarted);
+    assert_eq!(reloads.get(), 1);
+    let previous_bytes = fs::read(&paths.config_file).unwrap();
+
+    let mut rejected = Config::load(&paths.config_file).unwrap();
+    rejected.audio.device = "broken".into();
+    let explicit_restarts = std::cell::Cell::new(0);
+    let error = save_and_reload_active_with(
+        rejected,
+        &paths.config_file,
+        true,
+        || true,
+        |_| {
+            assert_eq!(
+                Config::load(&paths.config_file).unwrap().audio.device,
+                "broken"
+            );
+            bail!("injected failed startup left service inactive")
+        },
+        || {
+            explicit_restarts.set(explicit_restarts.get() + 1);
+            assert_eq!(fs::read(&paths.config_file).unwrap(), previous_bytes);
+            Ok(())
+        },
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("reload active daemon"));
+    assert!(
+        error
+            .to_string()
+            .contains("previous configuration and daemon were restored")
+    );
+    assert_eq!(explicit_restarts.get(), 1);
+    assert_eq!(fs::read(&paths.config_file).unwrap(), previous_bytes);
 }
 
 #[test]

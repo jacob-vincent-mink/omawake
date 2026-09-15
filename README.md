@@ -71,6 +71,13 @@ CUDA, Vulkan, and HIP choices ask for a complete user-supplied provider
 directory. Setup probes the provider and requested device before it saves an
 accelerated configuration.
 
+On a new configuration, the guided picker recommends the first usable choice
+in this order: CUDA, Intel NPU through OpenVINO, Intel GPU through OpenVINO,
+Vulkan, then the packaged CPU provider. Hardware detection and provider
+discovery are shown separately; only Apply runs the isolated, model-backed
+proof. An existing runtime remains selected by default so setup never silently
+replaces a manual choice.
+
 ## Use
 
 The following examples assume `omawake` is on `PATH`. Prefix commands with
@@ -96,6 +103,12 @@ through a shell.
 omawake wake-word add --id computer --phrase Computer -- notify-send "Wake word heard"
 omawake wake-word remove computer
 ```
+
+When the optional user service is already active, successful `config`,
+`wake-word`, focused runtime, and model activation changes restart it once.
+Omawake restores the prior config and explicitly restarts the prior daemon if
+the updated daemon fails to start. A custom `--config` never restarts a unit
+that points at another file.
 
 For names or coined words that the ASR verifier spells inconsistently, add
 only the exact transcript variants you have observed. They map to the same

@@ -378,6 +378,8 @@ fn guided_flows_map_scripted_choices_and_preserve_preferences() {
             "Configured: /opt/oma\r\nEffective: /opt/oma\r\nRemediation: none",
             Runtime::Openvino,
             "npu",
+            None,
+            false,
         )
         .unwrap(),
         Some(RuntimeSelection {
@@ -399,6 +401,8 @@ fn guided_flows_map_scripted_choices_and_preserve_preferences() {
                 "Configured: none\r\nEffective: none\r\nRemediation: none",
                 Runtime::Default,
                 "unknown",
+                None,
+                false,
             )
             .unwrap(),
             None
@@ -430,6 +434,64 @@ fn guided_flows_map_scripted_choices_and_preserve_preferences() {
             expected
         );
     }
+}
+
+#[test]
+fn runtime_recommendation_prefers_fresh_accelerator_but_preserves_existing_selection() {
+    let recommendation = crate::hardware::recommend(
+        &crate::hardware::HardwareReport {
+            intel_npu: true,
+            ..Default::default()
+        },
+        crate::hardware::ProviderAvailability {
+            packaged_cpu: true,
+            openvino_npu: true,
+            ..Default::default()
+        },
+    );
+    let loadable = BTreeMap::from([("default", true), ("openvino", true)]);
+
+    let mut fresh = ScriptedPrompter {
+        choices: VecDeque::from([Some(1), Some(0)]),
+        preferred: Vec::new(),
+    };
+    let selected = choose_runtime_with(
+        &mut fresh,
+        &loadable,
+        "discovery",
+        Runtime::Default,
+        "cpu",
+        Some(&recommendation),
+        true,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        (selected.runtime, selected.device.as_str()),
+        (Runtime::Openvino, "npu")
+    );
+    assert_eq!(fresh.preferred, [1, 0]);
+
+    let mut existing = ScriptedPrompter {
+        choices: VecDeque::from([Some(0), Some(0)]),
+        preferred: Vec::new(),
+    };
+    let selected = choose_runtime_with(
+        &mut existing,
+        &loadable,
+        "discovery",
+        Runtime::Default,
+        "cpu",
+        Some(&recommendation),
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        (selected.runtime, selected.device.as_str()),
+        (Runtime::Default, "cpu")
+    );
+    assert_eq!(existing.preferred, [0, 0]);
 }
 
 #[test]

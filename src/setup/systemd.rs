@@ -16,6 +16,31 @@ pub fn service_path(paths: &AppPaths) -> PathBuf {
         .join("systemd/user/omawake.service")
 }
 
+/// Decide whether the active user unit owns a configuration file. A local
+/// unit is authoritative; without one, packaged units use the XDG default.
+pub fn targets_config(config: &Path) -> bool {
+    let defaults = AppPaths::discover();
+    match fs::read_to_string(service_path(&defaults)) {
+        Ok(contents) => targets_config_with_unit(config, &defaults.config_file, Some(&contents)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            targets_config_with_unit(config, &defaults.config_file, None)
+        }
+        Err(_) => false,
+    }
+}
+
+fn targets_config_with_unit(config: &Path, default_config: &Path, unit: Option<&str>) -> bool {
+    unit.map_or(config == default_config, |unit| {
+        unit_targets_config(unit, config)
+    })
+}
+
+fn unit_targets_config(unit: &str, config: &Path) -> bool {
+    let argument = format!("--config {}", quote(config));
+    unit.lines()
+        .any(|line| line.starts_with("ExecStart=") && line.contains(&argument))
+}
+
 pub fn generate(binary: &Path, config: &Path) -> String {
     format!(
         "[Unit]\nDescription=Omawake local wake-word daemon\nPartOf=graphical-session.target\nAfter=graphical-session.target pipewire.service\n\n[Service]\nType=simple\nExecStart={} --config {} daemon\nRestart=on-failure\nRestartSec=1\nEnvironment=XDG_RUNTIME_DIR=%t\n\n[Install]\nWantedBy=graphical-session.target\n",

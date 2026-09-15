@@ -638,7 +638,9 @@ where
             }
             Ok(())
         }
-        TopCommand::WakeWord { command } => wake_word_command(command, config, &config_path),
+        TopCommand::WakeWord { command } => {
+            wake_word_command(command, config, &config_path, &paths)
+        }
         TopCommand::Config {
             command: ConfigCommand::Get { key, json: as_json },
         } => {
@@ -674,11 +676,16 @@ where
         | TopCommand::OpenVinoRuntimeWorker { .. }
         | TopCommand::WhisperWorker { .. }
         | TopCommand::Setup { .. } => unreachable!(),
-        TopCommand::Config { command } => config_mutation(command, config, &config_path),
+        TopCommand::Config { command } => config_mutation(command, config, &config_path, &paths),
     }
 }
 
-fn config_mutation(command: ConfigCommand, mut config: Config, path: &Path) -> Result<()> {
+fn config_mutation(
+    command: ConfigCommand,
+    mut config: Config,
+    path: &Path,
+    paths: &AppPaths,
+) -> Result<()> {
     let previous_runtime = config.backend.runtime;
     match command {
         ConfigCommand::Set { key, value } => set_config(&mut config, &key, &value)?,
@@ -698,7 +705,7 @@ fn config_mutation(command: ConfigCommand, mut config: Config, path: &Path) -> R
         config.backend.device_id = 0;
     }
     config.backend.validate_shape()?;
-    save_config(path, &config)
+    save_and_reload_active(config, path, paths).map(|_| ())
 }
 
 fn set_config(config: &mut Config, key: &str, value: &str) -> Result<()> {
@@ -752,7 +759,12 @@ fn unset_config(config: &mut Config, key: &str) -> Result<()> {
     Ok(())
 }
 
-fn wake_word_command(command: WakeWordCommand, mut config: Config, path: &Path) -> Result<()> {
+fn wake_word_command(
+    command: WakeWordCommand,
+    mut config: Config,
+    path: &Path,
+    paths: &AppPaths,
+) -> Result<()> {
     let message = match command {
         WakeWordCommand::List { json: as_json } => {
             if as_json {
@@ -813,7 +825,7 @@ fn wake_word_command(command: WakeWordCommand, mut config: Config, path: &Path) 
         }
     };
     validate_wake_words(&config.wake_words)?;
-    save_config(path, &config)?;
+    save_and_reload_active(config, path, paths)?;
     println!("{message}");
     Ok(())
 }
@@ -824,16 +836,6 @@ fn remove_wake_word(config: &mut Config, id: &str) -> Result<()> {
     if config.wake_words.len() == before {
         bail!("unknown wake-word id {id}");
     }
-    Ok(())
-}
-
-fn save_config(path: &Path, config: &Config) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let temporary = path.with_extension("toml.tmp");
-    fs::write(&temporary, toml::to_string_pretty(config)?)?;
-    fs::rename(&temporary, path)?;
     Ok(())
 }
 
@@ -1163,23 +1165,14 @@ impl GuidedPrompts for TerminalGuidedPrompts {
 
     fn runtime(&mut self, current: &Config) -> Result<Option<RuntimeSelection>> {
         let probe = native_runtime_probe(current, &self.config_path);
+        let hardware = crate::hardware::detect();
+        let providers = setup_provider_availability(current, &self.config_path);
+        let recommendation = crate::hardware::recommend(&hardware, providers);
         let loadable = BTreeMap::from([
-            (
-                "default",
-                current.backend.runtime == Runtime::Default && probe.ready,
-            ),
-            (
-                "openvino",
-                current.backend.runtime == Runtime::Openvino && probe.ready,
-            ),
-            (
-                "cuda",
-                current.backend.runtime == Runtime::Cuda && probe.ready,
-            ),
-            (
-                "vulkan",
-                current.backend.runtime == Runtime::Vulkan && probe.ready,
-            ),
+            ("default", providers.packaged_cpu),
+            ("openvino", providers.openvino_npu || providers.openvino_gpu),
+            ("cuda", providers.cuda),
+            ("vulkan", providers.vulkan),
             (
                 "hip",
                 current.backend.runtime == Runtime::Hip && probe.ready,
@@ -1191,13 +1184,16 @@ impl GuidedPrompts for TerminalGuidedPrompts {
             .first()
             .cloned()
             .unwrap_or_else(|| probe.errors.join("; "));
-        wizard::choose_runtime(
+        wizard::choose_runtime_with_recommendation(
             &loadable,
             &format!(
-                "Omawake loads native providers through public library APIs and never invokes their CLIs.\r\nProvider discovery: {provider}"
+                "{}\r\nHardware, provider discovery, and model proof are reported separately. Omawake loads providers through public library APIs and never invokes their CLIs.\r\nCurrent provider discovery: {provider}",
+                recommendation.detail,
             ),
             current.backend.runtime,
             &current.backend.device,
+            &recommendation,
+            !self.config_path.exists(),
         )
     }
 
@@ -1259,6 +1255,52 @@ impl GuidedPrompts for TerminalGuidedPrompts {
             model,
             service_was_active,
         )
+    }
+}
+
+pub(crate) fn setup_provider_availability(
+    current: &Config,
+    config_path: &Path,
+) -> crate::hardware::ProviderAvailability {
+    let mut paths = AppPaths::discover();
+    paths.config_file = config_path.to_owned();
+    let audio_available = |runtime, device: &str| {
+        let selection = RuntimeSelection {
+            runtime,
+            device: device.into(),
+        };
+        let Ok(candidate) =
+            runtime_selection_candidate(current, config_path, &selection, None, None)
+        else {
+            return false;
+        };
+        crate::engine::audiocpp::probe_provider(&candidate, &paths).is_ok()
+    };
+    let accelerated_audio_is_explicit = |runtime| {
+        std::env::var_os("OMAWAKE_AUDIOCPP_LIBRARY").is_some()
+            || (current.backend.runtime == runtime
+                && (!current.backend.library.as_os_str().is_empty()
+                    || !current.backend.library_dirs.is_empty()))
+    };
+    let openvino_available = |device: &str| {
+        let selection = RuntimeSelection {
+            runtime: Runtime::Openvino,
+            device: device.into(),
+        };
+        runtime_selection_candidate(current, config_path, &selection, None, None)
+            .and_then(|candidate| {
+                crate::engine::openvino_genai::ProviderSpec::from_config(&candidate, &paths)
+                    .map(|_| ())
+            })
+            .is_ok()
+    };
+    crate::hardware::ProviderAvailability {
+        packaged_cpu: audio_available(Runtime::Default, "cpu"),
+        cuda: accelerated_audio_is_explicit(Runtime::Cuda) && audio_available(Runtime::Cuda, "gpu"),
+        openvino_npu: openvino_available("npu"),
+        openvino_gpu: openvino_available("gpu"),
+        vulkan: accelerated_audio_is_explicit(Runtime::Vulkan)
+            && audio_available(Runtime::Vulkan, "gpu"),
     }
 }
 
@@ -1657,7 +1699,7 @@ where
     prepare_cache(config, config_path, paths, progress)?;
     prove(config, paths)
         .context("runtime candidate failed its file-only provider/model proof; config unchanged")?;
-    config.save(config_path)
+    save_and_reload_active(config.clone(), config_path, paths).map(|_| ())
 }
 
 fn runtime_selection_candidate(
@@ -2170,6 +2212,66 @@ fn restore_config_snapshot(path: &Path, bytes: Option<&[u8]>) -> Result<()> {
     Ok(())
 }
 
+fn save_and_reload_active(config: Config, config_path: &Path, _paths: &AppPaths) -> Result<bool> {
+    let owns_service_config = app_setup::systemd::targets_config(config_path);
+    save_and_reload_active_with(
+        config,
+        config_path,
+        owns_service_config,
+        app_setup::systemd::is_active,
+        app_setup::systemd::reload_if_was_active,
+        app_setup::systemd::restart,
+    )
+}
+
+fn save_and_reload_active_with(
+    config: Config,
+    config_path: &Path,
+    owns_service_config: bool,
+    service_is_active: impl FnOnce() -> bool,
+    reload_service: impl FnOnce(bool) -> Result<bool>,
+    restart_service: impl FnOnce() -> Result<()>,
+) -> Result<bool> {
+    let original = config_snapshot(config_path)?;
+    let was_active = owns_service_config && service_is_active();
+    config.save(config_path)?;
+    if !was_active {
+        return Ok(false);
+    }
+    let restart = reload_service(true).and_then(|restarted| {
+        if restarted {
+            Ok(())
+        } else {
+            bail!("active Omawake daemon was not restarted")
+        }
+    });
+    if let Err(error) = restart {
+        let mut rollback_errors = Vec::new();
+        match restore_config_snapshot(config_path, original.as_deref()) {
+            Ok(()) => {
+                if let Err(restart_error) = restart_service() {
+                    rollback_errors.push(format!(
+                        "restart daemon with previous config: {restart_error:#}"
+                    ));
+                }
+            }
+            Err(restore_error) => {
+                rollback_errors.push(format!("restore previous config: {restore_error:#}"));
+            }
+        }
+        let rollback = if rollback_errors.is_empty() {
+            "previous configuration and daemon were restored".into()
+        } else {
+            format!("rollback incomplete: {}", rollback_errors.join("; "))
+        };
+        return Err(error).context(format!(
+            "reload active daemon after config update; {rollback}"
+        ));
+    }
+    eprintln!("omawake: active daemon restarted with updated configuration");
+    Ok(true)
+}
+
 fn prove_setup_candidate(config: &Config, paths: &AppPaths) -> Result<()> {
     prove_setup_candidate_with(config, paths, |config, paths, audio| {
         let detector = Detector::load(config, paths)
@@ -2343,7 +2445,7 @@ where
     let mut config = app_setup::ensure_config(config_path)?;
     spec.activate(&mut config);
     prepare_cache(&config, config_path, paths, progress)?;
-    config.save(config_path)
+    save_and_reload_active(config, config_path, paths).map(|_| ())
 }
 
 fn print_model_ready(

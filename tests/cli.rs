@@ -27,7 +27,21 @@ fn sandbox() -> PathBuf {
     ));
     let _ = fs::remove_dir_all(&path);
     fs::create_dir_all(&path).unwrap();
+    let bin = path.join("test-bin");
+    fs::create_dir_all(&bin).unwrap();
+    let systemctl = bin.join("systemctl");
+    fs::write(&systemctl, "#!/bin/sh\nexit 3\n").unwrap();
+    #[cfg(unix)]
+    fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o755)).unwrap();
     path
+}
+
+fn test_path(root: &Path) -> std::ffi::OsString {
+    let mut paths = vec![root.join("test-bin")];
+    paths.extend(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    ));
+    std::env::join_paths(paths).unwrap()
 }
 
 fn run(root: &Path, args: &[&str]) -> Output {
@@ -39,6 +53,7 @@ fn run(root: &Path, args: &[&str]) -> Output {
         .env("XDG_CACHE_HOME", root.join("cache"))
         .env("XDG_STATE_HOME", root.join("state"))
         .env("XDG_RUNTIME_DIR", root.join("run"))
+        .env("PATH", test_path(root))
         .stdin(Stdio::null())
         .output()
         .unwrap()
@@ -630,6 +645,66 @@ fn config_commands_cover_supported_keys_and_errors() {
     let saved = Config::load(&root.join("config/omawake/config.toml")).unwrap();
     assert_eq!(saved.backend.runtime, omawake::backend::Runtime::Default);
     assert!(saved.backend.library.as_os_str().is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn cli_config_and_wake_word_edits_refresh_only_the_active_default_service() {
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    Config::default().save(&config_path).unwrap();
+    let active = fake_systemctl(&root, 0);
+
+    let set = run_with_path(
+        &root,
+        &["config", "set", "daemon.queue_capacity", "4"],
+        &active,
+    );
+    assert!(set.status.success(), "{}", stderr(&set));
+    assert!(stderr(&set).contains("active daemon restarted"));
+    let log = fs::read_to_string(root.join("systemctl.log")).unwrap();
+    assert_eq!(log.matches("try-restart").count(), 1, "{log}");
+    assert_eq!(log.matches("is-active").count(), 2, "{log}");
+
+    fs::write(root.join("systemctl.log"), "").unwrap();
+    let alias = run_with_path(
+        &root,
+        &["word", "add-alias", "computer", "compute her"],
+        &active,
+    );
+    assert!(alias.status.success(), "{}", stderr(&alias));
+    let log = fs::read_to_string(root.join("systemctl.log")).unwrap();
+    assert_eq!(log.matches("try-restart").count(), 1, "{log}");
+
+    fs::write(root.join("systemctl.log"), "").unwrap();
+    let inactive = fake_systemctl(&root, 3);
+    let unset = run_with_path(
+        &root,
+        &["config", "unset", "daemon.queue_capacity"],
+        &inactive,
+    );
+    assert!(unset.status.success(), "{}", stderr(&unset));
+    let log = fs::read_to_string(root.join("systemctl.log")).unwrap();
+    assert_eq!(log.matches("is-active").count(), 1, "{log}");
+    assert_eq!(log.matches("try-restart").count(), 0, "{log}");
+
+    fs::write(root.join("systemctl.log"), "").unwrap();
+    let custom = root.join("custom.toml");
+    Config::default().save(&custom).unwrap();
+    let custom_edit = run_with_path(
+        &root,
+        &[
+            "--config",
+            custom.to_str().unwrap(),
+            "config",
+            "set",
+            "daemon.queue_capacity",
+            "3",
+        ],
+        &active,
+    );
+    assert!(custom_edit.status.success(), "{}", stderr(&custom_edit));
+    assert_eq!(fs::read_to_string(root.join("systemctl.log")).unwrap(), "");
 }
 
 #[test]

@@ -1,6 +1,35 @@
 use super::*;
 
 #[test]
+fn generated_unit_owns_only_its_exact_config_argument() {
+    let config = Path::new("/home/user/.config/omawake/config.toml");
+    let unit = generate(Path::new("/usr/bin/omawake"), config);
+    assert!(unit_targets_config(&unit, config));
+    assert!(!unit_targets_config(
+        &unit,
+        Path::new("/home/user/.config/omawake/other.toml")
+    ));
+    assert!(!unit_targets_config(
+        "ExecStart=/usr/bin/omawake daemon\n# --config \"/home/user/.config/omawake/config.toml\"",
+        config
+    ));
+    let alternate = Path::new("/home/user/alternate.toml");
+    let alternate_unit = generate(Path::new("/usr/bin/omawake"), alternate);
+    assert!(targets_config_with_unit(config, config, None));
+    assert!(!targets_config_with_unit(alternate, config, None));
+    assert!(!targets_config_with_unit(
+        config,
+        config,
+        Some(&alternate_unit)
+    ));
+    assert!(targets_config_with_unit(
+        alternate,
+        config,
+        Some(&alternate_unit)
+    ));
+}
+
+#[test]
 fn unit_uses_absolute_binary_and_config() {
     let unit = generate(Path::new("/opt/oma speak"), Path::new("/tmp/config.toml"));
     assert!(unit.contains("ExecStart=\"/opt/oma speak\" --config \"/tmp/config.toml\" daemon"));
