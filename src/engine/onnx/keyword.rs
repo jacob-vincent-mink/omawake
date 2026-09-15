@@ -611,6 +611,23 @@ mod tests {
     }
 
     #[test]
+    fn root_fallback_resets_only_decoder_context_and_keeps_emission_history() {
+        let graph = KeywordGraph::from_buffer("A B @wake", TOKENS, 1.5, 0.2).unwrap();
+        let mut beam = KeywordBeam::new(1, 0);
+
+        assert!(beam.advance(&peaked(6, 5), 1, &graph).unwrap().is_none());
+        assert_eq!(beam.hypotheses[0].sequence, [-1, -1, 0]);
+        assert_eq!(beam.hypotheses[0].timestamps, [1]);
+        assert_eq!(beam.hypotheses[0].acoustic_probabilities.len(), 1);
+
+        assert!(beam.advance(&peaked(6, 3), 2, &graph).unwrap().is_none());
+        assert!(beam.advance(&peaked(6, 4), 3, &graph).unwrap().is_none());
+        let found = beam.advance(&peaked(6, 0), 4, &graph).unwrap().unwrap();
+        assert_eq!(found.tokens, [3, 4]);
+        assert_eq!(found.timestamps, [2, 3]);
+    }
+
+    #[test]
     fn finish_rejects_a_terminal_path_below_its_acoustic_threshold() {
         let graph = KeywordGraph::from_buffer("A @quiet", TOKENS, 100.0, 0.9).unwrap();
         let mut beam = KeywordBeam::new(1, 0);
