@@ -6,6 +6,10 @@ This follow-up to 0.0.1 improves wake-phrase configuration and setup:
   spelling variants, without global fuzzy matching;
 - opt-in transcript diagnostics with `test --show-transcripts` to understand
   missed phrases before adding an alias;
+- automatic refresh of the relevant active user service after CLI changes,
+  with config and service rollback if the new configuration fails;
+- hardware-aware setup recommendations that preserve existing manual choices
+  and distinguish hardware discovery from model-backed validation;
 - validation that rejects phrases and aliases containing only punctuation.
 
 The runtime-neutral Rust executable includes a pinned CPU audio.cpp provider.

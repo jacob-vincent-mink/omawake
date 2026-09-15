@@ -37,7 +37,17 @@ fresh process measurement with potentially warm filesystem/driver caches,
 not a first-boot or first-ever shader compilation measurement.
 
 Vulkan preserved recall on this positive set but was slower than CPU for this
-small model. This pass does not measure long-form false activations, power,
+small model. This positive pass does not measure power
 or uncommon-name accuracy; it does not establish that Vulkan is universally
 faster. Hardware setup recommendations follow the requested device preference
 and still require a successful model probe.
+
+## Corrected-probe follow-up
+
+Source `73ba5e5cf9f2773493878817494f0add10e9c195` was rebuilt and passed
+Vulkan setup Apply and a Hey Jarvis file detection. Its binary SHA-256 was
+`0757e194543e7548e694bb7587602038fa3eabaeaa2e7322eef09daac2b3b4ca`.
+It also evaluated the same 100-file clean LibriSpeech subset used for rc.3:
+zero false activations over 0.250689 hours (about 15 minutes), with 186 ms
+model load. This small clean-speech sample does not establish a production
+false-activation rate for continuous listening or adverse background audio.

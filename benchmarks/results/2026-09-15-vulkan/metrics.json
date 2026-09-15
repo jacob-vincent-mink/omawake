@@ -122,5 +122,35 @@
   },
   "source_revision": "d3da01b482f0d518d8cd96a748cbad13ed562f83",
   "binary_sha256": "e21e2b06dd2a354035123ee3649b815e6d0dbc832317c46320ee4baf9e580f04",
-  "release": "v0.0.1-rc.3"
+  "release": "v0.0.1-rc.3",
+  "corrected_probe_negative_check": {
+    "source_revision": "73ba5e5cf9f2773493878817494f0add10e9c195",
+    "binary_sha256": "0757e194543e7548e694bb7587602038fa3eabaeaa2e7322eef09daac2b3b4ca",
+    "report_sha256": "43d0246481f94748bf19d90dd9fefcc8a7540817117f6b0dc593c2314adfac64",
+    "summary": {
+      "duplicate_predictions": 0,
+      "expected_events": 0,
+      "f1": null,
+      "false_activations": 0,
+      "false_activations_per_hour": 0.0,
+      "false_negatives": 0,
+      "false_positives": 0,
+      "negative_audio_hours": 0.25068890624999995,
+      "precision": null,
+      "predictions": 0,
+      "recall": null,
+      "true_positives": 0,
+      "wrong_id_predictions": 0
+    },
+    "backend": {
+      "backend_kind": "audiocpp",
+      "effective_runtime": "vulkan",
+      "fallback_used": false,
+      "placement_evidence": "audio.cpp created explicit Vulkan sessions",
+      "placement_verified": true,
+      "requested_device": "gpu",
+      "requested_runtime": "vulkan"
+    },
+    "model_load_milliseconds": 185.975274
+  }
 }
