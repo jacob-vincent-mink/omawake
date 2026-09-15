@@ -21,8 +21,8 @@ unpack a release, then start the guided terminal setup:
 
 ```bash
 sha256sum --check --ignore-missing SHA256SUMS.txt
-tar -xJf omawake-0.0.1-rc.2-linux-x86_64.tar.xz
-cd omawake-0.0.1-rc.2-linux-x86_64
+tar -xJf omawake-0.0.1-rc.3-linux-x86_64.tar.xz
+cd omawake-0.0.1-rc.3-linux-x86_64
 ./omawake setup
 ```
 

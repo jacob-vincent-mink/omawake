@@ -1,4 +1,4 @@
-# Omawake 0.0.1-rc.2
+# Omawake 0.0.1-rc.3
 
 This candidate introduces the greenfield native-provider architecture:
 

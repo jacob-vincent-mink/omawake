@@ -815,7 +815,7 @@ impl NativeProvider {
         let verifier = path_to_c_string(verifier)?;
         let vad = path_to_c_string(vad)?;
         let mut provider = std::ptr::null_mut();
-        let mut error = vec![0_i8; 2048];
+        let mut error = vec![0 as c_char; 2048];
         let status = unsafe {
             oma_whisper_open(
                 library.as_ptr(),
@@ -845,7 +845,7 @@ impl NativeProvider {
 
     fn vad_probability(&mut self, samples: &[f32]) -> Result<f32> {
         let mut probability = 0.0;
-        let mut error = vec![0_i8; 2048];
+        let mut error = vec![0 as c_char; 2048];
         let status = unsafe {
             oma_whisper_vad_probability(
                 self.0,
@@ -871,8 +871,8 @@ impl NativeProvider {
 
     fn transcribe(&mut self, samples: &[f32], prompt: &str) -> Result<String> {
         let prompt = CString::new(prompt).context("wake-word prompt contains NUL")?;
-        let mut text = vec![0_i8; 64 * 1024];
-        let mut error = vec![0_i8; 2048];
+        let mut text = vec![0 as c_char; 64 * 1024];
+        let mut error = vec![0 as c_char; 2048];
         let status = unsafe {
             oma_whisper_transcribe(
                 self.0,
@@ -905,7 +905,7 @@ fn path_to_c_string(path: &Path) -> Result<CString> {
     CString::new(path.as_os_str().as_encoded_bytes()).context("native path contains NUL")
 }
 
-fn c_buffer(buffer: &[i8]) -> String {
+fn c_buffer(buffer: &[c_char]) -> String {
     unsafe { CStr::from_ptr(buffer.as_ptr()) }
         .to_string_lossy()
         .into_owned()

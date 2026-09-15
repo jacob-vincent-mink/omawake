@@ -993,6 +993,8 @@ unsafe fn symbol<T: Copy>(library: &Library, name: &[u8]) -> Result<T> {
 
 struct AudioCppProvider {
     api: AudioCppApi,
+    backend: String,
+    device: i32,
     registry: *mut c_void,
     vad_model: *mut c_void,
     asr_model: *mut c_void,
@@ -1014,6 +1016,8 @@ impl AudioCppProvider {
         let api = AudioCppApi::load(library)?;
         let mut provider = Self {
             api,
+            backend: backend.to_owned(),
+            device,
             registry: std::ptr::null_mut(),
             vad_model: std::ptr::null_mut(),
             asr_model: std::ptr::null_mut(),
@@ -1111,11 +1115,13 @@ impl AudioCppProvider {
     fn version(&self) -> String {
         let version = unsafe { (self.api.build_version)() };
         if version.is_null() {
-            "audio.cpp ABI 0.1".into()
+            format!("audio.cpp ABI 0.1.0 ({}:{})", self.backend, self.device)
         } else {
             format!(
-                "audio.cpp {} (ABI 0.1.0, cpu)",
-                unsafe { CStr::from_ptr(version) }.to_string_lossy()
+                "audio.cpp {} (ABI 0.1.0, {}:{})",
+                unsafe { CStr::from_ptr(version) }.to_string_lossy(),
+                self.backend,
+                self.device
             )
         }
     }
@@ -1908,11 +1914,14 @@ pub(crate) mod tests {
             &vad,
             2,
             "moonshine_asr",
-            "cpu",
-            0,
+            "cuda",
+            3,
         )
         .unwrap();
-        assert!(provider.version().contains("fake-provider-1"));
+        assert_eq!(
+            provider.version(),
+            "audio.cpp fake-provider-1 (ABI 0.1.0, cuda:3)"
+        );
         assert_eq!(provider.transcribe(&[0.25; 32]).unwrap(), "hello oma");
         assert_eq!(
             provider

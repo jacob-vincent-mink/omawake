@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.0.1-rc.3 - 2026-09-15
+
 - Replaced the prototype inference path with native audio.cpp and direct
   OpenVINO GenAI providers.
 - Added a compact packaged CPU provider and external CUDA, Vulkan, HIP, and
