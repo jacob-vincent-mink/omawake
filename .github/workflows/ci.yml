@@ -10,8 +10,6 @@ jobs:
     env:
       ORT_VERSION: 1.30.0
       ORT_ARCHIVE_SHA256: a5ed5a3cac51fbb2e90da632ae43d19212faaa20e76484e62bcb7c23ddb3b3fd
-      OPENVINO_EP_VERSION: 1.7.0
-      OPENVINO_EP_WHEEL_SHA256: 7016c5ba4154f2a2b6da87e8b8654e5e811151186fb97cc29bde5d2fabde6c93
       MODEL_ARCHIVE_SHA256: f170013b4716e41b62b9bfd809687c207cef798ef9bc6534d524e17af9b6561a
     steps:
       - uses: actions/checkout@v4
@@ -34,9 +32,6 @@ jobs:
           ort_root="${RUNNER_TEMP}/onnxruntime-linux-x64-${ORT_VERSION}"
           model_archive="${RUNNER_TEMP}/omawake-kws-model.tar.bz2"
           model_root="${RUNNER_TEMP}/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
-          openvino_wheel="${RUNNER_TEMP}/onnxruntime_ep_openvino.whl"
-          openvino_root="${RUNNER_TEMP}/onnxruntime-ep-openvino-${OPENVINO_EP_VERSION}"
-          openvino_lib="${openvino_root}/onnxruntime_ep_openvino"
 
           curl -fsSL --retry 3 -o "${ort_archive}" \
             "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz"
@@ -48,20 +43,12 @@ jobs:
           printf '%s  %s\n' "${MODEL_ARCHIVE_SHA256}" "${model_archive}" | sha256sum -c -
           tar -C "${RUNNER_TEMP}" -xjf "${model_archive}"
 
-          curl -fsSL --retry 3 -o "${openvino_wheel}" \
-            "https://files.pythonhosted.org/packages/78/b6/7d168ff711e6034c4df4c5144242a230c7e6329f24b50454103510671b85/onnxruntime_ep_openvino-${OPENVINO_EP_VERSION}-py3-none-manylinux_2_28_x86_64.whl"
-          printf '%s  %s\n' "${OPENVINO_EP_WHEEL_SHA256}" "${openvino_wheel}" | sha256sum -c -
-          mkdir -p "${openvino_root}"
-          python3 -m zipfile -e "${openvino_wheel}" "${openvino_root}"
-
           test -f "${ort_root}/lib/libonnxruntime.so.${ORT_VERSION}"
           test -f "${model_root}/test_wavs/0.wav"
-          test -f "${openvino_lib}/libonnxruntime_providers_openvino_plugin.so"
           {
             echo "OMAWAKE_TEST_ONNXRUNTIME=${ort_root}/lib/libonnxruntime.so.${ORT_VERSION}"
             echo "OMAWAKE_TEST_MODEL=${model_root}"
-            echo "OMAWAKE_TEST_OPENVINO_PROVIDER=${openvino_lib}/libonnxruntime_providers_openvino_plugin.so"
-            echo "LD_LIBRARY_PATH=${openvino_lib}:${ort_root}/lib"
+            echo "LD_LIBRARY_PATH=${ort_root}/lib"
           } >> "${GITHUB_ENV}"
       # CLI tests launch the instrumented binary repeatedly; serial execution
       # prevents concurrent child processes from clobbering the same profile.

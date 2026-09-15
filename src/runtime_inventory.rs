@@ -5,6 +5,7 @@ use crate::{
     runtime_paths,
 };
 use anyhow::{Context, Result, bail};
+use ort::memory::DeviceType;
 use serde::{Deserialize, Serialize};
 use std::{
     env,
@@ -29,6 +30,20 @@ pub struct Probe {
     pub ready: bool,
     pub evidence: Evidence,
     pub errors: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct DeviceObservation {
+    provider: Option<String>,
+    device_type: DeviceType,
+    id: u32,
+}
+
+#[derive(Debug, Default)]
+struct RuntimeObservation {
+    versions: Vec<String>,
+    provider_registration: bool,
+    devices: Vec<DeviceObservation>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -192,14 +207,18 @@ fn isolated_with_executable(config: &BackendConfig, executable: &Path) -> Result
 
 /// Only called by the hidden child-process entry point.
 pub fn child(config: &BackendConfig) -> Probe {
+    child_with_observer(config, observe_runtime)
+}
+
+fn child_with_observer(
+    config: &BackendConfig,
+    observe: impl FnOnce(&BackendConfig) -> Result<RuntimeObservation>,
+) -> Probe {
     let mut result = Probe::default();
     let attempt = (|| -> Result<()> {
-        validate_runtime_version(&config.onnxruntime_library)?;
-        ort::init_from(&config.onnxruntime_library)?
-            .with_name("omawake-runtime-probe")
-            .commit();
-        let environment = ort::environment::Environment::current()?;
-        result.evidence.versions = vec!["ONNX Runtime 1.30.0".into()];
+        let observation = observe(config)?;
+        result.evidence.versions = observation.versions;
+        result.evidence.provider_registration = observation.provider_registration;
         if config.runtime != Runtime::Default {
             let device = config.canonical_device()?;
             let provider = match (config.runtime, device.as_str()) {
@@ -208,27 +227,19 @@ pub fn child(config: &BackendConfig) -> Probe {
                 (Runtime::Cuda, _) => "CUDAExecutionProvider",
                 _ => unreachable!(),
             };
-            let _library = environment.register_ep_library(
-                format!("omawake-probe-{}", name(config.runtime)),
-                &config.provider_library,
-            )?;
-            result.evidence.provider_registration = true;
-            let mut devices = environment
-                .devices()
+            let mut devices = observation
+                .devices
+                .into_iter()
                 .filter(|entry| {
-                    if entry.ep().ok() != Some(provider) {
+                    if entry.provider.as_deref() != Some(provider) {
                         return false;
                     }
                     match (config.runtime, device.as_str()) {
-                        (Runtime::Openvino, "cpu") => {
-                            entry.hardware_device().ty() == ort::memory::DeviceType::CPU
-                        }
+                        (Runtime::Openvino, "cpu") => entry.device_type == DeviceType::CPU,
                         (Runtime::Openvino, "gpu") | (Runtime::Cuda, _) => {
-                            entry.hardware_device().ty() == ort::memory::DeviceType::GPU
+                            entry.device_type == DeviceType::GPU
                         }
-                        (Runtime::Openvino, "npu") => {
-                            entry.hardware_device().ty() == ort::memory::DeviceType::NPU
-                        }
+                        (Runtime::Openvino, "npu") => entry.device_type == DeviceType::NPU,
                         _ => true,
                     }
                 })
@@ -245,9 +256,9 @@ pub fn child(config: &BackendConfig) -> Probe {
                 .map(|entry| {
                     format!(
                         "{}:{:?}:{}",
-                        entry.ep().unwrap_or("unknown"),
-                        entry.hardware_device().ty(),
-                        entry.hardware_device().id()
+                        entry.provider.as_deref().unwrap_or("unknown"),
+                        entry.device_type,
+                        entry.id
                     )
                 })
                 .collect::<Vec<_>>();
@@ -274,6 +285,34 @@ pub fn child(config: &BackendConfig) -> Probe {
         result.errors.push(format!("{error:#}"));
     }
     result
+}
+
+fn observe_runtime(config: &BackendConfig) -> Result<RuntimeObservation> {
+    validate_runtime_version(&config.onnxruntime_library)?;
+    ort::init_from(&config.onnxruntime_library)?
+        .with_name("omawake-runtime-probe")
+        .commit();
+    let environment = ort::environment::Environment::current()?;
+    let mut observation = RuntimeObservation {
+        versions: vec!["ONNX Runtime 1.30.0".into()],
+        ..Default::default()
+    };
+    if config.runtime != Runtime::Default {
+        let _library = environment.register_ep_library(
+            format!("omawake-probe-{}", name(config.runtime)),
+            &config.provider_library,
+        )?;
+        observation.provider_registration = true;
+        observation.devices = environment
+            .devices()
+            .map(|entry| DeviceObservation {
+                provider: entry.ep().ok().map(str::to_owned),
+                device_type: entry.hardware_device().ty(),
+                id: entry.hardware_device().id(),
+            })
+            .collect();
+    }
+    Ok(observation)
 }
 
 fn validate_runtime_version(path: &Path) -> Result<()> {

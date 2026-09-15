@@ -409,3 +409,34 @@ fn real_openvino_inventory_child_registers_the_official_plugin_when_available() 
     assert_eq!(probe["evidence"]["provider_registration"], true);
     assert_eq!(probe["evidence"]["selected_device"], "cpu");
 }
+
+#[cfg(unix)]
+#[test]
+fn real_cpu_runtime_and_catalog_model_pass_setup_checks_when_available() {
+    use std::os::unix::fs::symlink;
+
+    let (Some(runtime), Some(model)) = (
+        std::env::var_os("OMAWAKE_TEST_ONNXRUNTIME").map(PathBuf::from),
+        std::env::var_os("OMAWAKE_TEST_MODEL").map(PathBuf::from),
+    ) else {
+        return;
+    };
+    let root = sandbox();
+    let spec = &omawake::catalog::models()[0];
+    let installed = root.join("data/omawake/models").join(spec.id);
+    fs::create_dir_all(installed.parent().unwrap()).unwrap();
+    symlink(model, installed).unwrap();
+    let launcher = root.join("data/applications/omawake-settings.desktop");
+    fs::create_dir_all(launcher.parent().unwrap()).unwrap();
+    fs::write(launcher, "fixture").unwrap();
+
+    let config_path = root.join("config/omawake/config.toml");
+    let mut config = Config::default();
+    config.backend.device = "cpu".into();
+    config.backend.onnxruntime_library = runtime;
+    config.save(&config_path).unwrap();
+
+    let output = run(&root, &["setup", "check"]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stdout(&output).contains("runtime/device probe passed"));
+}

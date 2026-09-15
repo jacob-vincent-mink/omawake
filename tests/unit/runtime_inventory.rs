@@ -165,6 +165,14 @@ fn real_ort_child_reports_cpu_evidence_and_invalid_device_when_available() {
     assert_eq!(ready.evidence.selected_device.as_deref(), Some("cpu"));
     assert!(!ready.evidence.provider_registration);
 
+    let mut wrong_plugin = config.clone();
+    wrong_plugin.runtime = Runtime::Openvino;
+    wrong_plugin.provider_library = wrong_plugin.onnxruntime_library.clone();
+    let rejected_plugin = child(&wrong_plugin);
+    assert!(!rejected_plugin.ready);
+    assert!(!rejected_plugin.evidence.provider_registration);
+    assert!(!rejected_plugin.errors.is_empty());
+
     config.device = "npu".into();
     let invalid = child(&config);
     assert!(!invalid.ready);
@@ -190,4 +198,129 @@ fn successful_apply_persists_only_after_a_ready_probe() {
     .unwrap();
     assert!(result.ready);
     assert_eq!(Config::load(&path).unwrap().backend.device, "cpu");
+}
+
+fn observed(provider: &str, device_type: DeviceType, id: u32) -> DeviceObservation {
+    DeviceObservation {
+        provider: Some(provider.into()),
+        device_type,
+        id,
+    }
+}
+
+#[test]
+fn observed_provider_devices_drive_runtime_readiness_and_cuda_ordinal_selection() {
+    let cases = [
+        (
+            Runtime::Openvino,
+            "auto",
+            "OpenVINOExecutionProvider.AUTO",
+            DeviceType::CPU,
+        ),
+        (
+            Runtime::Openvino,
+            "cpu",
+            "OpenVINOExecutionProvider",
+            DeviceType::CPU,
+        ),
+        (
+            Runtime::Openvino,
+            "gpu",
+            "OpenVINOExecutionProvider",
+            DeviceType::GPU,
+        ),
+        (
+            Runtime::Openvino,
+            "npu",
+            "OpenVINOExecutionProvider",
+            DeviceType::NPU,
+        ),
+    ];
+    for (runtime, device, provider, device_type) in cases {
+        let config = BackendConfig {
+            runtime,
+            device: device.into(),
+            ..Default::default()
+        };
+        let probe = child_with_observer(&config, |_| {
+            Ok(RuntimeObservation {
+                versions: vec!["ONNX Runtime 1.30.0".into()],
+                provider_registration: true,
+                devices: vec![
+                    observed("unrelated", device_type, 90),
+                    observed(provider, device_type, 11),
+                ],
+            })
+        });
+        assert!(probe.ready, "{device}: {:?}", probe.errors);
+        assert!(probe.evidence.provider_registration);
+        assert_eq!(
+            probe.evidence.selected_device.as_deref(),
+            (device != "auto").then_some(device)
+        );
+        assert_eq!(probe.evidence.available_devices.len(), 1);
+        assert!(probe.evidence.available_devices[0].ends_with(":11"));
+    }
+
+    let cuda = BackendConfig {
+        runtime: Runtime::Cuda,
+        device: "gpu".into(),
+        device_id: 1,
+        ..Default::default()
+    };
+    let cuda_probe = child_with_observer(&cuda, |_| {
+        Ok(RuntimeObservation {
+            versions: vec!["ONNX Runtime 1.30.0".into()],
+            provider_registration: true,
+            devices: vec![
+                observed("CUDAExecutionProvider", DeviceType::GPU, 4),
+                observed("CUDAExecutionProvider", DeviceType::GPU, 7),
+            ],
+        })
+    });
+    assert!(cuda_probe.ready);
+    assert_eq!(
+        cuda_probe.evidence.available_devices,
+        ["CUDAExecutionProvider:GPU:7"]
+    );
+}
+
+#[test]
+fn observed_provider_failures_never_report_a_runtime_ready() {
+    let mut config = BackendConfig {
+        runtime: Runtime::Openvino,
+        device: "cpu".into(),
+        ..Default::default()
+    };
+    let no_match = child_with_observer(&config, |_| {
+        Ok(RuntimeObservation {
+            versions: vec!["ONNX Runtime 1.30.0".into()],
+            provider_registration: true,
+            devices: vec![observed("OpenVINOExecutionProvider", DeviceType::GPU, 1)],
+        })
+    });
+    assert!(!no_match.ready);
+    assert!(no_match.errors[0].contains("no matching cpu device"));
+
+    config.runtime = Runtime::Cuda;
+    config.device = "gpu".into();
+    config.device_id = 3;
+    let missing_ordinal = child_with_observer(&config, |_| {
+        Ok(RuntimeObservation {
+            provider_registration: true,
+            devices: vec![observed("CUDAExecutionProvider", DeviceType::GPU, 1)],
+            ..Default::default()
+        })
+    });
+    assert!(!missing_ordinal.ready);
+    assert!(missing_ordinal.errors[0].contains("no matching gpu device"));
+
+    let adapter_error = child_with_observer(&config, |_| bail!("runtime adapter failed"));
+    assert!(!adapter_error.loadable);
+    assert!(adapter_error.errors[0].contains("runtime adapter failed"));
+
+    config.device = "npu".into();
+    let invalid_shape = child_with_observer(&config, |_| Ok(RuntimeObservation::default()));
+    assert!(!invalid_shape.ready);
+    assert!(invalid_shape.errors[0].contains("invalid for runtime"));
 }

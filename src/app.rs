@@ -2105,10 +2105,18 @@ fn print_detections(
 }
 
 fn run_daemon(config: &Config, paths: &AppPaths) -> Result<()> {
-    let detector = Detector::load(config, paths)?;
     let shutdown_requested = Arc::new(AtomicBool::new(false));
     signal_hook::flag::register(SIGINT, Arc::clone(&shutdown_requested))?;
     signal_hook::flag::register(SIGTERM, Arc::clone(&shutdown_requested))?;
+    run_daemon_with_shutdown(config, paths, shutdown_requested)
+}
+
+fn run_daemon_with_shutdown(
+    config: &Config,
+    paths: &AppPaths,
+    shutdown_requested: Arc<AtomicBool>,
+) -> Result<()> {
+    let detector = Detector::load(config, paths)?;
     let listener = bind_socket(paths)?;
     let socket_metadata = fs::symlink_metadata(socket_path(paths)).with_context(|| {
         format!(

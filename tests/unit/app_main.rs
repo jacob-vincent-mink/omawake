@@ -2823,8 +2823,10 @@ fn real_model_runs_through_top_level_file_and_benchmark_commands_when_available(
     let runtime = PathBuf::from(runtime);
     let model = PathBuf::from(model);
     let paths = test_paths("real-top-level");
-    let mut catalog_paths = paths.clone();
-    catalog_paths.data_dir = model.parent().unwrap().parent().unwrap().to_owned();
+    let catalog_paths = paths.clone();
+    let installed = app_setup::model::model_directory(&catalog_paths, &crate::catalog::models()[0]);
+    fs::create_dir_all(installed.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(&model, &installed).unwrap();
     let active = crate::catalog::models()[0].id;
     choose_model_with(&catalog_paths, active, |items, _| {
         assert!(items[0].label.contains("active"));
@@ -2898,6 +2900,39 @@ fn hidden_inventory_command_uses_real_ort_when_available() {
     };
     run_with_paths_and_services(cli, paths.clone(), |_, _| unreachable!(), || unreachable!())
         .unwrap();
+
+    let cli = Cli {
+        config: Some(paths.config_file.clone()),
+        command: TopCommand::ModelCachePrepare {
+            candidate: serde_json::to_string(&Config::default()).unwrap(),
+        },
+    };
+    assert!(
+        run_with_paths_and_services(cli, paths, |_, _| unreachable!(), || unreachable!()).is_err()
+    );
+}
+
+#[test]
+fn real_daemon_initializes_and_cleans_up_when_shutdown_is_already_requested() {
+    let (Some(runtime), Some(model)) = (
+        std::env::var_os("OMAWAKE_TEST_ONNXRUNTIME"),
+        std::env::var_os("OMAWAKE_TEST_MODEL"),
+    ) else {
+        return;
+    };
+    let paths = test_paths("real-daemon-shutdown");
+    let mut config = Config::default();
+    config.backend.onnxruntime_library = PathBuf::from(runtime);
+    config.model.directory = PathBuf::from(model).to_string_lossy().into_owned();
+    config.wake_words = vec![WakeWord {
+        id: "light-up".into(),
+        phrase: "Light up".into(),
+        enabled: true,
+        command: vec!["true".into()],
+    }];
+
+    run_daemon_with_shutdown(&config, &paths, Arc::new(AtomicBool::new(true))).unwrap();
+    assert!(!socket_path(&paths).exists());
 }
 
 #[test]
