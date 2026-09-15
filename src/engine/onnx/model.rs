@@ -349,20 +349,28 @@ fn build_session(
             builder = builder.with_log_level(LogLevel::Fatal).map_err(ort_error)?;
         }
         let environment = ort::environment::Environment::current()?;
-        let devices: Vec<_> = environment
+        let mut devices: Vec<_> = environment
             .devices()
             .filter(|device| {
                 device.ep().ok() == Some(selection.ep)
                     && selection
                         .device_type
                         .is_none_or(|kind| device.hardware_device().ty() == kind)
-                    && selection
-                        .device_id
-                        .is_none_or(|id| device.hardware_device().id() == id)
             })
             .collect();
+        if let Some(index) = selection.device_id {
+            devices = devices
+                .into_iter()
+                .nth(index as usize)
+                .into_iter()
+                .collect();
+        }
         if devices.is_empty() {
-            bail!("{} plugin exposed no matching device", selection.ep);
+            bail!(
+                "{} plugin exposed no matching device index {:?}",
+                selection.ep,
+                selection.device_id
+            );
         }
         let mut options = selection.options.clone();
         if selection.specialize_shapes {
@@ -371,9 +379,13 @@ fn build_session(
                 fixed_input_shapes(path, threads, fixed_batch.unwrap_or(1))?,
             ));
         }
+        // The OpenVINO EP can place these fixed-shape graphs completely on its
+        // selected device. CUDA keeps ORT's CPU helpers for unsupported shape
+        // operations while assigning the neural-network kernels to the GPU.
+        if selection.ep.starts_with("OpenVINOExecutionProvider") {
+            builder = builder.with_disable_cpu_fallback().map_err(ort_error)?;
+        }
         builder = builder
-            .with_disable_cpu_fallback()
-            .map_err(ort_error)?
             .with_devices(devices, Some(&options))
             .map_err(ort_error)?;
     }

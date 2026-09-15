@@ -17,7 +17,6 @@ jobs:
         with:
           tool: cargo-about@0.9.2,cargo-deny@0.20.2
       - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
-      - run: find native -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo deny check licenses

@@ -209,7 +209,7 @@ pub fn child(config: &BackendConfig) -> Probe {
                 &config.provider_library,
             )?;
             result.evidence.provider_registration = true;
-            let devices = environment
+            let mut devices = environment
                 .devices()
                 .filter(|entry| {
                     if entry.ep().ok() != Some(provider) {
@@ -228,6 +228,16 @@ pub fn child(config: &BackendConfig) -> Probe {
                         _ => true,
                     }
                 })
+                .collect::<Vec<_>>();
+            if config.runtime == Runtime::Cuda {
+                devices = devices
+                    .into_iter()
+                    .nth(config.device_id as usize)
+                    .into_iter()
+                    .collect();
+            }
+            let devices = devices
+                .into_iter()
                 .map(|entry| {
                     format!(
                         "{}:{:?}:{}",
