@@ -1333,24 +1333,46 @@ fn configure_runtime_directory(config: &mut Config, directory: &Path) -> Result<
             .next()
             .with_context(|| format!("{} does not contain {prefix}", directory.display()))
     };
-    let onnxruntime_library = find("libonnxruntime.so")?;
+    let discovered_core = find("libonnxruntime.so").ok();
     let provider_library = match config.backend.runtime {
         Runtime::Default => PathBuf::new(),
         Runtime::Openvino => find("libonnxruntime_providers_openvino_plugin.so")
             .or_else(|_| find("libonnxruntime_providers_openvino.so"))?,
         Runtime::Cuda => find("libonnxruntime_providers_cuda.so")?,
     };
-    config.backend.library_dirs = [onnxruntime_library.parent(), provider_library.parent()]
-        .into_iter()
-        .flatten()
-        .map(Path::to_owned)
-        .fold(Vec::new(), |mut directories, path| {
-            if !directories.contains(&path) {
-                directories.push(path);
-            }
-            directories
-        });
-    config.backend.onnxruntime_library = onnxruntime_library;
+    if config.backend.runtime == Runtime::Default {
+        config.backend.onnxruntime_library = discovered_core.with_context(|| {
+            format!(
+                "{} does not contain an ONNX Runtime core library",
+                directory.display()
+            )
+        })?;
+    } else if let Some(core) = discovered_core {
+        config.backend.onnxruntime_library = core;
+    }
+    let selected_parents = [
+        (!config.backend.onnxruntime_library.as_os_str().is_empty())
+            .then_some(config.backend.onnxruntime_library.as_path()),
+        (!provider_library.as_os_str().is_empty()).then_some(provider_library.as_path()),
+    ]
+    .into_iter()
+    .flatten()
+    .filter_map(Path::parent)
+    .map(Path::to_owned)
+    .chain(candidates.into_iter().filter(|candidate| {
+        std::fs::read_dir(candidate).is_ok_and(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .any(|entry| entry.file_name().to_string_lossy().contains(".so"))
+        })
+    }))
+    .fold(Vec::new(), |mut directories, path| {
+        if !directories.contains(&path) {
+            directories.push(path);
+        }
+        directories
+    });
+    config.backend.library_dirs = selected_parents;
     config.backend.provider_library = provider_library;
     Ok(())
 }

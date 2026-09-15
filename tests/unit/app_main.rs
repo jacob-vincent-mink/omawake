@@ -1013,6 +1013,16 @@ fn runtime_directory_populates_exact_external_library_paths() {
     .unwrap();
     configure_runtime_directory(&mut config, &sdk).unwrap();
     assert_eq!(config.backend.library_dirs, [base, provider]);
+
+    let provider_only = paths.data_dir.join("provider-only");
+    fs::create_dir_all(&provider_only).unwrap();
+    let provider_library = provider_only.join("libonnxruntime_providers_openvino_plugin.so");
+    fs::write(&provider_library, b"fixture").unwrap();
+    let retained_core = config.backend.onnxruntime_library.clone();
+    configure_runtime_directory(&mut config, &provider_only).unwrap();
+    assert_eq!(config.backend.onnxruntime_library, retained_core);
+    assert_eq!(config.backend.provider_library, provider_library);
+    assert!(config.backend.library_dirs.contains(&provider_only));
 }
 
 fn runtime_report(runtime: Runtime, loadable: bool) -> runtime_paths::RuntimeLibraryReport {

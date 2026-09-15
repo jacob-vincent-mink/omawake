@@ -67,7 +67,7 @@ impl Model {
         let libraries = crate::runtime_paths::discover(&config.backend, &paths.config_file);
         let core = libraries
             .onnxruntime_library
-            .context("bundled ONNX Runtime 1.30.0 was not found; reinstall Omawake")?;
+            .context("ONNX Runtime 1.30.0 was not found; reinstall the release package or configure an exact core library path")?;
         validate_runtime_version(&core)?;
         ort::init_from(&core)
             .with_context(|| format!("load ONNX Runtime {}", core.display()))?
@@ -640,7 +640,7 @@ fn validate_runtime_version(path: &Path) -> Result<()> {
         }
         let version = std::ffi::CStr::from_ptr(raw).to_string_lossy();
         if version != "1.30.0" {
-            bail!("Omawake requires bundled ONNX Runtime 1.30.0, found {version}");
+            bail!("Omawake requires ONNX Runtime 1.30.0, found {version}");
         }
     }
     Ok(())
