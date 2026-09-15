@@ -3,7 +3,7 @@ use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::process::{Command as ProcessCommand, ExitCode, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::RecvTimeoutError;
@@ -23,7 +23,7 @@ use crate::setup::model::ProgressFormat;
 use crate::setup::wizard::{self, RuntimeSelection, SetupMode};
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use signal_hook::consts::signal::{SIGINT, SIGTERM};
 
@@ -49,6 +49,12 @@ enum TopCommand {
     #[command(name = "__model-cache-prepare", hide = true)]
     ModelCachePrepare {
         candidate: String,
+        response: PathBuf,
+    },
+    #[command(name = "__native-json", hide = true)]
+    NativeJson {
+        request: String,
+        response: PathBuf,
     },
     Test {
         #[arg(long, conflicts_with = "seconds")]
@@ -93,6 +99,24 @@ enum TopCommand {
     Setup {
         #[command(subcommand)]
         command: Option<SetupCommand>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "command", rename_all = "kebab-case")]
+enum NativeJsonRequest {
+    FileTest {
+        audio: PathBuf,
+        execute: bool,
+    },
+    LiveTest {
+        seconds: u64,
+        execute: bool,
+    },
+    Benchmark {
+        audio: Vec<PathBuf>,
+        warmup: u32,
+        iterations: u32,
     },
 }
 
@@ -215,7 +239,118 @@ pub fn entry() -> ExitCode {
 }
 
 fn run(cli: Cli) -> Result<()> {
-    run_with_paths(cli, AppPaths::discover())
+    let paths = AppPaths::discover();
+    if let Some(request) = native_json_request(&cli.command) {
+        let config_path = cli.config.as_deref().unwrap_or(&paths.config_file);
+        return run_native_json_worker(config_path, &paths, &request, &std::env::current_exe()?);
+    }
+    run_with_paths(cli, paths)
+}
+
+fn native_json_request(command: &TopCommand) -> Option<NativeJsonRequest> {
+    match command {
+        TopCommand::Test {
+            audio: Some(audio),
+            execute,
+            json: true,
+            ..
+        } => Some(NativeJsonRequest::FileTest {
+            audio: audio.clone(),
+            execute: *execute,
+        }),
+        TopCommand::Test {
+            seconds: Some(seconds),
+            execute,
+            json: true,
+            ..
+        } => Some(NativeJsonRequest::LiveTest {
+            seconds: *seconds,
+            execute: *execute,
+        }),
+        TopCommand::Benchmark {
+            audio,
+            warmup,
+            iterations,
+        } => Some(NativeJsonRequest::Benchmark {
+            audio: audio.clone(),
+            warmup: *warmup,
+            iterations: *iterations,
+        }),
+        _ => None,
+    }
+}
+
+fn run_native_json_worker(
+    config_path: &Path,
+    paths: &AppPaths,
+    request: &NativeJsonRequest,
+    executable: &Path,
+) -> Result<()> {
+    let stdout = std::io::stdout();
+    let stderr = std::io::stderr();
+    run_native_json_worker_with(
+        config_path,
+        paths,
+        request,
+        executable,
+        stdout.lock(),
+        stderr.lock(),
+    )
+}
+
+fn run_native_json_worker_with(
+    config_path: &Path,
+    paths: &AppPaths,
+    request: &NativeJsonRequest,
+    executable: &Path,
+    mut output: impl Write,
+    mut diagnostics: impl Write,
+) -> Result<()> {
+    let response = crate::native_worker::ResponseFile::create(&paths.runtime_dir, "native-json")?;
+    let child = ProcessCommand::new(executable)
+        .arg("--config")
+        .arg(config_path)
+        .arg("__native-json")
+        .arg(serde_json::to_string(request)?)
+        .arg(response.path())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .context("run isolated native inference worker")?;
+    diagnostics.write_all(&child.stdout)?;
+    diagnostics.write_all(&child.stderr)?;
+    if !child.status.success() {
+        bail!("native inference worker failed: {}", child.status);
+    }
+    let report: Value = response.read_json()?;
+    serde_json::to_writer_pretty(&mut output, &report)?;
+    writeln!(output)?;
+    Ok(())
+}
+
+fn execute_native_json(
+    config: &Config,
+    paths: &AppPaths,
+    request: NativeJsonRequest,
+) -> Result<Value> {
+    match request {
+        NativeJsonRequest::FileTest { audio, execute } => {
+            let detector = Detector::load(config, paths)?;
+            let detections = detector.detect_file(&audio)?;
+            detection_report(&detector, detections, execute)
+        }
+        NativeJsonRequest::LiveTest { seconds, execute } => {
+            let detector = Detector::load(config, paths)?;
+            let detections = detect_live(&detector, config, Duration::from_secs(seconds))?;
+            detection_report(&detector, detections, execute)
+        }
+        NativeJsonRequest::Benchmark {
+            audio,
+            warmup,
+            iterations,
+        } => file_benchmark_report(config, paths, &audio, warmup, iterations),
+    }
 }
 
 fn run_with_paths(cli: Cli, paths: AppPaths) -> Result<()> {
@@ -250,13 +385,26 @@ where
             );
             return Ok(());
         }
-        TopCommand::ModelCachePrepare { candidate } => {
+        TopCommand::ModelCachePrepare {
+            candidate,
+            response,
+        } => {
             let mut candidate: Config = serde_json::from_str(&candidate)?;
             candidate.backend.fallback = Fallback::Error;
-            println!(
-                "{}",
-                serde_json::to_string(&app_setup::cache::child(&candidate, &paths)?)?
-            );
+            runtime_paths::ensure_engine_library_path(&candidate.backend, &config_path)?;
+            crate::native_worker::write_json(
+                &response,
+                &paths.runtime_dir,
+                &app_setup::cache::child(&candidate, &paths)?,
+            )?;
+            return Ok(());
+        }
+        TopCommand::NativeJson { request, response } => {
+            let request = serde_json::from_str(&request)?;
+            let config = Config::load(&config_path)?;
+            runtime_paths::ensure_engine_library_path(&config.backend, &config_path)?;
+            let report = execute_native_json(&config, &paths, request)?;
+            crate::native_worker::write_json(&response, &paths.runtime_dir, &report)?;
             return Ok(());
         }
         TopCommand::Setup { command } => return setup(command, &config_path, &paths),
@@ -352,6 +500,7 @@ where
         }
         TopCommand::InventoryProbe { .. }
         | TopCommand::ModelCachePrepare { .. }
+        | TopCommand::NativeJson { .. }
         | TopCommand::Setup { .. } => unreachable!(),
         TopCommand::Config { command } => config_mutation(command, config, &config_path),
     }
@@ -1833,6 +1982,18 @@ fn run_file_benchmark(
     warmup: u32,
     iterations: u32,
 ) -> Result<()> {
+    let report = file_benchmark_report(config, paths, audio, warmup, iterations)?;
+    println!("{}", serde_json::to_string_pretty(&report)?);
+    Ok(())
+}
+
+fn file_benchmark_report(
+    config: &Config,
+    paths: &AppPaths,
+    audio: &[PathBuf],
+    warmup: u32,
+    iterations: u32,
+) -> Result<Value> {
     let detector = Detector::load(config, paths)?;
     let files = benchmark_files(
         audio,
@@ -1842,9 +2003,7 @@ fn run_file_benchmark(
         |path| detector.detect_file(path),
         Instant::now,
     )?;
-    let report = benchmark_report(config, &detector, files, warmup, iterations)?;
-    println!("{}", serde_json::to_string_pretty(&report)?);
-    Ok(())
+    benchmark_report(config, &detector, files, warmup, iterations)
 }
 
 fn benchmark_report(
@@ -2056,6 +2215,13 @@ fn present_detections(
     execute: bool,
     as_json: bool,
 ) -> Result<()> {
+    if as_json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&detection_report(detector, detections, execute)?)?
+        );
+        return Ok(());
+    }
     let actions = collect_detection_actions(&detections, execute, |id| detector.run(id))?;
     print_detections(
         detections,
@@ -2067,6 +2233,23 @@ fn present_detections(
         detector.effective_runtime(),
         detector.fallback_used(),
     )
+}
+
+fn detection_report(
+    detector: &impl DetectorControl,
+    detections: Vec<Detection>,
+    execute: bool,
+) -> Result<Value> {
+    let actions = collect_detection_actions(&detections, execute, |id| detector.run(id))?;
+    Ok(detections_report(
+        detections,
+        actions,
+        detector.load_time(),
+        detector.keywords_buffer(),
+        detector.backend_kind(),
+        detector.effective_runtime(),
+        detector.fallback_used(),
+    ))
 }
 
 fn collect_detection_actions<F>(
@@ -2102,13 +2285,15 @@ fn print_detections(
     if as_json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&json!({
-                "model_load_milliseconds": load_time.as_millis() as u64,
-                "keywords_buffer": keywords_buffer,
-                "detections": detections,
-                "actions": actions,
-                "backend": {"kind": backend_kind, "effective_runtime": effective_runtime, "fallback_used": fallback_used}
-            }))?
+            serde_json::to_string_pretty(&detections_report(
+                detections,
+                actions,
+                load_time,
+                keywords_buffer,
+                backend_kind,
+                effective_runtime,
+                fallback_used,
+            ))?
         );
     } else {
         for detection in detections {
@@ -2116,6 +2301,25 @@ fn print_detections(
         }
     }
     Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn detections_report(
+    detections: Vec<Detection>,
+    actions: Vec<ActionResult>,
+    load_time: Duration,
+    keywords_buffer: &str,
+    backend_kind: &str,
+    effective_runtime: Runtime,
+    fallback_used: bool,
+) -> Value {
+    json!({
+        "model_load_milliseconds": load_time.as_millis() as u64,
+        "keywords_buffer": keywords_buffer,
+        "detections": detections,
+        "actions": actions,
+        "backend": {"kind": backend_kind, "effective_runtime": effective_runtime, "fallback_used": fallback_used}
+    })
 }
 
 fn run_daemon(config: &Config, paths: &AppPaths) -> Result<()> {

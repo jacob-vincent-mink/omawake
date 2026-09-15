@@ -257,7 +257,7 @@ fn isolated_child_protocol_captures_success_failure_and_malformed_output() {
     let success = paths.runtime_dir.join("success.sh");
     fs::write(
         &success,
-        "#!/bin/sh\nprintf '%s' '{\"required\":true,\"prepared\":true,\"directory\":null,\"artifacts\":1,\"bytes\":8,\"elapsed_milliseconds\":1.0}'\n",
+        "#!/bin/sh\nfor response do :; done\nprintf '%s' '{\"required\":true,\"prepared\":true,\"directory\":null,\"artifacts\":1,\"bytes\":8,\"elapsed_milliseconds\":1.0}' > \"$response\"\n",
     )
     .unwrap();
     fs::set_permissions(&success, fs::Permissions::from_mode(0o755)).unwrap();
@@ -266,6 +266,7 @@ fn isolated_child_protocol_captures_success_failure_and_malformed_output() {
         &paths.config_file,
         library_path,
         "NPU",
+        &paths.runtime_dir,
         &success,
     )
     .unwrap()
@@ -278,26 +279,36 @@ fn isolated_child_protocol_captures_success_failure_and_malformed_output() {
     }
 
     let failure = paths.runtime_dir.join("failure.sh");
-    fs::write(&failure, "#!/bin/sh\necho provider-failed >&2\nexit 7\n").unwrap();
+    fs::write(
+        &failure,
+        "#!/bin/sh\necho provider-stdout\necho provider-failed >&2\nexit 7\n",
+    )
+    .unwrap();
     fs::set_permissions(&failure, fs::Permissions::from_mode(0o755)).unwrap();
     match isolated_attempt_with_executable(
         &candidate,
         &paths.config_file,
         library_path,
         "NPU",
+        &paths.runtime_dir,
         &failure,
     )
     .unwrap()
     {
         AttemptOutcome::Failed { status, stderr, .. } => {
             assert!(status.contains('7'));
+            assert!(stderr.contains("provider-stdout"));
             assert!(stderr.contains("provider-failed"));
         }
         AttemptOutcome::Complete(_) => panic!("failed child was reported as successful"),
     }
 
     let malformed = paths.runtime_dir.join("malformed.sh");
-    fs::write(&malformed, "#!/bin/sh\nprintf not-json\n").unwrap();
+    fs::write(
+        &malformed,
+        "#!/bin/sh\nfor response do :; done\nprintf not-json > \"$response\"\n",
+    )
+    .unwrap();
     fs::set_permissions(&malformed, fs::Permissions::from_mode(0o755)).unwrap();
     assert!(
         isolated_attempt_with_executable(
@@ -305,6 +316,7 @@ fn isolated_child_protocol_captures_success_failure_and_malformed_output() {
             &paths.config_file,
             library_path,
             "NPU",
+            &paths.runtime_dir,
             &malformed,
         )
         .is_err()
@@ -326,6 +338,7 @@ fn isolated_child_protocol_terminates_a_stalled_child() {
         &paths.config_file,
         std::ffi::OsStr::new(""),
         "NPU",
+        &paths.runtime_dir,
         &stalled,
         Duration::from_millis(1),
     ) {

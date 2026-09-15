@@ -1691,6 +1691,124 @@ fn detection_output_supports_human_and_diagnostic_json_forms() {
 }
 
 #[test]
+fn native_json_worker_keeps_stdout_parseable_and_forwards_native_diagnostics() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let paths = test_paths("native-json-success");
+    fs::create_dir_all(&paths.runtime_dir).unwrap();
+    let executable = paths.runtime_dir.join("native-json-success.sh");
+    fs::write(
+        &executable,
+        "#!/bin/sh\nfor response do :; done\nprintf '[ERROR] native provider diagnostic\\n'\nprintf 'native warning\\n' >&2\nprintf '%s' '{\"ok\":true}' > \"$response\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let mut output = Vec::new();
+    let mut diagnostics = Vec::new();
+    run_native_json_worker_with(
+        &paths.config_file,
+        &paths,
+        &NativeJsonRequest::Benchmark {
+            audio: vec![PathBuf::from("probe.wav")],
+            warmup: 1,
+            iterations: 2,
+        },
+        &executable,
+        &mut output,
+        &mut diagnostics,
+    )
+    .unwrap();
+
+    let parsed: Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(parsed, json!({"ok": true}));
+    let output = String::from_utf8(output).unwrap();
+    assert!(!output.contains("native provider diagnostic"));
+    let diagnostics = String::from_utf8(diagnostics).unwrap();
+    assert!(diagnostics.contains("native provider diagnostic"));
+    assert!(diagnostics.contains("native warning"));
+    assert_eq!(
+        fs::read_dir(&paths.runtime_dir)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".native-json-")
+            })
+            .count(),
+        0
+    );
+}
+
+#[test]
+fn native_json_worker_reports_failure_without_polluting_stdout() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let paths = test_paths("native-json-failure");
+    fs::create_dir_all(&paths.runtime_dir).unwrap();
+    let executable = paths.runtime_dir.join("native-json-failure.sh");
+    fs::write(
+        &executable,
+        "#!/bin/sh\nprintf 'provider stdout failure\\n'\nprintf 'provider stderr failure\\n' >&2\nexit 7\n",
+    )
+    .unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let mut output = Vec::new();
+    let mut diagnostics = Vec::new();
+    let error = run_native_json_worker_with(
+        &paths.config_file,
+        &paths,
+        &NativeJsonRequest::FileTest {
+            audio: PathBuf::from("probe.wav"),
+            execute: false,
+        },
+        &executable,
+        &mut output,
+        &mut diagnostics,
+    )
+    .unwrap_err();
+    assert!(output.is_empty());
+    assert!(error.to_string().contains("worker failed"));
+    assert!(error.to_string().contains('7'));
+    let diagnostics = String::from_utf8(diagnostics).unwrap();
+    assert!(diagnostics.contains("provider stdout failure"));
+    assert!(diagnostics.contains("provider stderr failure"));
+}
+
+#[test]
+fn native_json_requests_only_wrap_inference_commands_with_json_output() {
+    assert!(matches!(
+        native_json_request(&TopCommand::Benchmark {
+            audio: vec![PathBuf::from("probe.wav")],
+            warmup: 1,
+            iterations: 1,
+        }),
+        Some(NativeJsonRequest::Benchmark { .. })
+    ));
+    assert!(matches!(
+        native_json_request(&TopCommand::Test {
+            audio: Some(PathBuf::from("probe.wav")),
+            seconds: None,
+            execute: false,
+            json: true,
+        }),
+        Some(NativeJsonRequest::FileTest { .. })
+    ));
+    assert!(
+        native_json_request(&TopCommand::Test {
+            audio: Some(PathBuf::from("probe.wav")),
+            seconds: None,
+            execute: false,
+            json: false,
+        })
+        .is_none()
+    );
+}
+
+#[test]
 fn file_benchmark_reports_warmups_iterations_percentiles_and_rtf() {
     let paths = [PathBuf::from("short.wav"), PathBuf::from("long.wav")];
     let base = Instant::now();
@@ -3136,6 +3254,7 @@ fn hidden_inventory_command_uses_real_ort_when_available() {
         config: Some(paths.config_file.clone()),
         command: TopCommand::ModelCachePrepare {
             candidate: serde_json::to_string(&Config::default()).unwrap(),
+            response: paths.runtime_dir.join(".model-cache-test.json"),
         },
     };
     assert!(

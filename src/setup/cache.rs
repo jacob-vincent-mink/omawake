@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::thread;
@@ -120,12 +120,18 @@ fn prepare_with(
     Ok(Some(report))
 }
 
-fn isolated(config: &Config, config_path: &Path, _paths: &AppPaths) -> Result<CacheReport> {
+fn isolated(config: &Config, config_path: &Path, paths: &AppPaths) -> Result<CacheReport> {
     isolated_with(
         config,
         config_path,
         |candidate, config_path, library_path, device| {
-            isolated_attempt(candidate, config_path, library_path, device)
+            isolated_attempt(
+                candidate,
+                config_path,
+                library_path,
+                device,
+                &paths.runtime_dir,
+            )
         },
     )
 }
@@ -163,8 +169,12 @@ fn retry_signaled(
             AttemptOutcome::Complete(report) => return Ok(report),
             AttemptOutcome::Failed {
                 signal: Some(signal),
+                stderr,
                 ..
             } if attempt < MAX_SIGNAL_ATTEMPTS => {
+                if !stderr.is_empty() {
+                    eprint!("{stderr}");
+                }
                 eprintln!(
                     "OpenVINO {device} model-cache child attempt {attempt}/{MAX_SIGNAL_ATTEMPTS} exited on signal {signal}; retrying attempt {}/{} against the partial cache",
                     attempt + 1,
@@ -198,12 +208,14 @@ fn isolated_attempt(
     config_path: &Path,
     library_path: &std::ffi::OsStr,
     device: &str,
+    response_directory: &Path,
 ) -> Result<AttemptOutcome> {
     isolated_attempt_with_executable(
         candidate,
         config_path,
         library_path,
         device,
+        response_directory,
         &std::env::current_exe()?,
     )
 }
@@ -213,6 +225,7 @@ fn isolated_attempt_with_executable(
     config_path: &Path,
     library_path: &std::ffi::OsStr,
     device: &str,
+    response_directory: &Path,
     executable: &Path,
 ) -> Result<AttemptOutcome> {
     isolated_attempt_with_timeout(
@@ -220,6 +233,7 @@ fn isolated_attempt_with_executable(
         config_path,
         library_path,
         device,
+        response_directory,
         executable,
         PREPARE_TIMEOUT,
     )
@@ -230,15 +244,18 @@ fn isolated_attempt_with_timeout(
     config_path: &Path,
     library_path: &std::ffi::OsStr,
     device: &str,
+    response_directory: &Path,
     executable: &Path,
     timeout: Duration,
 ) -> Result<AttemptOutcome> {
+    let response = crate::native_worker::ResponseFile::create(response_directory, "model-cache")?;
     let mut command = Command::new(executable);
     command
         .arg("--config")
         .arg(config_path)
         .arg("__model-cache-prepare")
         .arg(serde_json::to_string(&candidate)?)
+        .arg(response.path())
         .env("LD_LIBRARY_PATH", library_path)
         .env("ORT_DISABLE_TELEMETRY", "1")
         .stdout(Stdio::piped())
@@ -289,12 +306,22 @@ fn isolated_attempt_with_timeout(
         return Ok(AttemptOutcome::Failed {
             status: status.to_string(),
             signal: exit_signal(&status),
-            stderr: String::from_utf8_lossy(&stderr).into_owned(),
+            stderr: child_diagnostics(&stdout, &stderr),
         });
     }
-    let report = serde_json::from_slice(&stdout)
+    let mut diagnostics = std::io::stderr().lock();
+    diagnostics.write_all(&stdout)?;
+    diagnostics.write_all(&stderr)?;
+    let report = response
+        .read_json()
         .with_context(|| format!("read isolated OpenVINO {device} model-cache report"))?;
     Ok(AttemptOutcome::Complete(report))
+}
+
+fn child_diagnostics(stdout: &[u8], stderr: &[u8]) -> String {
+    let mut diagnostics = String::from_utf8_lossy(stdout).into_owned();
+    diagnostics.push_str(&String::from_utf8_lossy(stderr));
+    diagnostics
 }
 
 #[cfg(unix)]
