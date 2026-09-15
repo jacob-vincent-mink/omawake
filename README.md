@@ -59,6 +59,22 @@ omawake resume
 omawake stop
 ```
 
+Use `evaluate` for reproducible accuracy and false-activation measurements over
+a labeled WAV corpus:
+
+```sh
+omawake evaluate path/to/manifest.json --threshold 0.20,0.25,0.30 > report.json
+```
+
+The manifest keeps audio paths relative to its own directory, pins every file by
+SHA-256, and may label whole clips or timestamped wake-word events. Expected
+keyword IDs must be enabled in the selected config. Omawake loads a fresh
+detector and runs every clip once for each threshold, then reports precision,
+recall, F1, negative-audio false activations per hour, runtime identity, timing,
+and deterministic prediction fingerprints. See the versioned
+[manifest schema](schemas/evaluation-manifest-v1.schema.json) and
+[report schema](schemas/evaluation-report-v1.schema.json).
+
 The recognizer remains loaded while the daemon releases the microphone before
 an action and reopens it after the configured cooldown. Actions do not pass
 through a shell.
@@ -125,6 +141,18 @@ binary has no link-time dependency on ONNX Runtime. A source build needs an ORT
 
 The supported GigaSpeech Zipformer model was trained with the icefall keyword
 spotting recipe introduced by [icefall PR #1428](https://github.com/k2-fsa/icefall/pull/1428).
+The [publisher's ModelScope card](https://www.modelscope.cn/models/pkufool/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/summary)
+declares the model weights to be Apache-2.0. Omawake records that declaration as
+`publisher-declared`, because the upstream sherpa model index and GitHub release
+do not carry a separate model-specific license notice.
+
+The archive also contains two probe recordings derived from the CC BY 4.0
+[LibriSpeech test-clean corpus](https://www.openslr.org/12/). The publisher
+converted and renamed utterance `1089-134686-0002` to `test_wavs/0.wav` and
+utterance `1221-135766-0001` to `test_wavs/1.wav`. Their license and attribution
+remain separate from the model weights; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 Omawake's decoder is an independent Rust implementation of the algorithm
 published in that work: the pinned
 [`keywords_search`](https://github.com/k2-fsa/icefall/blob/aac7df064a6d1529f3bf4acccc6c550bd260b7b3/egs/librispeech/ASR/pruned_transducer_stateless2/beam_search.py#L962)
@@ -133,6 +161,6 @@ behavior and
 automaton specification. It does not copy or compile sherpa implementation
 source.
 
-Omawake and ONNX Runtime are MIT licensed. Icefall is Apache-2.0, and the
-pinned model archive's publisher README identifies the model as Apache License
-2.0; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Omawake and ONNX Runtime are MIT licensed. Icefall is Apache-2.0. The model
+weights carry a publisher-declared Apache-2.0 designation, while the probe audio
+remains CC BY 4.0.

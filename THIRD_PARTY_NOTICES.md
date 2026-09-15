@@ -7,10 +7,27 @@ under its MIT license. Each archive carries ONNX Runtime's `LICENSE` and
 `ThirdPartyNotices.txt`. Optional OpenVINO and CUDA provider packages retain
 their own upstream notices.
 
-The separately installed GigaSpeech Zipformer keyword model is marked
-`Apache License 2.0` in the publisher README contained in Omawake's pinned
-archive (`sha256:f170013b4716e41b62b9bfd809687c207cef798ef9bc6534d524e17af9b6561a`).
-Omawake does not relicense the model.
+The separately installed GigaSpeech Zipformer keyword model weights are marked
+`Apache License 2.0` in the README supplied by the
+[ModelScope publisher](https://www.modelscope.cn/models/pkufool/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01/summary).
+Omawake records this as a publisher declaration: the upstream sherpa model
+index and GitHub release do not include a separate model-specific license
+notice. The pinned archive has SHA-256
+`f170013b4716e41b62b9bfd809687c207cef798ef9bc6534d524e17af9b6561a`.
+Omawake does not relicense or redistribute the model.
+
+The archive's two probe WAVs are derived from the
+[LibriSpeech ASR corpus, SLR12](https://www.openslr.org/12/), prepared by Vassil
+Panayotov with the assistance of Daniel Povey and distributed under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/):
+
+- `test_wavs/0.wav` is test-clean utterance `1089-134686-0002`.
+- `test_wavs/1.wav` is test-clean utterance `1221-135766-0001`.
+
+The publisher converted the original LibriSpeech recordings to 16 kHz PCM WAV
+and renamed them in the model archive. Those format and filename changes do not
+change the recordings' CC BY 4.0 terms. Omawake downloads the WAVs as part of
+the separately installed archive and does not include them in release archives.
 
 The algorithmic reference for Omawake's independently authored keyword search
 is [icefall PR #1428](https://github.com/k2-fsa/icefall/pull/1428), specifically

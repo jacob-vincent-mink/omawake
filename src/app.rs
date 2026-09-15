@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
@@ -14,6 +15,7 @@ use crate::audio::{AudioEvent, Capture, input_devices};
 use crate::backend::{Fallback, Runtime, supported_capabilities};
 use crate::config::{Config, WakeWord};
 use crate::engine::{ActionResult, Detection, Detector, wav_duration};
+use crate::evaluation::{self, EvaluationContext, RuntimeIdentity};
 use crate::keyword::{KeywordCompiler, validate_wake_words};
 use crate::paths::AppPaths;
 use crate::protocol::{Command, Request, Response, ResultPayload};
@@ -75,6 +77,18 @@ enum TopCommand {
         #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u32).range(1..))]
         iterations: u32,
     },
+    /// Evaluate labeled WAV files and print a versioned accuracy report as JSON.
+    Evaluate {
+        #[arg(value_name = "MANIFEST")]
+        manifest: PathBuf,
+        #[arg(
+            long = "threshold",
+            value_delimiter = ',',
+            value_name = "VALUE",
+            value_parser = parse_evaluation_threshold
+        )]
+        thresholds: Vec<f32>,
+    },
     Status {
         #[arg(long)]
         json: bool,
@@ -117,6 +131,10 @@ enum NativeJsonRequest {
         audio: Vec<PathBuf>,
         warmup: u32,
         iterations: u32,
+    },
+    Evaluate {
+        manifest: PathBuf,
+        thresholds: Vec<f32>,
     },
 }
 
@@ -276,6 +294,13 @@ fn native_json_request(command: &TopCommand) -> Option<NativeJsonRequest> {
             warmup: *warmup,
             iterations: *iterations,
         }),
+        TopCommand::Evaluate {
+            manifest,
+            thresholds,
+        } => Some(NativeJsonRequest::Evaluate {
+            manifest: manifest.clone(),
+            thresholds: thresholds.clone(),
+        }),
         _ => None,
     }
 }
@@ -357,6 +382,10 @@ fn execute_native_json(
             warmup,
             iterations,
         } => file_benchmark_report(config, paths, &audio, warmup, iterations),
+        NativeJsonRequest::Evaluate {
+            manifest,
+            thresholds,
+        } => evaluation_report(config, paths, &manifest, thresholds),
     }
 }
 
@@ -448,6 +477,14 @@ where
             warmup,
             iterations,
         } => run_file_benchmark(&config, &paths, &audio, warmup, iterations),
+        TopCommand::Evaluate {
+            manifest,
+            thresholds,
+        } => {
+            let report = evaluation_report(&config, &paths, &manifest, thresholds)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(())
+        }
         TopCommand::Test {
             audio: Some(audio),
             execute,
@@ -538,6 +575,7 @@ fn command_uses_engine(command: &TopCommand) -> bool {
     matches!(
         command,
         TopCommand::Benchmark { .. }
+            | TopCommand::Evaluate { .. }
             | TopCommand::Test { audio: Some(_), .. }
             | TopCommand::Test {
                 seconds: Some(_),
@@ -1337,7 +1375,7 @@ fn choose_model(
     choose_model_with(paths, active_model, |items, preferred| {
         wizard::select(
             "Wake-word model",
-            "● active · ○ installed · verified catalog models can be downloaded",
+            "● active · ○ installed · downloadable catalog models can be installed",
             items,
             preferred,
         )
@@ -1976,6 +2014,64 @@ fn parse_fallback(value: &str) -> Result<Fallback> {
         "cpu" => Ok(Fallback::Cpu),
         _ => bail!("backend fallback must be error or cpu"),
     }
+}
+
+fn parse_evaluation_threshold(value: &str) -> Result<f32, String> {
+    let threshold = value
+        .parse::<f32>()
+        .map_err(|_| "threshold must be a number between 0 and 1".to_owned())?;
+    if !threshold.is_finite() || !(0.0..=1.0).contains(&threshold) {
+        return Err("threshold must be a finite number between 0 and 1".into());
+    }
+    Ok(threshold)
+}
+
+fn evaluation_report(
+    config: &Config,
+    paths: &AppPaths,
+    manifest_path: &Path,
+    thresholds: Vec<f32>,
+) -> Result<Value> {
+    let enabled_keywords = config
+        .wake_words
+        .iter()
+        .filter(|keyword| keyword.enabled)
+        .map(|keyword| keyword.id.clone())
+        .collect::<BTreeSet<_>>();
+    let prepared = evaluation::load_manifest(manifest_path, &enabled_keywords)?;
+    let thresholds = evaluation::normalize_thresholds(thresholds, config.model.keywords_threshold)?;
+    let context = EvaluationContext {
+        config_sha256: evaluation::sha256_bytes(&serde_json::to_vec(config)?),
+        model_name: config.model.name.clone(),
+        model_directory: config.model_directory(paths).display().to_string(),
+        keyword_score: config.model.keywords_score,
+        application_version: env!("CARGO_PKG_VERSION").into(),
+    };
+    let report = evaluation::evaluate_with(
+        &prepared,
+        &thresholds,
+        context,
+        |threshold| {
+            let mut candidate = config.clone();
+            candidate.model.keywords_threshold = threshold;
+            Detector::load(&candidate, paths)
+        },
+        |detector, path| detector.detect_file(path),
+        |detector| {
+            let (placement_verified, placement_evidence) =
+                runtime_placement(detector.effective_runtime);
+            Ok(RuntimeIdentity {
+                backend_kind: detector.backend_kind.into(),
+                requested_runtime: runtime_name(config.backend.runtime).into(),
+                requested_device: config.backend.canonical_device()?,
+                effective_runtime: runtime_name(detector.effective_runtime).into(),
+                fallback_used: detector.fallback_used,
+                placement_verified,
+                placement_evidence: placement_evidence.into(),
+            })
+        },
+    )?;
+    Ok(serde_json::to_value(report)?)
 }
 
 #[derive(Debug, Serialize)]

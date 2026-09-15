@@ -502,7 +502,7 @@ fn guided_model_catalog_exposes_status_metadata_and_selection() {
         assert_eq!(preferred, 0);
         assert!(items[0].enabled);
         assert!(items[0].label.contains("download required"));
-        assert!(items[0].detail.contains("Apache-2.0 (verified)"));
+        assert!(items[0].detail.contains("Apache-2.0 (publisher-declared)"));
         Ok(Some(0))
     })
     .unwrap();
@@ -740,6 +740,13 @@ fn command_line_surface_parses_representative_forms() {
         ],
         vec!["omawake", "wake-word", "list", "--json"],
         vec!["omawake", "audio-devices", "--json"],
+        vec![
+            "omawake",
+            "evaluate",
+            "manifest.json",
+            "--threshold",
+            "0.2,0.4",
+        ],
         vec!["omawake", "daemon"],
         vec!["omawake", "pause"],
         vec!["omawake", "resume"],
@@ -775,6 +782,10 @@ fn command_line_surface_parses_representative_forms() {
     assert!(Cli::try_parse_from(["omawake", "benchmark"]).is_err());
     assert!(Cli::try_parse_from(["omawake", "benchmark", "--iterations", "0", "a.wav"]).is_err());
     assert!(
+        Cli::try_parse_from(["omawake", "evaluate", "manifest.json", "--threshold", "1.1"])
+            .is_err()
+    );
+    assert!(
         Cli::try_parse_from(["omawake", "setup", "systemd", "--status", "--uninstall"]).is_err()
     );
     assert!(Cli::try_parse_from(["omawake", "setup", "all", "--no-start"]).is_err());
@@ -782,6 +793,7 @@ fn command_line_surface_parses_representative_forms() {
         ["omawake", "test", "--audio", "input.wav"].as_slice(),
         ["omawake", "test", "--seconds", "1"].as_slice(),
         ["omawake", "benchmark", "input.wav"].as_slice(),
+        ["omawake", "evaluate", "manifest.json"].as_slice(),
         ["omawake", "daemon"].as_slice(),
     ] {
         assert!(command_uses_engine(
@@ -1778,6 +1790,13 @@ fn native_json_worker_reports_failure_without_polluting_stdout() {
 
 #[test]
 fn native_json_requests_only_wrap_inference_commands_with_json_output() {
+    assert!(matches!(
+        native_json_request(&TopCommand::Evaluate {
+            manifest: PathBuf::from("manifest.json"),
+            thresholds: vec![0.25],
+        }),
+        Some(NativeJsonRequest::Evaluate { .. })
+    ));
     assert!(matches!(
         native_json_request(&TopCommand::Benchmark {
             audio: vec![PathBuf::from("probe.wav")],
@@ -3197,6 +3216,36 @@ fn real_model_runs_through_top_level_file_and_benchmark_commands_when_available(
     }];
     config.save(&paths.config_file).unwrap();
     let audio = model.join("test_wavs/0.wav");
+    let evaluation_dir = paths.state_dir.join("evaluation");
+    fs::create_dir_all(&evaluation_dir).unwrap();
+    let evaluation_audio = evaluation_dir.join("light-up.wav");
+    fs::copy(&audio, &evaluation_audio).unwrap();
+    let manifest = evaluation_dir.join("manifest.json");
+    fs::write(
+        &manifest,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "schema_version": 1,
+            "corpus": {
+                "id": "publisher-smoke",
+                "version": "1",
+                "license_spdx": "CC-BY-4.0",
+                "source": "OMAWAKE_TEST_MODEL"
+            },
+            "clips": [{
+                "id": "light-up",
+                "path": "light-up.wav",
+                "sha256": crate::evaluation::sha256_bytes(&fs::read(&evaluation_audio).unwrap()),
+                "split": "smoke",
+                "expected": [{
+                    "keyword_id": "light-up",
+                    "start_ms": 2800,
+                    "end_ms": 3400
+                }]
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
 
     for args in [
         vec![
@@ -3219,6 +3268,15 @@ fn real_model_runs_through_top_level_file_and_benchmark_commands_when_available(
             "1".into(),
             audio.display().to_string(),
         ],
+        vec![
+            "omawake".to_owned(),
+            "--config".into(),
+            paths.config_file.display().to_string(),
+            "evaluate".into(),
+            manifest.display().to_string(),
+            "--threshold".into(),
+            "0.25".into(),
+        ],
     ] {
         let cli = Cli::try_parse_from(args).unwrap();
         run_with_paths_services_and_loader(
@@ -3230,6 +3288,17 @@ fn real_model_runs_through_top_level_file_and_benchmark_commands_when_available(
         )
         .unwrap();
     }
+    let report = execute_native_json(
+        &config,
+        &paths,
+        NativeJsonRequest::Evaluate {
+            manifest,
+            thresholds: vec![0.25],
+        },
+    )
+    .unwrap();
+    assert_eq!(report["schema_version"], 1);
+    assert_eq!(report["thresholds"][0]["summary"]["true_positives"], 1);
 }
 
 #[test]

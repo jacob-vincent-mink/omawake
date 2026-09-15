@@ -10,6 +10,8 @@ fn every_model_references_a_backend() {
         );
         assert_eq!(model.archive_sha256.len(), 64);
         assert!(!model.required_files.is_empty());
+        assert!(model.license_url.starts_with("https://"));
+        assert!(model.source_url.starts_with("https://"));
     }
 }
 
@@ -17,6 +19,7 @@ fn every_model_references_a_backend() {
 fn lookup_and_activation_populate_config() {
     assert!(model("missing").is_none());
     let spec = model("sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01").unwrap();
+    assert_eq!(spec.license_status, "publisher-declared");
     let mut config = Config::default();
     config.backend.kind = "other".into();
     config.model.directory = "/custom".into();

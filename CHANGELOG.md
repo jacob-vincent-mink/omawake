@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added a versioned, backend-neutral `evaluate` command for reproducible corpus
+  accuracy, false-activation, timing, and runtime-placement reports.
+- Corrected the catalog model license status to publisher-declared and recorded
+  the separate CC BY 4.0 provenance of its LibriSpeech probe audio.
+
 ## 0.0.1-rc.2 - 2026-09-15
 
 - Added an independent Rust implementation of the published icefall

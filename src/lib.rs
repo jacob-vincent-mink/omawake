@@ -4,6 +4,7 @@ pub mod backend;
 pub mod catalog;
 pub mod config;
 pub mod engine;
+pub mod evaluation;
 pub mod keyword;
 mod native_worker;
 pub mod paths;

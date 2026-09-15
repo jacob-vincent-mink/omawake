@@ -109,6 +109,8 @@ fn spec(archive_bytes: &[u8], url: &str) -> &'static ModelSpec {
         description: "test model",
         license: "MIT",
         license_status: "verified",
+        license_url: "https://opensource.org/license/mit",
+        source_url: "https://example.invalid/tiny",
         downloadable: true,
         archive_url: leak(url.to_owned()),
         archive_size: archive_bytes.len() as u64,
