@@ -72,3 +72,24 @@ parity, device placement, head accuracy, cache preparation, and cold/hot timing.
 The existing transcription-provider accelerator results do not transfer
 implicitly to this encoder/head pipeline. This work remains on a feature branch
 and does not block a release of the existing transcription path.
+
+## Guided dataset collection follow-up
+
+The onboarding flow now creates the training dataset from microphone prompts:
+five initial positive examples are reused, followed by five more positives and
+ten other-speech examples, split 6/2/2 per class. Tests inject audio at the
+capture boundary and exercise the complete collection, training, final review,
+activation, and optional retention transaction. They also cover cancellation
+before recording, during negative recording, and at final Apply; encoder failure;
+unseparable examples; and concurrent config edits. Automated tests do not open
+the microphone. The PTY regression verifies the recognition-method selection
+alongside transcript review and Apply/cancel.
+
+At this follow-up, all 291 tests passed with 90.18% line coverage; formatting and
+Clippy passed. The existing real CPU retained-dataset preview was rerun using the
+released audio.cpp library from the local release-verification tree (the former
+`/usr/lib/omawake/libaudiocpp.so` installation was no longer present). It again
+reported CPU execution, zero misses and zero false activations on the four
+held-out clips, with minimum margin 0.35148865. This remains a small file-based
+proof, not qualification of the twenty-recording enrollment target or a real
+microphone accuracy measurement.

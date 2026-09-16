@@ -22,8 +22,10 @@ drafts. The final integration uses the existing safe OpenVINO Rust wrapper;
 all native and numerical claims were independently checked by the integrating
 worker. Unverified draft implementations were not imported.
 
-The trained CLI currently takes a labeled dataset or retained training session.
-The guided terminal flow covers transcript onboarding; a full guided
-positive/negative/calibration/validation recording flow is a follow-up usability
-step for the experimental trained mode. No automatic global backend change
-reinterprets already enrolled words.
+The guided terminal flow now collects a complete labeled dataset: it reuses
+transcript examples, tops up to ten wake-phrase recordings, and asks for ten
+other-speech recordings. It reserves separate calibration and held-out clips,
+trains, then asks for Apply after showing validation. Cancellation and failures
+preserve existing config and remove temporary recordings. The dataset/reuse CLI
+remains available for repeatable file-based evaluation. No automatic global
+backend change reinterprets already enrolled words.

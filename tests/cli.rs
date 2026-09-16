@@ -1081,6 +1081,7 @@ fn onboarding_pty_reviews_spellings_and_cancels_without_mutation() {
         steps.extend([
             ("Recognition engine", "\x1b[B\r"),
             ("Heard:", "\x1b[A\r"),
+            ("Recognition method", "\r"),
             ("Enrollment recordings", "\x1b[B\r"),
             ("Apply wake-word onboarding", final_keys),
         ]);

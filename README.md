@@ -131,8 +131,11 @@ An experimental frozen-encoder head can handle phrases that transcription does
 not represent reliably. Transcript words and trained words can run together;
 compatible heads share an encoder. Applying a trained head preserves aliases and
 pins its model profile, so changing the default backend does not erase it.
-Training currently requires a labeled WAV manifest with separate training,
-calibration, and held-out examples. The first implementation uses the direct
+Choose **Train this wake phrase** after reviewing spellings. Onboarding reuses
+your examples, collects at least 10 wake-phrase and 10 other-speech recordings,
+and prepares separate training, calibration, and held-out examples automatically.
+You review validation results before Apply; no hand-written dataset is needed.
+The first implementation uses the direct
 OpenVINO Whisper encoder; **CPU has a functional file-based proof**. Accelerator
 qualification and broader background-speech accuracy testing are still pending.
 See [wake-word enrollment](docs/architecture/WAKE-WORD-ENROLLMENT.md) for commands,

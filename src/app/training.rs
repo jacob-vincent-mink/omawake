@@ -41,13 +41,27 @@ pub(super) fn run(args: TrainArgs, config: Config, path: &Path, paths: &AppPaths
 }
 fn run_with(
     args: TrainArgs,
-    mut config: Config,
+    config: Config,
     path: &Path,
     paths: &AppPaths,
     load: impl FnOnce(&Config, &AppPaths, Arc<AtomicBool>) -> Result<Box<dyn EmbeddingSession>>,
 ) -> Result<()> {
-    validate_wake_words(&config.wake_words)?;
     let original = config_snapshot(path)?;
+    run_reviewed(args, config, path, paths, original, load, |_| Ok(()))
+}
+
+/// Review the validated candidate before any artifact, recording, or config is saved.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn run_reviewed(
+    args: TrainArgs,
+    mut config: Config,
+    path: &Path,
+    paths: &AppPaths,
+    original: Option<Vec<u8>>,
+    load: impl FnOnce(&Config, &AppPaths, Arc<AtomicBool>) -> Result<Box<dyn EmbeddingSession>>,
+    review: impl FnOnce(&Head) -> Result<()>,
+) -> Result<()> {
+    validate_wake_words(&config.wake_words)?;
     let index = config
         .wake_words
         .iter()
@@ -134,6 +148,8 @@ fn run_with(
     let mut retained = None;
     let mut artifact_path = None;
     if args.apply {
+        review(&head)?;
+        cancellation.check()?;
         anyhow::ensure!(
             config_snapshot(path)? == original,
             "configuration changed during training; rerun with the updated configuration"
@@ -371,6 +387,47 @@ mod tests {
             "openvino-genai"
         );
         fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn review_cannot_overwrite_an_edit_made_during_onboarding_or_final_confirmation() {
+        for during_review in [false, true] {
+            let (root, paths, config, dataset) = fixture();
+            let file = root.join("candidate.toml");
+            let original = config_snapshot(&file).unwrap();
+            let mut edited = config.clone();
+            edited.wake_words[0].phrase = "Updated in another terminal".into();
+            if !during_review {
+                edited.save(&file).unwrap();
+            }
+            let result = run_reviewed(
+                args(dataset, true),
+                config,
+                &file,
+                &paths,
+                original,
+                load,
+                |head| {
+                    assert!(head.locally_validated());
+                    assert!(!paths.data_dir.join("heads").exists());
+                    if during_review {
+                        edited.save(&file)?;
+                    }
+                    Ok(())
+                },
+            );
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("configuration changed")
+            );
+            assert_eq!(
+                Config::load(&file).unwrap().wake_words[0].phrase,
+                edited.wake_words[0].phrase
+            );
+            assert!(!paths.data_dir.join("heads").exists());
+            fs::remove_dir_all(root).unwrap();
+        }
     }
     #[test]
     fn contaminated_splits_and_concurrent_edits_never_activate() {

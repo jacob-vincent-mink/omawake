@@ -73,7 +73,48 @@ Each word has a separate head. All compatible heads score the same normalized
 embedding; they do not each load another encoder. Transcript and trained words
 can coexist through separate engine groups.
 
-Prepare a JSON dataset with three independent splits. Each split needs at least
+### Guided recording and training
+
+Run `omawake word onboard agent` (or **Teach a wake word** in setup), choose a
+configured OpenVINO Whisper base.en engine, and record the phrase as prompted.
+After reviewing Whisper spellings, choose **Train this wake phrase**. CPU is the
+qualified device for this experimental path so far.
+
+Onboarding checks that the encoder loads before asking for additional samples.
+It reuses the initial five positive recordings and asks for five more, then ten
+negative recordings. Negatives are **other speech without the wake phrase**:
+alternate similar-sounding phrases with ordinary everyday sentences. Use a
+different utterance each time and vary pace and distance. Each clip should
+contain one spoken utterance; silence and clipped audio are retried.
+
+The default twenty clips are allocated before fitting:
+
+| Role | Wake phrase | Other speech |
+| --- | ---: | ---: |
+| Training | 6 | 6 |
+| Threshold calibration | 2 | 2 |
+| Held-out validation | 2 | 2 |
+
+If more than ten positives were supplied, onboarding collects the same number
+of negatives and reserves about 20% of each class for calibration and 20% for
+validation. No recording is reused between these roles. The twenty-clip count
+is an initial enrollment target, not a reliability guarantee.
+
+Choose whether to retain the recordings. Training then runs locally and shows
+held-out misses and false activations. **Apply** saves the word, reviewed aliases,
+and validated head together; Cancel leaves the existing word unchanged. An
+encoder, segmentation, or validation failure leaves it unchanged too. Collect
+a fresh, more representative dataset after addressing a failure; repeatedly
+tuning against the same held-out clips does not establish accuracy.
+
+Choosing **Keep recordings locally** retains the complete labeled dataset for
+`word train agent --reuse-recordings`. Otherwise the temporary WAVs and generated
+manifest are removed. No dataset editing, audio playback, or wake action is
+needed during guided onboarding.
+
+### File-based training
+
+For scripted experiments, prepare a JSON dataset with three independent splits. Each split needs at least
 two positive and two negative recordings; practical enrollment should include
 many more speakers, distances, speaking styles and confusable phrases. Every
 clip must contain one natural speech utterance. File paths are relative to the

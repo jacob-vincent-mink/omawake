@@ -169,28 +169,42 @@ pub(super) fn run(
     }
     enrollment::apply_aliases(&mut config.wake_words[index], &review, &accepted)?;
     validate_wake_words(&config.wake_words)?;
-    let keep = if interactive && !args.keep_recordings {
-        let items = [
+    if interactive {
+        let choices = [
             MenuItem::available(
-                "Discard recordings after onboarding",
-                "Keep the word and approved aliases; future retraining needs new samples",
+                "Use reviewed Whisper spellings",
+                "Recognize this phrase using transcript aliases",
             ),
             MenuItem::available(
-                "Keep recordings locally",
-                "Store private audio copies for adapting this word to another model",
+                "Train this wake phrase",
+                "Experimental: collect 10 wake-phrase and 10 other-speech examples; review before activation",
             ),
         ];
-        select(
-            "Enrollment recordings",
-            "Recordings never leave this machine. Retention is optional.",
-            &items,
+        let mode = select(
+            "Recognition method",
+            "Use spellings first. Train a head if transcription is not reliable enough.",
+            &choices,
             0,
         )?
-        .context("onboarding cancelled; configuration unchanged")?
-            == 1
-    } else {
-        args.keep_recordings
-    };
+        .context("onboarding cancelled; configuration unchanged")?;
+        if mode == 1 {
+            drop(detector);
+            return train_guided(
+                config,
+                index,
+                path,
+                paths,
+                original,
+                selected,
+                samples,
+                args.seconds,
+                args.keep_recordings,
+                &cancellation,
+                &NativeTrainingInteraction,
+            );
+        }
+    }
+    let keep = choose_retention(interactive, args.keep_recordings)?;
     if interactive {
         confirm(
             "Apply wake-word onboarding",
@@ -225,6 +239,207 @@ pub(super) fn run(
         }
     }
     print_result(&review, &accepted, apply, retained.as_deref(), args.json)
+}
+
+trait TrainingInteraction {
+    fn confirm(&self, title: &str, help: &str, accept: &str, cancel: &str) -> Result<()>;
+    fn record(&self, config: &Config, seconds: u64, cancel: &Cancellation) -> Result<Vec<f32>>;
+    fn retention(&self, requested: bool) -> Result<bool>;
+    fn load(
+        &self,
+        config: &Config,
+        paths: &AppPaths,
+        cancel: Arc<AtomicBool>,
+    ) -> Result<Box<dyn crate::engine::embedding_worker::EmbeddingSession>>;
+}
+struct NativeTrainingInteraction;
+impl TrainingInteraction for NativeTrainingInteraction {
+    fn confirm(&self, title: &str, help: &str, accept: &str, cancel: &str) -> Result<()> {
+        confirm(title, help, accept, cancel, 0)
+    }
+    fn record(&self, config: &Config, seconds: u64, cancel: &Cancellation) -> Result<Vec<f32>> {
+        enrollment::record(config, seconds, cancel)
+    }
+    fn retention(&self, requested: bool) -> Result<bool> {
+        choose_retention(true, requested)
+    }
+    fn load(
+        &self,
+        config: &Config,
+        paths: &AppPaths,
+        cancel: Arc<AtomicBool>,
+    ) -> Result<Box<dyn crate::engine::embedding_worker::EmbeddingSession>> {
+        crate::engine::embedding_worker::load_session(config, paths, cancel)
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn train_guided(
+    config: Config,
+    index: usize,
+    path: &Path,
+    paths: &AppPaths,
+    original: Option<Vec<u8>>,
+    selected: Config,
+    mut positives: SampleSet,
+    seconds: u64,
+    keep_recordings: bool,
+    cancellation: &Cancellation,
+    ui: &impl TrainingInteraction,
+) -> Result<()> {
+    use crate::enrollment::artifact::Dataset;
+    use std::os::unix::fs::OpenOptionsExt;
+    // Check the actual encoder before asking for more microphone recordings.
+    // Onboarding aliases are only a draft until the complete operation applies.
+    drop(ui.load(
+        &selected, paths, Arc::clone(&cancellation.flag),
+    ).context("initialize training encoder; select a configured OpenVINO Whisper base.en profile for trained onboarding")?);
+    let phrase = &config.wake_words[index].phrase;
+    let total = positives.files.len().max(10);
+    ui.confirm(
+        "Collect training examples",
+        &format!(
+            "Phrase: {phrase:?}\nReuse {} wake-phrase recording(s), then collect {} more and {total} other-speech recordings.\nOther speech must NOT contain the wake phrase. Include similar-sounding phrases and everyday speech.\nSeparate recordings are reserved for calibration and validation. No actions will run.",
+            positives.files.len(),
+            total - positives.files.len()
+        ),
+        "Continue",
+        "Cancel",
+    )?;
+    let remaining = (total - positives.files.len()) as u16;
+    collect_recordings(
+        &mut positives,
+        phrase,
+        remaining,
+        seconds,
+        cancellation,
+        |title, help| ui.confirm(title, help, "Record", "Cancel"),
+        || ui.record(&selected, seconds, cancellation),
+    )?;
+    let mut negatives = SampleSet::create(paths)?;
+    collect_speech(
+        &mut negatives,
+        phrase,
+        total as u16,
+        seconds,
+        false,
+        cancellation,
+        |title, help| ui.confirm(title, help, "Record", "Cancel"),
+        || ui.record(&selected, seconds, cancellation),
+    )?;
+    let dataset: Dataset = split_recordings(&positives.files, &negatives.files)?;
+    // The manifest lives alongside the owned temporary samples and is removed
+    // with them, including on cancellation and native/training errors.
+    let manifest = positives.files[0]
+        .parent()
+        .context("missing sample directory")?
+        .join("dataset.json");
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&manifest)?;
+    serde_json::to_writer(&mut file, &dataset)?;
+    drop(file);
+    let keep = ui.retention(keep_recordings)?;
+    let id = config.wake_words[index].id.clone();
+    let action = config.wake_words[index].command.clone();
+    let phrase = phrase.clone();
+    // Keep samples alive until the shared training transaction has finished.
+    let result = training::run_reviewed(
+        training::TrainArgs {
+            id,
+            dataset: Some(manifest),
+            reuse_recordings: false,
+            engine: None,
+            apply: true,
+            keep_recordings: keep,
+            json: false,
+        },
+        config,
+        path,
+        paths,
+        original,
+        |config, paths, cancel| ui.load(config, paths, cancel),
+        |head| {
+            let v = head
+                .validation
+                .as_ref()
+                .context("missing held-out validation")?;
+            ui.confirm(
+                "Apply trained wake word",
+                &format!(
+                    "Phrase: {phrase:?}\nHeld-out positives: {}; misses: {}\nHeld-out negatives: {}; false activations: {}\nAction: {action:?}\nRetain recordings: {keep}\nThis is a local check, not a measured background false-activation rate.",
+                    v.positives, v.misses, v.negatives, v.false_activations
+                ),
+                "Apply",
+                "Cancel",
+            )
+        },
+    );
+    result.context("trained onboarding did not complete; existing configuration unchanged. Review the error before collecting a fresh dataset")
+}
+
+/// Allocate recordings by capture order before fitting: first 60% for training,
+/// next 20% for calibration, final 20% held out. Never copy a clip between roles.
+fn split_recordings(
+    positives: &[PathBuf],
+    negatives: &[PathBuf],
+) -> Result<crate::enrollment::artifact::Dataset> {
+    use crate::enrollment::artifact::{Dataset, LabeledRecording};
+    anyhow::ensure!(
+        positives.len() >= 10 && negatives.len() >= 10,
+        "guided training needs at least 10 wake-phrase and 10 other-speech recordings"
+    );
+    let mut splits = [Vec::new(), Vec::new(), Vec::new()];
+    for (files, positive) in [(positives, true), (negatives, false)] {
+        let reserved = files.len() / 5;
+        let training = files.len() - 2 * reserved;
+        for (i, audio) in files.iter().enumerate() {
+            let split = if i < training {
+                0
+            } else if i < training + reserved {
+                1
+            } else {
+                2
+            };
+            splits[split].push(LabeledRecording {
+                audio: audio.clone(),
+                positive,
+            });
+        }
+    }
+    let [training, calibration, validation] = splits;
+    Ok(Dataset {
+        training,
+        calibration,
+        validation,
+    })
+}
+
+fn choose_retention(interactive: bool, requested: bool) -> Result<bool> {
+    if interactive && !requested {
+        let items = [
+            MenuItem::available(
+                "Discard recordings after onboarding",
+                "Keep the word and approved aliases; future retraining needs new samples",
+            ),
+            MenuItem::available(
+                "Keep recordings locally",
+                "Store private audio copies for adapting this word to another model",
+            ),
+        ];
+        Ok(select(
+            "Enrollment recordings",
+            "Recordings never leave this machine. Retention is optional.",
+            &items,
+            0,
+        )?
+        .context("onboarding cancelled; configuration unchanged")?
+            == 1)
+    } else {
+        Ok(requested)
+    }
 }
 
 fn select_engine(
@@ -369,6 +584,29 @@ fn collect_recordings(
     count: u16,
     seconds: u64,
     cancellation: &Cancellation,
+    ask: impl FnMut(&str, &str) -> Result<()>,
+    record: impl FnMut() -> Result<Vec<f32>>,
+) -> Result<()> {
+    collect_speech(
+        samples,
+        phrase,
+        count,
+        seconds,
+        true,
+        cancellation,
+        ask,
+        record,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect_speech(
+    samples: &mut SampleSet,
+    phrase: &str,
+    count: u16,
+    seconds: u64,
+    positive: bool,
+    cancellation: &Cancellation,
     mut ask: impl FnMut(&str, &str) -> Result<()>,
     mut record: impl FnMut() -> Result<Vec<f32>>,
 ) -> Result<()> {
@@ -376,10 +614,26 @@ fn collect_recordings(
         loop {
             cancellation.check()?;
             ask(
-                &format!("Record example {} of {}", sample + 1, count),
                 &format!(
-                    "Say {phrase:?} naturally. Recording lasts {seconds} seconds. Vary pace and distance between examples."
+                    "Record {}example {} of {}",
+                    if positive { "" } else { "other-speech " },
+                    sample + 1,
+                    count
                 ),
+                &if positive {
+                    format!(
+                        "Say {phrase:?} naturally. Recording lasts {seconds} seconds. Vary pace and distance between examples."
+                    )
+                } else {
+                    format!(
+                        "Say one {} WITHOUT {phrase:?}. Speak naturally for one utterance; recording lasts {seconds} seconds. Use a different phrase each time.",
+                        if sample % 2 == 0 {
+                            "similar-sounding phrase"
+                        } else {
+                            "ordinary everyday phrase"
+                        }
+                    )
+                },
             )?;
             eprintln!("Recording example {}…", sample + 1);
             match record().and_then(|audio| samples.push(&audio)) {
@@ -396,6 +650,223 @@ fn collect_recordings(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::{Cell, RefCell};
+    struct TestInteraction {
+        recordings: Cell<usize>,
+        screens: RefCell<Vec<String>>,
+        cancel_at: Option<&'static str>,
+        keep: bool,
+        encoder_error: bool,
+        invalid_negatives: bool,
+    }
+    impl TrainingInteraction for TestInteraction {
+        fn confirm(&self, title: &str, help: &str, _: &str, _: &str) -> Result<()> {
+            self.screens.borrow_mut().push(format!("{title} {help}"));
+            anyhow::ensure!(self.cancel_at != Some(title), "cancelled by user");
+            Ok(())
+        }
+        fn record(&self, _: &Config, _: u64, _: &Cancellation) -> Result<Vec<f32>> {
+            let n = self.recordings.get();
+            self.recordings.set(n + 1);
+            let positive = n < 5 || self.invalid_negatives;
+            Ok(vec![
+                (0.11 + n as f32 * 0.001)
+                    * if positive { 1.0 } else { -1.0 };
+                4000
+            ])
+        }
+        fn retention(&self, requested: bool) -> Result<bool> {
+            Ok(requested || self.keep)
+        }
+        fn load(
+            &self,
+            _: &Config,
+            _: &AppPaths,
+            _: Arc<AtomicBool>,
+        ) -> Result<Box<dyn crate::engine::embedding_worker::EmbeddingSession>> {
+            anyhow::ensure!(!self.encoder_error, "encoder unavailable");
+            Ok(Box::new(crate::test_support::FakeEmbeddingSession::new(
+                "guided-encoder",
+            )))
+        }
+    }
+    fn test_interaction() -> TestInteraction {
+        TestInteraction {
+            recordings: Cell::new(0),
+            screens: RefCell::new(Vec::new()),
+            cancel_at: None,
+            keep: false,
+            encoder_error: false,
+            invalid_negatives: false,
+        }
+    }
+    fn training_fixture() -> (PathBuf, AppPaths, Config, SampleSet) {
+        let root = crate::test_support::unique_directory("guided-training", "capture");
+        let paths = crate::test_support::isolated_paths(&root);
+        let mut config = Config::default();
+        config.backend.runtime = Runtime::Openvino;
+        config.backend.kind = "openvino-genai".into();
+        config.backend.device = "cpu".into();
+        config.save(&root.join("config.toml")).unwrap();
+        let mut samples = SampleSet::create(&paths).unwrap();
+        for i in 0..5 {
+            samples.push(&vec![0.10 + i as f32 * 0.001; 4000]).unwrap();
+        }
+        (root, paths, config, samples)
+    }
+    #[test]
+    fn guided_training_reuses_samples_and_applies_only_after_review() {
+        for keep in [false, true] {
+            let (root, paths, mut config, samples) = training_fixture();
+            let file = root.join("config.toml");
+            let original = config_snapshot(&file).unwrap();
+            let mut ui = test_interaction();
+            ui.keep = keep;
+            config.wake_words[0]
+                .aliases
+                .push("reviewed spelling".into());
+            let action = config.wake_words[0].command.clone();
+            train_guided(
+                config.clone(),
+                0,
+                &file,
+                &paths,
+                original,
+                config,
+                samples,
+                3,
+                false,
+                &Cancellation::new().unwrap(),
+                &ui,
+            )
+            .unwrap();
+            assert_eq!(ui.recordings.get(), 15); // Reuse five positives, collect five more and ten negatives.
+            let saved = Config::load(&file).unwrap();
+            assert!(saved.wake_words[0].uses_trained_head());
+            assert_eq!(saved.wake_words[0].command, action);
+            assert_eq!(saved.wake_words[0].aliases, ["reviewed spelling"]);
+            let screens = ui.screens.borrow();
+            assert!(
+                screens
+                    .iter()
+                    .any(|s| s.contains("similar-sounding phrase WITHOUT"))
+            );
+            assert!(
+                screens
+                    .iter()
+                    .any(|s| s.contains("ordinary everyday phrase WITHOUT"))
+            );
+            assert!(
+                screens
+                    .last()
+                    .unwrap()
+                    .contains("Held-out positives: 2; misses: 0")
+            );
+            let sessions = enrollment::recordings(&paths, "computer").unwrap();
+            assert_eq!(sessions.len(), usize::from(keep));
+            if keep {
+                let data = crate::enrollment::artifact::Dataset::load(
+                    &sessions[0].directory.join("manifest.json"),
+                )
+                .unwrap();
+                assert_eq!(
+                    (
+                        data.training.len(),
+                        data.calibration.len(),
+                        data.validation.len()
+                    ),
+                    (12, 4, 4)
+                );
+                assert!(
+                    data.training
+                        .iter()
+                        .chain(&data.calibration)
+                        .chain(&data.validation)
+                        .all(|r| r.audio.is_file())
+                );
+            }
+            assert_eq!(
+                fs::read_dir(paths.cache_dir.join("onboarding"))
+                    .unwrap()
+                    .count(),
+                0
+            );
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+    #[test]
+    fn guided_training_cancellation_or_failure_never_saves_drafts() {
+        for case in 0..5 {
+            let (root, paths, mut config, samples) = training_fixture();
+            let file = root.join("config.toml");
+            let original = config_snapshot(&file).unwrap();
+            config.wake_words[0].aliases.push("unsaved alias".into());
+            let mut ui = test_interaction();
+            ui.keep = true;
+            match case {
+                0 => ui.cancel_at = Some("Collect training examples"),
+                1 => ui.cancel_at = Some("Record other-speech example 2 of 10"),
+                2 => ui.cancel_at = Some("Apply trained wake word"),
+                3 => ui.encoder_error = true,
+                _ => ui.invalid_negatives = true,
+            }
+            assert!(
+                train_guided(
+                    config.clone(),
+                    0,
+                    &file,
+                    &paths,
+                    original.clone(),
+                    config,
+                    samples,
+                    3,
+                    false,
+                    &Cancellation::new().unwrap(),
+                    &ui
+                )
+                .is_err()
+            );
+            assert_eq!(config_snapshot(&file).unwrap(), original);
+            assert!(!paths.data_dir.join("heads").exists());
+            assert!(
+                enrollment::recordings(&paths, "computer")
+                    .unwrap()
+                    .is_empty()
+            );
+            assert_eq!(
+                fs::read_dir(paths.cache_dir.join("onboarding"))
+                    .unwrap()
+                    .count(),
+                0
+            );
+            if case == 0 || case == 3 {
+                assert_eq!(ui.recordings.get(), 0);
+            }
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+    #[test]
+    fn generated_splits_are_balanced_disjoint_and_preserve_all_examples() {
+        for count in [10, 11, 20, 64] {
+            let pos: Vec<_> = (0..count)
+                .map(|i| PathBuf::from(format!("positive-{i}")))
+                .collect();
+            let neg: Vec<_> = (0..count)
+                .map(|i| PathBuf::from(format!("negative-{i}")))
+                .collect();
+            let d = split_recordings(&pos, &neg).unwrap();
+            let mut seen = BTreeSet::new();
+            for split in [&d.training, &d.calibration, &d.validation] {
+                assert_eq!(split.iter().filter(|r| r.positive).count(), split.len() / 2);
+                assert!(split.len() >= 4);
+                for item in split {
+                    assert!(seen.insert(&item.audio));
+                }
+            }
+            assert_eq!(seen.len(), count * 2);
+        }
+        assert!(split_recordings(&[], &[]).is_err());
+    }
     #[test]
     fn guided_recording_requires_a_terminal_before_loading_a_model() {
         if setup_is_interactive() {
