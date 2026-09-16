@@ -60,7 +60,7 @@ explicit quality/resource tradeoff review rather than inheriting these claims.
 The existing 60 synthetic positives and 15-minute clean negative set are smoke
 baselines, not continuous-listening qualification. The [broader qualification run](../benchmarks/results/2026-09-16-qualification/RESULTS.md)
 extends multi-speaker, adverse, negative and offline VAD evidence. Real-room
-recordings and idle-power qualification remain outstanding W01 work. HIP remains unqualified here. W04 compatibility filtering and W06 device qualification remain incomplete.
+recordings and idle-power qualification remain outstanding W01 work. HIP remains unqualified here. W04 compatibility filtering is implemented; W06 device qualification remains partial.
 Provider-family checks and installer guards are now documented in
 [installer protections](INSTALLER-PROTECTIONS.md).
 
@@ -88,3 +88,6 @@ GPU/NPU checks and remaining promotion gates.
 [GB10 CUDA qualification](../benchmarks/results/2026-09-16-cuda/RESULTS.md)
 records current-code ARM64/CUDA corpus checks, placement and resource evidence.
 HIP remains pending because the maintainer has no test hardware.
+
+[Completion tracker](COMPLETION.md) records the approved remaining sequence,
+current acceptance status and external evidence gates.
