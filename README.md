@@ -200,3 +200,11 @@ Omawake is MIT licensed. audio.cpp is Apache-2.0. Moonshine Streaming Tiny and
 Silero VAD are MIT licensed. The optional OpenAI Whisper `base.en` weights and
 Intel OpenVINO conversion are Apache-2.0; their required notices are written
 beside every installed model profile.
+
+## Audio devices
+
+Run `omawake setup audio` to select and test the application’s audio device.
+Pinned routing requires PipeWire’s `pw-dump` and `pw-record` (Omawake) or
+`pw-play` (Omaspeak), supplied by `pipewire` and `pipewire-audio` on Arch.
+See [Audio device selection](docs/AUDIO-DEVICES.md) for configuration,
+service restart behavior, discovery JSON, and disconnect recovery.

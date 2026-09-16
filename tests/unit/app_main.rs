@@ -3218,7 +3218,10 @@ fn top_level_audio_device_dispatch_uses_injected_enumerator() {
         run_with_paths_and_services(
             Cli {
                 config: Some(paths.config_file.clone()),
-                command: TopCommand::AudioDevices { json },
+                command: TopCommand::AudioDevices {
+                    json,
+                    detailed: false,
+                },
             },
             paths.clone(),
             |_, _| unreachable!(),
@@ -3230,7 +3233,10 @@ fn top_level_audio_device_dispatch_uses_injected_enumerator() {
         run_with_paths_and_services(
             Cli {
                 config: Some(paths.config_file.clone()),
-                command: TopCommand::AudioDevices { json: false },
+                command: TopCommand::AudioDevices {
+                    json: false,
+                    detailed: false
+                },
             },
             paths,
             |_, _| unreachable!(),
@@ -3955,4 +3961,51 @@ fn stale_socket_connection_errors_cover_kernel_variants() {
     assert!(!indicates_stale_socket(
         std::io::ErrorKind::PermissionDenied
     ));
+}
+
+#[test]
+fn microphone_recovery_retries_only_capture_failures_and_obeys_controls() {
+    let mut attempts = 0;
+    let mut waits = 0;
+    let recovered = retry_audio_cycle(
+        || {
+            attempts += 1;
+            if attempts == 1 {
+                Err(CaptureFailure("unplugged".into()).into())
+            } else {
+                Ok((vec![], Some(Command::Shutdown)))
+            }
+        },
+        |error| {
+            assert!(error.contains("unplugged"));
+            waits += 1;
+            Ok(None)
+        },
+    )
+    .unwrap();
+    assert!(matches!(recovered.1, Some(Command::Shutdown)));
+    assert_eq!((attempts, waits), (2, 1));
+    for command in [Command::Pause, Command::Shutdown, Command::Resume] {
+        let mut command = Some(command);
+        let result = retry_audio_cycle(
+            || Err(CaptureFailure("offline".into()).into()),
+            |_| Ok(command.take()),
+        )
+        .unwrap();
+        assert!(result.1.is_some());
+    }
+    assert!(
+        retry_audio_cycle(
+            || Err(anyhow::anyhow!("inference error")),
+            |_| panic!("must not retry inference errors")
+        )
+        .is_err()
+    );
+    assert!(
+        retry_audio_cycle(
+            || Err(CaptureFailure("offline".into()).into()),
+            |_| Err(anyhow::anyhow!("socket error"))
+        )
+        .is_err()
+    );
 }
