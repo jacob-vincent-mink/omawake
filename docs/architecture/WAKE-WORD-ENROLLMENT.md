@@ -13,7 +13,13 @@ Start with an existing word:
 omawake word onboard agent
 ```
 
-The terminal flow records several examples, shows the transcripts, and asks
+Microphone onboarding first offers **Whisper spellings**, **Trainable KWS — learn
+from my voice**, or **Trainable KWS with Omaspeak assistance**. No `--engine` flag
+or specially named profile is needed. Training recommends a configured OpenVINO
+CPU profile and checks the encoder before recording. Other profiles are shown
+as unavailable for training; missing setup is reported before capture.
+
+The Whisper flow records several examples, shows the transcripts, and asks
 which exact spellings to accept. Arrow keys and Enter select each choice; Esc
 cancels. Unrelated text and hallucinations must be skipped. Nothing changes until
 the final Apply step. The existing phrase and command are preserved.
@@ -77,14 +83,15 @@ can coexist through separate engine groups.
 
 ### Guided recording and training
 
-Run `omawake word onboard agent` (or **Teach a wake word** in setup), choose a
-configured OpenVINO Whisper base.en engine, and record the phrase as prompted.
-After reviewing Whisper spellings, choose **Train this wake phrase**. CPU is the
+Run `omawake word onboard agent` (or **Teach a wake word** in setup), choose
+**Trainable KWS — learn from my voice**, then a configured OpenVINO Whisper
+base.en CPU engine. No specially named engine or command-line override is needed.
+You can also switch to training after reviewing Whisper spellings. CPU is the
 qualified device for this experimental path so far.
 
 Onboarding checks that the encoder loads before asking for additional samples.
-It reuses the initial five positive recordings and asks for five more, then ten
-negative recordings. Negatives are **other speech without the wake phrase**:
+It collects ten positive and ten negative recordings. If you started with
+Whisper spellings, it reuses those positives and asks only for the remainder. Negatives are **other speech without the wake phrase**:
 alternate similar-sounding phrases with ordinary everyday sentences. Use a
 different utterance each time and vary pace and distance. Each clip should
 contain one spoken utterance; silence and clipped audio are retried. The same
@@ -168,7 +175,7 @@ leaves the active configuration unchanged and preserves explicit checkpoints.
 ### Resume a retained dataset
 
 ```sh
-omawake word onboard --engine training-cpu --dataset /path/to/manifest.json
+omawake word onboard --dataset /path/to/manifest.json
 ```
 
 Choose or create the intended word, then choose whether to add Omaspeak examples.

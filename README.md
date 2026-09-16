@@ -121,7 +121,9 @@ omawake word onboard jarvis
 omawake word onboard jarvis --audio example-1.wav --audio example-2.wav --json
 ```
 
-The guided flow records examples, shows each observed spelling, and lets you
+The guided flow first offers **Whisper spellings**, **Trainable KWS**, or
+**Trainable KWS with Omaspeak assistance**, without an `--engine` flag.
+The Whisper path records examples, shows each observed spelling, and lets you
 approve exact aliases with arrow keys and Enter. Nothing changes until Apply;
 no wake-word actions run during onboarding. Recordings are discarded unless you
 explicitly choose to keep them. Existing `add-alias` and `remove-alias` commands
@@ -131,8 +133,10 @@ An experimental frozen-encoder head can handle phrases that transcription does
 not represent reliably. Transcript words and trained words can run together;
 compatible heads share an encoder. Applying a trained head preserves aliases and
 pins its model profile, so changing the default backend does not erase it.
-Choose **Train this wake phrase** after reviewing spellings. Onboarding reuses
-your examples, collects at least 10 wake-phrase and 10 other-speech recordings,
+Choose **Trainable KWS — learn from my voice** at the start, then select a
+configured OpenVINO CPU profile. You can also switch to training after reviewing
+spellings. Onboarding reuses any examples already collected, collects at least
+10 wake-phrase and 10 other-speech recordings,
 and prepares separate training, calibration, and held-out examples automatically.
 You review validation results before Apply; no hand-written dataset is needed.
 The first implementation uses the direct

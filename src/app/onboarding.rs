@@ -8,7 +8,7 @@ pub(super) struct OnboardArgs {
     pub id: Option<String>,
     #[arg(long)]
     pub phrase: Option<String>,
-    /// Named engine profile; omit to use the word's current engine.
+    /// Optional engine profile override; guided onboarding offers the recognition method.
     #[arg(long)]
     pub engine: Option<String>,
     /// Import a WAV example instead of opening the microphone (repeatable).
@@ -120,7 +120,44 @@ pub(super) fn run(
         }
     };
     validate_wake_words(&config.wake_words)?;
-    let mut selected = select_engine(&mut config, index, args.engine.as_deref(), interactive)?;
+    // Offer training before microphone capture or transcription, not only after
+    // a full alias-review session. File-based alias onboarding stays unchanged.
+    let method = if interactive && args.audio.is_empty() && args.dataset.is_none() {
+        select(
+            "Recognition method",
+            "Choose how to recognize this wake phrase. No engine flag is needed.",
+            &recognition_methods(),
+            0,
+        )?
+        .context("onboarding cancelled; configuration unchanged")?
+    } else {
+        0
+    };
+    let training = method != 0 || args.dataset.is_some();
+    let mut selected = if training && args.engine.is_none() {
+        select_training_engine(&mut config, index)?
+    } else {
+        select_engine(&mut config, index, args.engine.as_deref(), interactive)?
+    };
+    if method != 0 {
+        let assistance = method == 2 && assisted::prepare()?;
+        return train_guided(
+            config,
+            index,
+            path,
+            paths,
+            original,
+            selected,
+            SampleSet::create(paths)?,
+            args.seconds,
+            args.keep_recordings,
+            &Cancellation::new()?,
+            &NativeTrainingInteraction {
+                assistance,
+                resume: None,
+            },
+        );
+    }
     if let Some(dataset_path) = args.dataset {
         anyhow::ensure!(
             interactive,
@@ -230,6 +267,9 @@ pub(super) fn run(
         )?
         .context("onboarding cancelled; configuration unchanged")?;
         if mode == 1 || mode == 2 {
+            if args.engine.is_none() {
+                selected = select_training_engine(&mut config, index)?;
+            }
             let assistance = mode == 2 && assisted::prepare()?;
             drop(detector);
             return train_guided(
@@ -645,6 +685,66 @@ fn choose_retention(interactive: bool, requested: bool) -> Result<bool> {
     }
 }
 
+fn recognition_methods() -> [MenuItem; 3] {
+    [
+        MenuItem::available(
+            "Whisper spellings (recommended)",
+            "Record examples and accept the spellings Whisper hears",
+        ),
+        MenuItem::available(
+            "Trainable KWS — learn from my voice",
+            "Experimental: teach unusual names with wake-phrase and other-speech recordings",
+        ),
+        MenuItem::available(
+            "Trainable KWS with Omaspeak assistance",
+            "Review synthetic voices alongside your recordings; offers installation if needed",
+        ),
+    ]
+}
+
+fn training_engine_choices(config: &Config) -> (Vec<Option<String>>, Vec<MenuItem>) {
+    let mut names = vec![None];
+    names.extend(config.engines.keys().cloned().map(Some));
+    let items = names
+        .iter()
+        .map(|name| {
+            let profile = config
+                .engine_profile(name.as_deref())
+                .expect("configured engine");
+            let supported = profile.backend.runtime == Runtime::Openvino
+                && profile.backend.device.eq_ignore_ascii_case("cpu");
+            let label = name.as_deref().unwrap_or("default");
+            let detail = format!(
+                "{} / {} / {}; requires Whisper base.en encoder assets",
+                profile.backend.kind, profile.backend.device, profile.model.name
+            );
+            if supported {
+                MenuItem::available(label, detail)
+            } else {
+                MenuItem::unavailable(label, "Training currently requires an OpenVINO CPU profile")
+            }
+        })
+        .collect();
+    (names, items)
+}
+
+fn select_training_engine(config: &mut Config, index: usize) -> Result<Config> {
+    let (names, items) = training_engine_choices(config);
+    let preferred = names.iter().zip(&items).position(|(name, item)|
+        item.enabled && *name == config.wake_words[index].engine)
+        .or_else(|| items.iter().position(|item| item.enabled))
+        .context("Trainable KWS needs an OpenVINO CPU engine with Whisper base.en encoder assets. Run `omawake setup` to configure the model/runtime first. No recordings were collected; configuration unchanged.")?;
+    let choice = select("Trainable KWS engine",
+        "Choose an OpenVINO CPU profile. Encoder assets are checked before recording; the profile name can be anything.",
+        &items, preferred)?.context("onboarding cancelled; configuration unchanged")?;
+    select_engine(
+        config,
+        index,
+        Some(names[choice].as_deref().unwrap_or("default")),
+        false,
+    )
+}
+
 fn select_engine(
     config: &mut Config,
     index: usize,
@@ -959,6 +1059,33 @@ mod tests {
         }
         (root, paths, config, samples)
     }
+    #[test]
+    fn training_choices_explain_method_and_only_offer_cpu_openvino() {
+        let methods = recognition_methods();
+        assert!(methods[1].label.contains("Trainable KWS"));
+        assert!(methods[2].label.contains("Omaspeak"));
+        let mut config = Config::default();
+        let mut profile = crate::config::EngineProfile::default();
+        profile.backend.runtime = Runtime::Openvino;
+        profile.backend.device = "CPU".into();
+        config.engines.insert("my-encoder".into(), profile.clone());
+        profile.backend.device = "npu".into();
+        config.engines.insert("accelerator".into(), profile);
+        let (names, items) = training_engine_choices(&config);
+        let usable: Vec<_> = names
+            .iter()
+            .zip(&items)
+            .filter(|(_, item)| item.enabled)
+            .map(|(name, _)| name.as_deref())
+            .collect();
+        assert_eq!(usable, vec![Some("my-encoder")]);
+        config.engines.clear();
+        let before = toml::to_string(&config).unwrap();
+        let error = select_training_engine(&mut config, 0).unwrap_err();
+        assert!(error.to_string().contains("No recordings were collected"));
+        assert_eq!(before, toml::to_string(&config).unwrap());
+    }
+
     #[test]
     fn assistance_checkpoints_humans_and_can_fall_back_without_losing_recordings() {
         for succeeds in [false, true] {

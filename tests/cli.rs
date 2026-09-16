@@ -1259,6 +1259,79 @@ raise AssertionError(data.decode(errors='replace'))
     }
 }
 
+#[test]
+fn microphone_onboarding_exposes_training_before_capture_without_engine_flag() {
+    for configured in [false, true] {
+        let root = sandbox();
+        let library = build_fake_whisper(&root, None);
+        let (config, _) = write_fake_whisper_config(&root, library);
+        if configured {
+            let mut value: toml::Value =
+                toml::from_str(&fs::read_to_string(&config).unwrap()).unwrap();
+            let mut backend = value["backend"].clone();
+            backend["runtime"] = toml::Value::String("openvino".into());
+            backend["device"] = toml::Value::String("cpu".into());
+            let profile = toml::Value::Table(toml::map::Map::from_iter([
+                ("backend".into(), backend),
+                ("model".into(), value["model"].clone()),
+            ]));
+            value.as_table_mut().unwrap().insert(
+                "engines".into(),
+                toml::Value::Table(toml::map::Map::from_iter([("my-encoder".into(), profile)])),
+            );
+            fs::write(&config, toml::to_string(&value).unwrap()).unwrap();
+        }
+        let before = fs::read(&config).unwrap();
+        let output = Command::new("/usr/bin/python3")
+            .arg("-c")
+            .arg(
+                r#"
+import os,pty,select,sys,time,signal
+pid,fd=pty.fork()
+if pid==0:
+ os.execv(sys.argv[1],[sys.argv[1],'word','onboard','computer'])
+data=b'';answered=False;engine_answered=False;deadline=time.monotonic()+12
+while time.monotonic()<deadline:
+ ready,_,_=select.select([fd],[],[],0.05)
+ if ready:
+  try: data+=os.read(fd,65536)
+  except OSError: pass
+  if not answered and b'Trainable KWS with Omaspeak assistance' in data:
+   os.write(fd,b'\x1b[B\r');answered=True
+  if not engine_answered and b'Trainable KWS engine' in data:
+   os.write(fd,b'\r');engine_answered=True
+ done,status=os.waitpid(pid,os.WNOHANG)
+ if done:
+  assert answered,data.decode(errors='replace')
+  assert os.waitstatus_to_exitcode(status)!=0
+  expected=b'initialize training encoder' if sys.argv[2]=='yes' else b'No recordings were collected'
+  assert expected in data,data.decode(errors='replace')
+  assert b'Record example 1' not in data
+  sys.exit(0)
+os.kill(pid,signal.SIGTERM);os.waitpid(pid,0)
+raise AssertionError(data.decode(errors='replace'))
+"#,
+            )
+            .arg(env!("CARGO_BIN_EXE_omawake"))
+            .arg(if configured { "yes" } else { "no" })
+            .env("XDG_CONFIG_HOME", root.join("config"))
+            .env("XDG_DATA_HOME", root.join("data"))
+            .env("XDG_CACHE_HOME", root.join("cache"))
+            .env("XDG_STATE_HOME", root.join("state"))
+            .env("XDG_RUNTIME_DIR", root.join("run"))
+            .env("TERM", "xterm-256color")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(fs::read(config).unwrap(), before);
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn daemon_recovers_a_pinned_microphone_and_keeps_controls_responsive() {

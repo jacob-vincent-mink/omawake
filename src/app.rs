@@ -208,7 +208,7 @@ enum ConfigCommand {
 enum WakeWordCommand {
     /// Train an experimental phrase head using independent labeled recordings.
     Train(training::TrainArgs),
-    /// Learn exact ASR spelling variants from reviewed local examples.
+    /// Guided setup for Whisper spellings or experimental trainable KWS.
     Onboard(onboarding::OnboardArgs),
     /// List retained local enrollment recordings, or delete one session.
     Recordings {
