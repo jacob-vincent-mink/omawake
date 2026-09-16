@@ -395,6 +395,7 @@ pub(crate) fn verifier_profile_for_name(model_name: &str) -> VerifierProfile {
 }
 
 /// Validate `model.language` against the selected verifier profile.
+#[cfg(test)]
 pub(crate) fn validate_language_for_test(
     config: &Config,
     profile: &VerifierProfile,
