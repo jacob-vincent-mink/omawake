@@ -252,18 +252,8 @@ pub(super) fn run_reviewed(
             enrollment.heads.insert(contract.clone(), installed.clone());
             // Pin the exact backend+model as a named profile. Changing the default
             // backend later cannot silently reinterpret or deactivate this word.
-            let profile_id = format!(
-                "enrolled-{}-{}",
-                args.id,
-                &format!(
-                    "{:x}",
-                    Sha256::digest(serde_json::to_vec(&(
-                        &contract,
-                        &deployment.backend,
-                        &deployment.model
-                    ))?)
-                )[..12]
-            );
+            let profile_id =
+                managed_profile_id(&args.id, &contract, &deployment.backend, &deployment.model)?;
             word.engine = Some(profile_id.clone());
             config.engines.insert(
                 profile_id,
@@ -272,6 +262,7 @@ pub(super) fn run_reviewed(
                     model: deployment.model.clone(),
                 },
             );
+            prune_unused_enrollment_profiles(&mut config, index)?;
             // On failure, immutable heads and explicitly retained recordings remain reusable.
             save_and_reload_active(config, path, paths)?;
             artifact_path = Some(installed);
@@ -316,6 +307,48 @@ pub(super) fn run_reviewed(
         Some(directory) => error.context(format!("Training did not complete; kept your labeled recordings at {} as requested. Configuration activation did not complete", directory.join("manifest.json").display())),
         None => error.context("Training did not complete; additional recording copies were not retained. Supplied input files are unchanged. Choose Keep recordings locally to save a new dataset copy before inference"),
     })
+}
+
+fn managed_profile_id(
+    id: &str,
+    contract: &str,
+    backend: &crate::backend::BackendConfig,
+    model: &crate::config::ModelConfig,
+) -> Result<String> {
+    let digest = format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(&(contract, backend, model))?)
+    );
+    Ok(format!("enrolled-{id}-{}", &digest[..12]))
+}
+
+fn prune_unused_enrollment_profiles(config: &mut Config, index: usize) -> Result<()> {
+    let word = &config.wake_words[index];
+    let Some(enrollment) = &word.enrollment else {
+        return Ok(());
+    };
+    let mut unused = Vec::new();
+    for (name, profile) in &config.engines {
+        if config
+            .wake_words
+            .iter()
+            .any(|word| word.engine.as_ref() == Some(name))
+        {
+            continue;
+        }
+        // Recompute the generated identity: a name prefix alone must never
+        // authorize deleting a user-created or manually modified profile.
+        for contract in enrollment.heads.keys() {
+            if *name == managed_profile_id(&word.id, contract, &profile.backend, &profile.model)? {
+                unused.push(name.clone());
+                break;
+            }
+        }
+    }
+    for name in unused {
+        config.engines.remove(&name);
+    }
+    Ok(())
 }
 
 pub(super) fn single_utterance(
@@ -449,6 +482,52 @@ mod tests {
     fn load(_: &Config, _: &AppPaths, _: Arc<AtomicBool>) -> Result<Box<dyn EmbeddingSession>> {
         Ok(Box::new(FakeEmbeddingSession::new("test-encoder")))
     }
+    #[test]
+    fn retraining_prunes_only_unreferenced_unchanged_managed_profiles() {
+        for shared in [false, true] {
+            let (root, paths, config, dataset) = fixture();
+            let file = root.join("candidate.toml");
+            run_with(args(dataset.clone(), true), config, &file, &paths, load).unwrap();
+            let mut config = Config::load(&file).unwrap();
+            let old = config.wake_words[0].engine.clone().unwrap();
+            let profile = config.engines[&old].clone();
+            config
+                .engines
+                .insert("training-cpu".into(), profile.clone());
+            let mut edited = profile.clone();
+            edited.backend.threads += 1;
+            let edited_name =
+                managed_profile_id("computer", "test-encoder", &edited.backend, &edited.model)
+                    .unwrap();
+            edited.backend.threads += 1;
+            config.engines.insert(edited_name.clone(), edited);
+            if shared {
+                let mut other = config.wake_words[0].clone();
+                other.id = "another-word".into();
+                other.enabled = false; // Disabled words still own their references.
+                config.wake_words.push(other);
+            }
+            config.save(&file).unwrap();
+            let mut options = args(dataset, true);
+            options.run_device = Some(EncoderDevice::Npu);
+            run_with(options, config, &file, &paths, load).unwrap();
+            let saved = Config::load(&file).unwrap();
+            assert_eq!(saved.engines.contains_key(&old), shared);
+            assert!(saved.engines.contains_key("training-cpu"));
+            assert!(saved.engines.contains_key(&edited_name));
+            let active = saved.wake_words[0].engine.as_ref().unwrap();
+            assert_ne!(active, &old);
+            assert_eq!(saved.engines[active].backend.device, "npu");
+            saved.validate_engine_references().unwrap();
+            assert!(
+                !crate::enrollment::recordings(&paths, "computer")
+                    .unwrap()
+                    .is_empty()
+            );
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
     #[test]
     fn training_and_deployment_are_independent_and_target_failures_never_activate() {
         for (training_device, run_device, failure) in [

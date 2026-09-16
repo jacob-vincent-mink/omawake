@@ -292,6 +292,10 @@ Applying a trained word creates an `enrolled-WORD-HASH` profile that preserves
 its backend and model settings. Engine pickers label these **Managed enrollment
 profile: WORD**. They are configuration snapshots, not extra model downloads or
 services. Changing the default profile does not change an enrolled word's model.
+Successful retraining removes unreferenced generated profiles for that word in
+the same config update. Shared profiles (including references from disabled
+words), manually modified profiles, and user-named profiles are preserved.
+Saved recordings and head artifacts are not deleted by profile cleanup.
 
 Live trained detection uses VAD, Whisper's frozen encoder, and the trained phrase
 classifier. It does not run Whisper's text decoder or transcribe the utterance.
