@@ -107,7 +107,15 @@ encoder, segmentation, or validation failure leaves it unchanged too. Collect
 a fresh, more representative dataset after addressing a failure; repeatedly
 tuning against the same held-out clips does not establish accuracy.
 
-Choosing **Keep recordings locally** retains the complete labeled dataset for
+Choosing **Keep recordings locally** also preserves the complete labeled dataset
+if calibration or held-out validation rejects the candidate. The error reports
+the manifest path and held-out miss/false-activation counts or calibration
+failure. A held-out candidate also needs every score at least 0.025 away from
+the threshold; this experimental margin gate can reject a candidate even with
+zero classification errors. Replaying the same dataset is a diagnostic, not a
+way to improve it or an independent validation.
+
+On successful activation, **Keep recordings locally** retains the dataset for
 `word train agent --reuse-recordings`. Otherwise the temporary WAVs and generated
 manifest are removed. No dataset editing, audio playback, or wake action is
 needed during guided onboarding.

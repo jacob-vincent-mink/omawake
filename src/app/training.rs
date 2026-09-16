@@ -142,8 +142,32 @@ pub(super) fn run_reviewed(
         retained_splits.push(retained);
     }
     cancellation.check()?;
-    let mut head = Head::train(&contract, &examples[0], &examples[1])?;
-    head.validate_held_out(&examples[2])?;
+    let candidate = Head::train(&contract, &examples[0], &examples[1]).and_then(|mut head| {
+        head.validate_held_out(&examples[2])?;
+        Ok(head)
+    });
+    let head = match candidate {
+        Ok(head) => head,
+        Err(error) => {
+            cancellation.check()?;
+            if args.apply && args.keep_recordings {
+                let directory = samples.retain(
+                    paths,
+                    &args.id,
+                    &Dataset {
+                        training: retained_splits[0].clone(),
+                        calibration: retained_splits[1].clone(),
+                        validation: retained_splits[2].clone(),
+                    },
+                )?;
+                return Err(error.context(format!(
+                    "Training rejected; config unchanged. Kept your labeled recordings at {} as requested. Inspect the dataset before retraining; use fresh held-out recordings after tuning",
+                    directory.join("manifest.json").display()
+                )));
+            }
+            return Err(error.context("Training rejected; config unchanged. Recordings were not retained; choose Keep recordings locally on the next attempt to preserve a failed session for diagnosis"));
+        }
+    };
     cancellation.check()?;
     let mut retained = None;
     let mut artifact_path = None;
@@ -389,6 +413,47 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
+    fn rejected_held_out_clips_are_retained_only_when_requested_and_can_be_reloaded() {
+        for keep in [false, true] {
+            let (root, paths, config, dataset) = fixture();
+            let file = root.join("candidate.toml");
+            let before = config_snapshot(&file).unwrap();
+            let mut data = Dataset::load(&dataset).unwrap();
+            for sample in &mut data.validation {
+                sample.positive = !sample.positive;
+            }
+            fs::write(&dataset, serde_json::to_vec(&data).unwrap()).unwrap();
+            let mut options = args(dataset, true);
+            options.keep_recordings = keep;
+            let error = run_with(options, config.clone(), &file, &paths, load).unwrap_err();
+            let diagnostic = format!("{error:#}");
+            assert!(diagnostic.contains("missed 2/2"), "{diagnostic}");
+            assert!(diagnostic.contains("activated on 2/2"), "{diagnostic}");
+            assert_eq!(config_snapshot(&file).unwrap(), before);
+            assert!(!paths.data_dir.join("heads").exists());
+            let sessions = crate::enrollment::recordings(&paths, "computer").unwrap();
+            assert_eq!(sessions.len(), 1 + usize::from(keep));
+            if keep {
+                assert!(diagnostic.contains("Kept your labeled recordings"));
+                let mut reuse = args(root.join("unused"), false);
+                reuse.dataset = None;
+                reuse.reuse_recordings = true;
+                let manifest = Dataset::load(&dataset_path(&reuse, &paths).unwrap()).unwrap();
+                assert!(manifest.validation.iter().all(|r| r.audio.is_file()));
+                assert!(
+                    format!(
+                        "{:#}",
+                        run_with(reuse, config, &file, &paths, load).unwrap_err()
+                    )
+                    .contains("missed 2/2")
+                );
+            } else {
+                assert!(diagnostic.contains("not retained"));
+            }
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+    #[test]
     fn review_cannot_overwrite_an_edit_made_during_onboarding_or_final_confirmation() {
         for during_review in [false, true] {
             let (root, paths, config, dataset) = fixture();
@@ -446,6 +511,7 @@ mod tests {
                 load
             )
             .unwrap_err()
+            .root_cause()
             .to_string()
             .contains("disjoint")
         );

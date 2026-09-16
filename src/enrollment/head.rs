@@ -329,7 +329,13 @@ impl Head {
         }
         ensure!(
             result.misses == 0 && result.false_activations == 0 && result.minimum_margin >= 0.025,
-            "held-out local recordings failed validation; keep the previous detector and record more examples"
+            "held-out local recordings failed validation: missed {}/{} wake-phrase clips; falsely activated on {}/{} other-speech clips; closest score-to-threshold distance {:.4} (required >= 0.0250), threshold {:.4}. The previous detector is unchanged. This candidate has not demonstrated reliable separation of your phrase from other speech",
+            result.misses,
+            result.positives,
+            result.false_activations,
+            result.negatives,
+            result.minimum_margin,
+            self.threshold
         );
         self.validation_ids = samples.iter().map(|s| s.id.clone()).collect();
         self.validation = Some(result);
@@ -386,6 +392,18 @@ mod tests {
         assert!(c.locally_validated());
         assert!(Head::train("encoder-v1", &split("same"), &split("same")).is_err());
         assert!(b.validate_held_out(&split("train")).is_err());
+    }
+    #[test]
+    fn held_out_failure_reports_misses_and_false_activations() {
+        let mut head = Head::train("encoder", &split("train"), &split("cal")).unwrap();
+        let mut held = split("held");
+        held[0].values = held[4].values.clone();
+        held[4].values = vec![1.0, 0.03];
+        let error = head.validate_held_out(&held).unwrap_err().to_string();
+        assert!(error.contains("missed 1/4"), "{error}");
+        assert!(error.contains("activated on 1/4"), "{error}");
+        assert!(error.contains("score-to-threshold distance"));
+        assert!(!head.locally_validated());
     }
     #[test]
     fn calibration_confusions_and_invalid_artifacts_fail() {

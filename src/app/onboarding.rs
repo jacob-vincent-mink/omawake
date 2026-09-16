@@ -426,7 +426,7 @@ fn choose_retention(interactive: bool, requested: bool) -> Result<bool> {
             ),
             MenuItem::available(
                 "Keep recordings locally",
-                "Store private audio copies for adapting this word to another model",
+                "Keep the labeled samples even if training fails, for diagnosis or retraining",
             ),
         ];
         Ok(select(
@@ -828,11 +828,15 @@ mod tests {
             );
             assert_eq!(config_snapshot(&file).unwrap(), original);
             assert!(!paths.data_dir.join("heads").exists());
-            assert!(
-                enrollment::recordings(&paths, "computer")
-                    .unwrap()
-                    .is_empty()
-            );
+            let sessions = enrollment::recordings(&paths, "computer").unwrap();
+            assert_eq!(sessions.len(), usize::from(case == 4));
+            if case == 4 {
+                let dataset = crate::enrollment::artifact::Dataset::load(
+                    &sessions[0].directory.join("manifest.json"),
+                )
+                .unwrap();
+                assert!(dataset.validation.iter().all(|r| r.audio.is_file()));
+            }
             assert_eq!(
                 fs::read_dir(paths.cache_dir.join("onboarding"))
                     .unwrap()
