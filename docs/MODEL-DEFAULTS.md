@@ -70,7 +70,7 @@ Setup selectors now size their viewport to the terminal height, keep the
 highlighted row visible, and show its position in the list. Long details wrap
 within the terminal width; arrow-key navigation brings subsequent rows into
 view. Resizing recomputes the layout. Zero-size terminals use an 80×24 fallback.
-The CLI catalog and JSON interfaces are unchanged. Compatibility filtering remains subsequent W04 work. Provider-family checks
+The CLI catalog and JSON interfaces are unchanged. The model picker now disables rows incompatible with the selected backend/runtime/device, explains the required backend, and starts on a compatible row. Invalid or disabled selections are rejected before installation. CLI catalog listing remains complete and stable for discovery. Provider-family checks
 are described in [installer protections](INSTALLER-PROTECTIONS.md).
 
 ## Subsequent implementation

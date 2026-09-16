@@ -22,7 +22,7 @@ use crate::protocol::{Command, Request, Response, ResultPayload};
 use crate::setup as app_setup;
 use crate::setup::model::ProgressFormat;
 use crate::setup::wizard::{self, RuntimeSelection, SetupMode};
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -1254,7 +1254,7 @@ impl GuidedPrompts for TerminalGuidedPrompts {
         paths: &AppPaths,
         current: &Config,
     ) -> Result<Option<&'static crate::catalog::ModelSpec>> {
-        choose_model(paths, &current.model.name)
+        choose_model(paths, current)
     }
 
     fn model_source_directory(
@@ -1632,9 +1632,9 @@ where
 
 fn choose_model(
     paths: &AppPaths,
-    active_model: &str,
+    current: &Config,
 ) -> Result<Option<&'static crate::catalog::ModelSpec>> {
-    choose_model_with(paths, active_model, |items, preferred| {
+    choose_model_with(paths, current, |items, preferred| {
         wizard::select(
             "Wake-word model",
             "● active · ○ installed · downloadable catalog models can be installed",
@@ -1646,7 +1646,7 @@ fn choose_model(
 
 fn choose_model_with<S>(
     paths: &AppPaths,
-    active_model: &str,
+    current: &Config,
     select: S,
 ) -> Result<Option<&'static crate::catalog::ModelSpec>>
 where
@@ -1656,11 +1656,11 @@ where
         .iter()
         .map(|model| {
             let installed = app_setup::model::verify(paths, model).is_ok();
-            let status = if model.id == active_model && installed {
+            let status = if model.id == current.model.name && installed {
                 "● active"
-            } else if model.id == active_model && !model.downloadable {
+            } else if model.id == current.model.name && !model.downloadable {
                 "● active · local assets required"
-            } else if model.id == active_model {
+            } else if model.id == current.model.name {
                 "● active · download required"
             } else if installed {
                 "○ installed"
@@ -1683,14 +1683,38 @@ where
             } else {
                 format!("{detail} · select to provide an exact local asset directory")
             };
-            wizard::MenuItem::available(format!("{status}  {}", model.name), detail)
+            let label = format!("{status}  {}", model.name);
+            if model.compatible_with(
+                &current.backend.kind,
+                current.backend.runtime,
+                &current.backend.device,
+            ) {
+                wizard::MenuItem::available(label, detail)
+            } else {
+                wizard::MenuItem::unavailable(
+                    label,
+                    format!(
+                        "Requires the {} backend; incompatible with this backend/runtime selection · {detail}",
+                        model.backend
+                    ),
+                )
+            }
         })
         .collect();
     let preferred = crate::catalog::models()
         .iter()
-        .position(|model| model.id == active_model)
+        .position(|model| model.id == current.model.name)
+        .filter(|&index| items[index].enabled)
+        .or_else(|| items.iter().position(|item| item.enabled))
         .unwrap_or(0);
-    Ok(select(&items, preferred)?.map(|index| &crate::catalog::models()[index]))
+    let selected = select(&items, preferred)?;
+    if let Some(index) = selected {
+        ensure!(
+            items.get(index).is_some_and(|item| item.enabled),
+            "selected model is incompatible with the configured backend/runtime"
+        );
+    }
+    Ok(selected.map(|index| &crate::catalog::models()[index]))
 }
 
 #[cfg(test)]
