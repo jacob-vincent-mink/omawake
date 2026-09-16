@@ -60,8 +60,9 @@ explicit quality/resource tradeoff review rather than inheriting these claims.
 The existing 60 synthetic positives and 15-minute clean negative set are smoke
 baselines, not continuous-listening qualification. Real multi-speaker positives,
 long negative/adverse corpora and idle-power evidence are still outstanding W01
-work. HIP remains unqualified here. W04/W05 compatibility filtering and added
-installer protections, and W06 device qualification, remain subsequent slices.
+work. HIP remains unqualified here. W04 compatibility filtering and W06 device qualification remain incomplete.
+Provider-family checks and installer guards are now documented in
+[installer protections](INSTALLER-PROTECTIONS.md).
 
 ## Setup list navigation (W04)
 
@@ -69,5 +70,13 @@ Setup selectors now size their viewport to the terminal height, keep the
 highlighted row visible, and show its position in the list. Long details wrap
 within the terminal width; arrow-key navigation brings subsequent rows into
 view. Resizing recomputes the layout. Zero-size terminals use an 80×24 fallback.
-The CLI catalog and JSON interfaces are unchanged. Compatibility filtering and
-provider-family discovery remain subsequent W04 work.
+The CLI catalog and JSON interfaces are unchanged. Compatibility filtering remains subsequent W04 work. Provider-family checks
+are described in [installer protections](INSTALLER-PROTECTIONS.md).
+
+## Subsequent implementation
+
+See [provider and installer boundaries](INSTALLER-PROTECTIONS.md) for the next
+implemented slice, its tests and remaining limits.
+
+[Default corpus checks](../benchmarks/results/2026-09-16-default-corpus/RESULTS.md)
+record the new file-only evidence and qualification limits.
