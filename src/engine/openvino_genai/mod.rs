@@ -2420,6 +2420,35 @@ mod tests {
     }
 
     #[test]
+    fn language_config_requires_the_pinned_generation_metadata_and_validates() {
+        let (root, mut spec) = fake_spec("language-missing-metadata", "CPU");
+        spec.language = "es".into();
+        let provider = OpenVinoProvider::open(&spec).unwrap();
+        assert_eq!(provider.evidence.language, "es");
+        let error = provider
+            .transcribe(&vec![0.0_f32; 1600])
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("generation_config.json"), "{error}");
+        // With the pinned metadata present, the derived config is created and
+        // validated from the cache directory and the model tree stays clean.
+        fs::write(
+            spec.model_directory.join("generation_config.json"),
+            r#"{"task": "transcribe", "language": "en"}"#,
+        )
+        .unwrap();
+        let provider = OpenVinoProvider::open(&spec).unwrap();
+        assert_eq!(provider.evidence.language, "es");
+        assert!(provider.transcribe(&vec![0.0_f32; 1600]).is_ok());
+        let derived = spec.cache_directory.join("generation_config.es.json");
+        assert!(derived.exists(), "derived config was not written");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&derived).unwrap()).unwrap();
+        assert_eq!(parsed["language"], "es");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn fake_genai_variants_cover_safe_pipeline_and_transcript_errors() {
         for mode in 6..=7 {
             let (root, mut spec) = fake_spec(&format!("pipeline-error-{mode}"), "CPU");
