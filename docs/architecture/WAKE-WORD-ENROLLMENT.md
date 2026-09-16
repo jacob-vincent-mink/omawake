@@ -43,7 +43,9 @@ different spellings, so review examples through the model intended for that word
 ## Recording ownership
 
 Recordings stay local. Temporary copies have private permissions and are deleted
-when the session ends, including cancellation and errors. Imported source files
+when the session ends, including cancellation and errors. Explicitly retained
+training datasets are saved before inference and survive a failed or cancelled
+activation. Imported source files
 are never deleted. Retention requires `--keep-recordings` or the explicit Keep
 choice in the terminal flow. Heads do not require retained raw audio to run.
 
@@ -85,7 +87,10 @@ It reuses the initial five positive recordings and asks for five more, then ten
 negative recordings. Negatives are **other speech without the wake phrase**:
 alternate similar-sounding phrases with ordinary everyday sentences. Use a
 different utterance each time and vary pace and distance. Each clip should
-contain one spoken utterance; silence and clipped audio are retried.
+contain one spoken utterance; silence and clipped audio are retried. The same
+VAD used by live detection checks each guided clip immediately. If a pause or
+background voice splits it into multiple segments, only that clip is retried;
+other examples are kept. Reused transcript examples receive this check too.
 
 The default twenty clips are allocated before fitting:
 
@@ -107,8 +112,10 @@ encoder, segmentation, or validation failure leaves it unchanged too. Collect
 a fresh, more representative dataset after addressing a failure; repeatedly
 tuning against the same held-out clips does not establish accuracy.
 
-Choosing **Keep recordings locally** also preserves the complete labeled dataset
-if calibration or held-out validation rejects the candidate. The error reports
+Choosing **Keep recordings locally** saves the complete labeled dataset before
+model loading or inference. It remains saved after model-loading, segmentation,
+calibration, or validation failure, and after cancelling final activation.
+`word train --keep-recordings` also retains data during a preview. The error reports
 the manifest path and held-out miss/false-activation counts or calibration
 failure. A held-out candidate also needs every score at least 0.025 away from
 the threshold; this experimental margin gate can reject a candidate even with

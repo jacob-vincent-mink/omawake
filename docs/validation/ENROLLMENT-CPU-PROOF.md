@@ -93,3 +93,19 @@ reported CPU execution, zero misses and zero false activations on the four
 held-out clips, with minimum margin 0.35148865. This remains a small file-based
 proof, not qualification of the twenty-recording enrollment target or a real
 microphone accuracy measurement.
+
+## Segmentation failure and retention regression
+
+A real CPU check concatenated two spoken phrase clips with one second of silence
+and substituted that WAV into a twelve-clip dataset. The VAD reported two speech
+segments. Training rejected the sample, left the isolated config unchanged, and
+preserved all twelve labeled WAVs and the manifest because retention was chosen.
+Evidence from the local run: `/tmp/omawake-segmentation-proof-cehvafik`.
+
+Guided collection now applies the same segmentation check to each new clip and
+to reused transcript examples, retrying only the offending clip. Tests cover a
+split reused clip followed by silence and a valid retry, plus zero/two-segment
+failures and model-load failure after the complete dataset has been saved.
+Explicit retention also survives final activation cancellation. The regression
+suite passed 295 tests with 90.34% line coverage; Clippy and the release build
+passed. Tests use injected microphone audio; the real check uses file audio.

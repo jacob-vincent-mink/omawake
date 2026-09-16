@@ -5,7 +5,7 @@ use crate::engine::{
 };
 use crate::enrollment::{
     Cancellation, SampleSet,
-    artifact::{self, Dataset, LabeledRecording},
+    artifact::{self, Dataset},
     head::{Example, Head},
 };
 use sha2::{Digest, Sha256};
@@ -81,182 +81,182 @@ pub(super) fn run_reviewed(
     let dataset = Dataset::load(&dataset_path)?;
     let cancellation = Cancellation::new()?;
     let mut samples = SampleSet::create(paths)?;
-    let mut worker = load(&selected, paths, Arc::clone(&cancellation.flag))?;
-    let contract = worker.contract().to_owned();
-    let execution_devices = worker.execution_devices().to_owned();
-    let mut examples = Vec::new();
-    let mut retained_splits = Vec::new();
-    for (label, split) in [
-        ("training", &dataset.training),
-        ("calibration", &dataset.calibration),
-        ("validation", &dataset.validation),
-    ] {
-        let mut encoded = Vec::new();
-        let mut retained = Vec::new();
-        for (i, item) in split.iter().enumerate() {
-            cancellation.check()?;
-            if !args.json {
-                eprintln!("Encoding {label} {}/{}…", i + 1, split.len());
-            }
-            samples.import(&item.audio)?;
-            let (_, audio) =
-                read_wave(samples.files.last().context("missing imported recording")?)?;
-            let mut hash = Sha256::new();
-            for value in &audio {
-                hash.update(value.to_le_bytes());
-            }
-            let fingerprint = format!("{:x}", hash.finalize());
-            // Enrollment and live detection use the identical Silero endpoint
-            // and pre/post-roll. Reject ambiguous multi-phrase recordings.
-            worker.start()?;
-            let mut utterances = Vec::new();
-            for chunk in audio.chunks(16_000) {
-                utterances.extend(worker.audio(chunk)?);
-            }
-            utterances.extend(worker.finish()?);
-            anyhow::ensure!(
-                utterances.len() == 1,
-                "{} produced {} speech segments; each enrollment clip must contain one natural utterance",
-                item.audio.display(),
-                utterances.len()
-            );
-            let embedding = utterances
-                .pop()
-                .context("missing speech embedding")?
-                .embedding;
-            anyhow::ensure!(
-                embedding.encoder_contract == contract,
-                "encoder changed during enrollment"
-            );
-            encoded.push(Example {
-                id: fingerprint,
-                values: embedding.values,
-                positive: item.positive,
-            });
-            retained.push(LabeledRecording {
-                audio: PathBuf::from(format!("sample-{:03}.wav", samples.files.len())),
-                positive: item.positive,
-            });
-        }
-        examples.push(encoded);
-        retained_splits.push(retained);
-    }
-    cancellation.check()?;
-    let candidate = Head::train(&contract, &examples[0], &examples[1]).and_then(|mut head| {
-        head.validate_held_out(&examples[2])?;
-        Ok(head)
-    });
-    let head = match candidate {
-        Ok(head) => head,
-        Err(error) => {
-            cancellation.check()?;
-            if args.apply && args.keep_recordings {
-                let directory = samples.retain(
-                    paths,
-                    &args.id,
-                    &Dataset {
-                        training: retained_splits[0].clone(),
-                        calibration: retained_splits[1].clone(),
-                        validation: retained_splits[2].clone(),
-                    },
-                )?;
-                return Err(error.context(format!(
-                    "Training rejected; config unchanged. Kept your labeled recordings at {} as requested. Inspect the dataset before retraining; use fresh held-out recordings after tuning",
-                    directory.join("manifest.json").display()
-                )));
-            }
-            return Err(error.context("Training rejected; config unchanged. Recordings were not retained; choose Keep recordings locally on the next attempt to preserve a failed session for diagnosis"));
-        }
-    };
-    cancellation.check()?;
-    let mut retained = None;
-    let mut artifact_path = None;
-    if args.apply {
-        review(&head)?;
+    let mut prepared = dataset.clone();
+    let mut retained_manifest = dataset;
+    for (item, retained_item) in prepared
+        .training
+        .iter_mut()
+        .chain(&mut prepared.calibration)
+        .chain(&mut prepared.validation)
+        .zip(
+            retained_manifest
+                .training
+                .iter_mut()
+                .chain(&mut retained_manifest.calibration)
+                .chain(&mut retained_manifest.validation),
+        )
+    {
         cancellation.check()?;
-        anyhow::ensure!(
-            config_snapshot(path)? == original,
-            "configuration changed during training; rerun with the updated configuration"
-        );
-        let directory = paths.data_dir.join("heads").join(&args.id);
-        let installed = artifact::install(&directory, &head)?;
-        if args.keep_recordings {
-            let [training, calibration, validation]: [Vec<LabeledRecording>; 3] = retained_splits
-                .try_into()
-                .map_err(|_| anyhow::anyhow!("invalid dataset splits"))?;
-            retained = Some(samples.retain(
-                paths,
-                &args.id,
-                &Dataset {
-                    training,
-                    calibration,
-                    validation,
-                },
-            )?);
-        }
-        let word = &mut config.wake_words[index];
-        let enrollment = word.enrollment.get_or_insert_with(Default::default);
-        enrollment.active = true;
-        enrollment.heads.insert(contract.clone(), installed.clone());
-        // Pin the exact backend+model as a named profile. Changing the default
-        // backend later cannot silently reinterpret or deactivate this word.
-        let profile_id = format!(
-            "enrolled-{}-{}",
-            args.id,
-            &format!(
-                "{:x}",
-                Sha256::digest(serde_json::to_vec(&(
-                    &contract,
-                    &selected.backend,
-                    &selected.model
-                ))?)
-            )[..12]
-        );
-        word.engine = Some(profile_id.clone());
-        config.engines.insert(
-            profile_id,
-            crate::config::EngineProfile {
-                backend: selected.backend.clone(),
-                model: selected.model.clone(),
-            },
-        );
-        if let Err(error) = save_and_reload_active(config, path, paths) {
-            if let Some(directory) = &retained {
-                let _ = fs::remove_dir_all(directory);
-            }
-            // Immutable head remains reusable; no active config points at it.
-            return Err(error);
-        }
-        artifact_path = Some(installed);
+        samples.import(&item.audio)?;
+        item.audio = samples
+            .files
+            .last()
+            .context("missing imported recording")?
+            .clone();
+        retained_item.audio = PathBuf::from(item.audio.file_name().context("missing sample name")?);
     }
-    if args.json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(
-                &serde_json::json!({"applied":args.apply,"word":args.id,"encoder_contract":contract,"execution_devices":execution_devices,"local_validation":head.validation,"head":artifact_path,"recordings":retained,"actions_executed":false,"qualification":"local held-out clips only; not a measured ambient false-activation rate"})
-            )?
-        );
+    // Explicit retention is independent of model loading, segmentation, fitting,
+    // validation, and config activation. Never roll back user-owned recordings.
+    let retained = if args.keep_recordings {
+        Some(samples.retain(paths, &args.id, &retained_manifest)?)
     } else {
-        println!(
-            "{} trained head for {}",
-            if args.apply {
-                "Activated"
-            } else {
-                "Validated preview of"
-            },
-            args.id
+        None
+    };
+    if !args.json
+        && let Some(directory) = &retained
+    {
+        eprintln!(
+            "Saved labeled recordings: {}",
+            directory.join("manifest.json").display()
         );
-        println!("Held-out local clips: {:?}", head.validation);
-        println!(
-            "This checks your clips; it does not establish an ambient false-activation rate. Test with representative background speech before relying on it."
-        );
-        if !args.apply {
-            println!(
-                "Rerun with --apply to activate; use --keep-recordings to retain a retraining dataset."
-            );
-        }
     }
-    Ok(())
+    let result = (|| -> Result<()> {
+        let mut worker = load(&selected, paths, Arc::clone(&cancellation.flag))?;
+        let contract = worker.contract().to_owned();
+        let execution_devices = worker.execution_devices().to_owned();
+        let mut examples = Vec::new();
+        for (label, split) in [
+            ("training", &prepared.training),
+            ("calibration", &prepared.calibration),
+            ("validation", &prepared.validation),
+        ] {
+            let mut encoded = Vec::new();
+            for (i, item) in split.iter().enumerate() {
+                cancellation.check()?;
+                if !args.json {
+                    eprintln!("Encoding {label} {}/{}…", i + 1, split.len());
+                }
+                let (_, audio) = read_wave(&item.audio)?;
+                let mut hash = Sha256::new();
+                for value in &audio {
+                    hash.update(value.to_le_bytes());
+                }
+                let fingerprint = format!("{:x}", hash.finalize());
+                // Enrollment and live detection use the identical Silero endpoint
+                // and pre/post-roll. Reject ambiguous multi-phrase recordings.
+                let embedding = single_utterance(worker.as_mut(), &audio).with_context(|| {
+                    format!("{} example {} ({})", label, i + 1, item.audio.display())
+                })?;
+                anyhow::ensure!(
+                    embedding.encoder_contract == contract,
+                    "encoder changed during enrollment"
+                );
+                encoded.push(Example {
+                    id: fingerprint,
+                    values: embedding.values,
+                    positive: item.positive,
+                });
+            }
+            examples.push(encoded);
+        }
+        cancellation.check()?;
+        let mut head = Head::train(&contract, &examples[0], &examples[1])?;
+        head.validate_held_out(&examples[2])?;
+        cancellation.check()?;
+        let mut artifact_path = None;
+        if args.apply {
+            review(&head)?;
+            cancellation.check()?;
+            anyhow::ensure!(
+                config_snapshot(path)? == original,
+                "configuration changed during training; rerun with the updated configuration"
+            );
+            let directory = paths.data_dir.join("heads").join(&args.id);
+            let installed = artifact::install(&directory, &head)?;
+            let word = &mut config.wake_words[index];
+            let enrollment = word.enrollment.get_or_insert_with(Default::default);
+            enrollment.active = true;
+            enrollment.heads.insert(contract.clone(), installed.clone());
+            // Pin the exact backend+model as a named profile. Changing the default
+            // backend later cannot silently reinterpret or deactivate this word.
+            let profile_id = format!(
+                "enrolled-{}-{}",
+                args.id,
+                &format!(
+                    "{:x}",
+                    Sha256::digest(serde_json::to_vec(&(
+                        &contract,
+                        &selected.backend,
+                        &selected.model
+                    ))?)
+                )[..12]
+            );
+            word.engine = Some(profile_id.clone());
+            config.engines.insert(
+                profile_id,
+                crate::config::EngineProfile {
+                    backend: selected.backend.clone(),
+                    model: selected.model.clone(),
+                },
+            );
+            // On failure, immutable heads and explicitly retained recordings remain reusable.
+            save_and_reload_active(config, path, paths)?;
+            artifact_path = Some(installed);
+        }
+        if args.json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &serde_json::json!({"applied":args.apply,"word":args.id,"encoder_contract":contract,"execution_devices":execution_devices,"local_validation":head.validation,"head":artifact_path,"recordings":retained,"actions_executed":false,"qualification":"local held-out clips only; not a measured ambient false-activation rate"})
+                )?
+            );
+        } else {
+            println!(
+                "{} trained head for {}",
+                if args.apply {
+                    "Activated"
+                } else {
+                    "Validated preview of"
+                },
+                args.id
+            );
+            println!("Held-out local clips: {:?}", head.validation);
+            println!(
+                "This checks your clips; it does not establish an ambient false-activation rate. Test with representative background speech before relying on it."
+            );
+            if !args.apply {
+                println!(
+                    "Rerun with --apply to activate; use --keep-recordings to retain a retraining dataset."
+                );
+            }
+        }
+        Ok(())
+    })();
+    result.map_err(|error| match retained {
+        Some(directory) => error.context(format!("Training did not complete; kept your labeled recordings at {} as requested. Configuration activation did not complete", directory.join("manifest.json").display())),
+        None => error.context("Training did not complete; recordings were not retained. Choose Keep recordings locally to preserve the dataset before inference"),
+    })
+}
+
+pub(super) fn single_utterance(
+    worker: &mut dyn EmbeddingSession,
+    audio: &[f32],
+) -> Result<crate::engine::embedding::Embedding> {
+    worker.start()?;
+    let mut utterances = Vec::new();
+    for chunk in audio.chunks(16_000) {
+        utterances.extend(worker.audio(chunk)?);
+    }
+    utterances.extend(worker.finish()?);
+    anyhow::ensure!(
+        utterances.len() == 1,
+        "VAD found {} speech segments; expected one. A pause, repeated phrase, or background voice can split a recording. Retry only this clip with one continuous phrase",
+        utterances.len()
+    );
+    Ok(utterances
+        .pop()
+        .context("missing speech embedding")?
+        .embedding)
 }
 
 fn dataset_path(args: &TrainArgs, paths: &AppPaths) -> Result<PathBuf> {
@@ -288,6 +288,7 @@ fn dataset_path(args: &TrainArgs, paths: &AppPaths) -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::enrollment::artifact::LabeledRecording;
     use crate::test_support::{FakeEmbeddingSession, isolated_paths, unique_directory};
     fn fixture() -> (PathBuf, AppPaths, Config, PathBuf) {
         let root = unique_directory("training", "transaction");
@@ -390,7 +391,7 @@ mod tests {
         assert!(selected.is_file());
         run_with(reuse, saved.clone(), &file, &paths, load).unwrap();
         let sessions = crate::enrollment::recordings(&paths, "computer").unwrap();
-        assert_eq!(sessions.len(), 2);
+        assert_eq!(sessions.len(), 4);
         let retained = sessions
             .iter()
             .find_map(|s| {
@@ -411,6 +412,73 @@ mod tests {
             "openvino-genai"
         );
         fs::remove_dir_all(root).unwrap();
+    }
+    struct BadSegmentation {
+        inner: FakeEmbeddingSession,
+        count: usize,
+    }
+    impl EmbeddingSession for BadSegmentation {
+        fn contract(&self) -> &str {
+            self.inner.contract()
+        }
+        fn execution_devices(&self) -> &str {
+            "TEST"
+        }
+        fn start(&mut self) -> Result<()> {
+            self.inner.start()
+        }
+        fn audio(
+            &mut self,
+            samples: &[f32],
+        ) -> Result<Vec<crate::engine::embedding_worker::EncodedUtterance>> {
+            self.inner.audio(samples)
+        }
+        fn finish(&mut self) -> Result<Vec<crate::engine::embedding_worker::EncodedUtterance>> {
+            let encoded = self.inner.finish()?;
+            let bytes = serde_json::to_vec(&encoded[0])?;
+            (0..self.count)
+                .map(|_| serde_json::from_slice(&bytes).map_err(Into::into))
+                .collect()
+        }
+    }
+    #[test]
+    fn complete_dataset_is_saved_before_model_loading_or_segmentation_can_fail() {
+        for count in [0, 2, 99] {
+            let (root, paths, config, dataset) = fixture();
+            let file = root.join("candidate.toml");
+            let original = config_snapshot(&file).unwrap();
+            let result = run_with(args(dataset, true), config, &file, &paths, |_, paths, _| {
+                let sessions = crate::enrollment::recordings(paths, "computer")?;
+                assert_eq!(sessions.len(), 2); // Durable snapshot already exists at native load.
+                if count == 99 {
+                    anyhow::bail!("native load failed");
+                }
+                Ok(Box::new(BadSegmentation {
+                    inner: FakeEmbeddingSession::new("test-encoder"),
+                    count,
+                }))
+            });
+            let error = format!("{:#}", result.unwrap_err());
+            assert!(error.contains("kept your labeled recordings"), "{error}");
+            if count != 99 {
+                assert!(error.contains(&format!("VAD found {count} speech segments")));
+            }
+            assert_eq!(config_snapshot(&file).unwrap(), original);
+            assert!(!paths.data_dir.join("heads").exists());
+            let mut reuse = args(root.join("unused"), false);
+            reuse.dataset = None;
+            reuse.reuse_recordings = true;
+            let recovered = Dataset::load(&dataset_path(&reuse, &paths).unwrap()).unwrap();
+            let clips: Vec<_> = recovered
+                .training
+                .iter()
+                .chain(&recovered.calibration)
+                .chain(&recovered.validation)
+                .collect();
+            assert_eq!(clips.len(), 12);
+            assert!(clips.iter().all(|item| item.audio.is_file()));
+            fs::remove_dir_all(root).unwrap();
+        }
     }
     #[test]
     fn rejected_held_out_clips_are_retained_only_when_requested_and_can_be_reloaded() {
@@ -434,7 +502,7 @@ mod tests {
             let sessions = crate::enrollment::recordings(&paths, "computer").unwrap();
             assert_eq!(sessions.len(), 1 + usize::from(keep));
             if keep {
-                assert!(diagnostic.contains("Kept your labeled recordings"));
+                assert!(diagnostic.contains("kept your labeled recordings"));
                 let mut reuse = args(root.join("unused"), false);
                 reuse.dataset = None;
                 reuse.reuse_recordings = true;
@@ -483,6 +551,7 @@ mod tests {
             assert!(
                 result
                     .unwrap_err()
+                    .root_cause()
                     .to_string()
                     .contains("configuration changed")
             );
@@ -536,6 +605,7 @@ mod tests {
         assert!(
             result
                 .unwrap_err()
+                .root_cause()
                 .to_string()
                 .contains("configuration changed")
         );

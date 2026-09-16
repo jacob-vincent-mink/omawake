@@ -291,9 +291,9 @@ fn train_guided(
     use std::os::unix::fs::OpenOptionsExt;
     // Check the actual encoder before asking for more microphone recordings.
     // Onboarding aliases are only a draft until the complete operation applies.
-    drop(ui.load(
+    let mut worker = ui.load(
         &selected, paths, Arc::clone(&cancellation.flag),
-    ).context("initialize training encoder; select a configured OpenVINO Whisper base.en profile for trained onboarding")?);
+    ).context("initialize training encoder; select a configured OpenVINO Whisper base.en profile for trained onboarding")?;
     let phrase = &config.wake_words[index].phrase;
     let total = positives.files.len().max(10);
     ui.confirm(
@@ -306,6 +306,14 @@ fn train_guided(
         "Continue",
         "Cancel",
     )?;
+    check_recordings(
+        &mut positives,
+        phrase,
+        cancellation,
+        |title, help| ui.confirm(title, help, "Record again", "Cancel"),
+        || ui.record(&selected, seconds, cancellation),
+        |audio| training::single_utterance(worker.as_mut(), audio).map(|_| ()),
+    )?;
     let remaining = (total - positives.files.len()) as u16;
     collect_recordings(
         &mut positives,
@@ -314,7 +322,11 @@ fn train_guided(
         seconds,
         cancellation,
         |title, help| ui.confirm(title, help, "Record", "Cancel"),
-        || ui.record(&selected, seconds, cancellation),
+        || {
+            let audio = ui.record(&selected, seconds, cancellation)?;
+            training::single_utterance(worker.as_mut(), &audio)?;
+            Ok(audio)
+        },
     )?;
     let mut negatives = SampleSet::create(paths)?;
     collect_speech(
@@ -325,8 +337,13 @@ fn train_guided(
         false,
         cancellation,
         |title, help| ui.confirm(title, help, "Record", "Cancel"),
-        || ui.record(&selected, seconds, cancellation),
+        || {
+            let audio = ui.record(&selected, seconds, cancellation)?;
+            training::single_utterance(worker.as_mut(), &audio)?;
+            Ok(audio)
+        },
     )?;
+    drop(worker);
     let dataset: Dataset = split_recordings(&positives.files, &negatives.files)?;
     // The manifest lives alongside the owned temporary samples and is removed
     // with them, including on cancellation and native/training errors.
@@ -380,6 +397,36 @@ fn train_guided(
     result.context("trained onboarding did not complete; existing configuration unchanged. Review the error before collecting a fresh dataset")
 }
 
+/// Reused transcript examples need the same speech-boundary check as new clips.
+fn check_recordings(
+    samples: &mut SampleSet,
+    phrase: &str,
+    cancellation: &Cancellation,
+    mut ask: impl FnMut(&str, &str) -> Result<()>,
+    mut record: impl FnMut() -> Result<Vec<f32>>,
+    mut validate: impl FnMut(&[f32]) -> Result<()>,
+) -> Result<()> {
+    for index in 0..samples.files.len() {
+        cancellation.check()?;
+        let (_, mut audio) = crate::engine::audio::read_wave(&samples.files[index])?;
+        while let Err(error) = enrollment::validate_audio(&audio).and_then(|()| validate(&audio)) {
+            cancellation.check()?;
+            ask(
+                &format!("Retry wake-phrase example {}", index + 1),
+                &format!(
+                    "{error:#}\nSay {phrase:?} once, continuously. Other recordings are kept."
+                ),
+            )?;
+            audio = record()?;
+        }
+        // Replace only after both waveform quality and segmentation pass.
+        samples.push(&audio)?;
+        let replacement = samples.files.pop().context("missing retry recording")?;
+        fs::rename(replacement, &samples.files[index])?;
+    }
+    Ok(())
+}
+
 /// Allocate recordings by capture order before fitting: first 60% for training,
 /// next 20% for calibration, final 20% held out. Never copy a clip between roles.
 fn split_recordings(
@@ -426,7 +473,7 @@ fn choose_retention(interactive: bool, requested: bool) -> Result<bool> {
             ),
             MenuItem::available(
                 "Keep recordings locally",
-                "Keep the labeled samples even if training fails, for diagnosis or retraining",
+                "Save before training; keep even if inference fails or activation is cancelled",
             ),
         ];
         Ok(select(
@@ -829,8 +876,8 @@ mod tests {
             assert_eq!(config_snapshot(&file).unwrap(), original);
             assert!(!paths.data_dir.join("heads").exists());
             let sessions = enrollment::recordings(&paths, "computer").unwrap();
-            assert_eq!(sessions.len(), usize::from(case == 4));
-            if case == 4 {
+            assert_eq!(sessions.len(), usize::from(case == 2 || case == 4));
+            if case == 2 || case == 4 {
                 let dataset = crate::enrollment::artifact::Dataset::load(
                     &sessions[0].directory.join("manifest.json"),
                 )
@@ -848,6 +895,55 @@ mod tests {
             }
             fs::remove_dir_all(root).unwrap();
         }
+    }
+    #[test]
+    fn reused_sample_segmentation_retries_only_the_bad_clip_and_checks_quality() {
+        let (root, paths, _, mut samples) = training_fixture();
+        let untouched = fs::read(&samples.files[0]).unwrap();
+        let mut retries = 0;
+        let mut prompts = Vec::new();
+        check_recordings(
+            &mut samples,
+            "Hey name",
+            &Cancellation::new().unwrap(),
+            |title, _| {
+                prompts.push(title.to_owned());
+                Ok(())
+            },
+            || {
+                retries += 1;
+                Ok(vec![if retries == 1 { 0.0 } else { 0.2 }; 4000])
+            },
+            |audio| {
+                anyhow::ensure!(
+                    (audio[0] - 0.101).abs() > 0.0001,
+                    "VAD found 2 speech segments"
+                );
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(retries, 2);
+        assert_eq!(
+            prompts,
+            ["Retry wake-phrase example 2", "Retry wake-phrase example 2"]
+        );
+        assert_eq!(samples.files.len(), 5);
+        assert_eq!(fs::read(&samples.files[0]).unwrap(), untouched);
+        assert_eq!(
+            crate::engine::audio::read_wave(&samples.files[1])
+                .unwrap()
+                .1[0],
+            0.2
+        );
+        drop(samples);
+        assert_eq!(
+            fs::read_dir(paths.cache_dir.join("onboarding"))
+                .unwrap()
+                .count(),
+            0
+        );
+        fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn generated_splits_are_balanced_disjoint_and_preserve_all_examples() {
