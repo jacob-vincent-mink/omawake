@@ -4035,4 +4035,3 @@ fn mixed_runtime_reports_never_claim_the_default_device_for_all_groups() {
             .contains("Silero VAD runs on CPU")
     );
 }
-
