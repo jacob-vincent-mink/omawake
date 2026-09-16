@@ -1290,7 +1290,7 @@ import os,pty,select,sys,time,signal
 pid,fd=pty.fork()
 if pid==0:
  os.execv(sys.argv[1],[sys.argv[1],'word','onboard','computer'])
-data=b'';answered=False;engine_answered=False;deadline=time.monotonic()+12
+data=b'';answered=False;training_answered=False;deployment_answered=False;deadline=time.monotonic()+12
 while time.monotonic()<deadline:
  ready,_,_=select.select([fd],[],[],0.05)
  if ready:
@@ -1298,8 +1298,10 @@ while time.monotonic()<deadline:
   except OSError: pass
   if not answered and b'Trainable KWS with Omaspeak assistance' in data:
    os.write(fd,b'\x1b[B\r');answered=True
-  if not engine_answered and b'Trainable KWS engine' in data:
-   os.write(fd,b'\r');engine_answered=True
+  if not training_answered and b'Training device' in data:
+   os.write(fd,b'\r');training_answered=True
+  if not deployment_answered and b'Finished detector device' in data:
+   os.write(fd,b'\r');deployment_answered=True
  done,status=os.waitpid(pid,os.WNOHANG)
  if done:
   assert answered,data.decode(errors='replace')

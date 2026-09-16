@@ -15,10 +15,11 @@ omawake word onboard agent
 
 Microphone onboarding first offers **Whisper spellings**, **Trainable KWS — learn
 from my voice**, or **Trainable KWS with Omaspeak assistance**. No `--engine` flag
-or specially named profile is needed. Training recommends a configured OpenVINO
-CPU profile and checks the encoder before recording. OpenVINO iGPU/NPU profiles
-are selectable but labeled experimental: this encoder/head path has only a
-small file-based parity check on those devices. Missing setup is reported before capture.
+or specially named profile is needed. Onboarding reuses configured OpenVINO model
+assets, then independently asks for **Training device** and **Finished detector
+device**. CPU is the default for training feature extraction; Intel iGPU/NPU are
+experimental options. Both encoders are checked before recording. Missing model
+or runtime setup is reported before capture.
 
 The Whisper flow records several examples, shows the transcripts, and asks
 which exact spellings to accept. Arrow keys and Enter select each choice; Esc
@@ -85,8 +86,9 @@ can coexist through separate engine groups.
 ### Guided recording and training
 
 Run `omawake word onboard agent` (or **Teach a wake word** in setup), choose
-**Trainable KWS — learn from my voice**, then a configured OpenVINO Whisper
-base.en CPU engine. No specially named engine or command-line override is needed.
+**Trainable KWS — learn from my voice**, then choose training and deployment
+devices. Configured OpenVINO Whisper base.en assets are reused; no specially
+named engine or command-line override is needed.
 You can also switch to training after reviewing Whisper spellings. CPU is the
 qualified device for this experimental path so far.
 
@@ -296,3 +298,32 @@ classifier. It does not run Whisper's text decoder or transcribe the utterance.
 Other words configured for transcript matching still use their own transcription
 path. Accelerator compatibility and classifier accuracy must be checked for this
 encoder pipeline separately from the regular Whisper transcription backend.
+
+### Separate training and deployment devices
+
+For guided collection, device flags skip the corresponding device questions:
+
+```sh
+omawake word onboard WORD --training-device cpu --run-device npu
+```
+
+For a saved dataset, without collecting new clips:
+
+```sh
+omawake word train WORD --reuse-recordings --training-device cpu --run-device npu --apply
+```
+
+Both flags accept `cpu`, `gpu` (`igpu` alias), or `npu`. They choose devices within
+the existing OpenVINO frozen-encoder pipeline, not arbitrary runtime libraries.
+The optional `--engine` flag chooses source model/runtime assets; it does not
+need to name a profile for the desired destination device. Low-level training
+defaults to CPU feature extraction and the source profile's deployment device.
+
+Training examples are encoded on the training device. Calibration and held-out
+examples are encoded on the deployment device, with the same encoder contract.
+Classifier fitting runs on CPU; its threshold is calibrated for deployment.
+The unchanged held-out gate must pass there before Apply. Only the deployment
+settings are pinned in the managed enrollment profile. Failure to load the
+selected device, incompatible encoder contracts, or failed held-out validation
+leave the current detector unchanged. Guided onboarding loads both devices before
+requesting recordings, also preparing the deployment encoder's compilation cache.

@@ -1,3 +1,4 @@
+use super::training::EncoderDevice;
 use super::*;
 use crate::enrollment::{self, AliasReview, Cancellation, SampleSet};
 use crate::setup::wizard::{MenuItem, select};
@@ -8,9 +9,15 @@ pub(super) struct OnboardArgs {
     pub id: Option<String>,
     #[arg(long)]
     pub phrase: Option<String>,
-    /// Optional engine profile override; guided onboarding offers the recognition method.
+    /// Optional model/runtime profile override; training and deployment devices are separate.
     #[arg(long)]
     pub engine: Option<String>,
+    /// Override the device used to extract training features (not deployment).
+    #[arg(long, value_enum, conflicts_with_all = ["audio", "json", "apply"])]
+    pub training_device: Option<EncoderDevice>,
+    /// Where the finished trained detector will run.
+    #[arg(long, value_enum, conflicts_with_all = ["audio", "json", "apply"])]
+    pub run_device: Option<EncoderDevice>,
     /// Import a WAV example instead of opening the microphone (repeatable).
     #[arg(long = "audio")]
     pub audio: Vec<PathBuf>,
@@ -157,7 +164,11 @@ pub(super) fn run(
     }
     // Offer training before microphone capture or transcription, not only after
     // a full alias-review session. File-based alias onboarding stays unchanged.
-    let method = if interactive && args.audio.is_empty() && args.dataset.is_none() {
+    let method = if args.dataset.is_none()
+        && (args.training_device.is_some() || args.run_device.is_some())
+    {
+        1 // Explicit device options request trained onboarding.
+    } else if interactive && args.audio.is_empty() && args.dataset.is_none() {
         select(
             "Recognition method",
             "Choose how to recognize this wake phrase. No engine flag is needed.",
@@ -175,6 +186,7 @@ pub(super) fn run(
         select_engine(&mut config, index, args.engine.as_deref(), interactive)?
     };
     if method != 0 {
+        let devices = choose_devices(&selected, args.training_device, args.run_device)?;
         let assistance = method == 2 && assisted::prepare()?;
         return train_guided(
             config,
@@ -188,6 +200,7 @@ pub(super) fn run(
             args.keep_recordings,
             &Cancellation::new()?,
             &NativeTrainingInteraction {
+                devices,
                 assistance,
                 additional: 0,
                 resume: None,
@@ -205,6 +218,7 @@ pub(super) fn run(
             MenuItem::available("Add Omaspeak examples", "Install Omaspeak if missing; review pronunciations before generation"),
             MenuItem::available("Add my positive and negative examples", "Add four clips of each class to training, plus four of each for fresh evaluation"),
         ], if extend_saved { 2 } else { 0 })?.context("onboarding cancelled; configuration unchanged")?;
+        let devices = choose_devices(&selected, args.training_device, args.run_device)?;
         let assistance = choice == 1 && assisted::prepare()?;
         return train_guided(
             config,
@@ -218,6 +232,7 @@ pub(super) fn run(
             args.keep_recordings || choice == 2,
             &Cancellation::new()?,
             &NativeTrainingInteraction {
+                devices,
                 assistance,
                 additional: if choice == 2 { 4 } else { 0 },
                 resume: Some(dataset),
@@ -308,6 +323,7 @@ pub(super) fn run(
             if args.engine.is_none() {
                 selected = select_training_engine(&mut config, index)?;
             }
+            let devices = choose_devices(&selected, args.training_device, args.run_device)?;
             let assistance = mode == 2 && assisted::prepare()?;
             drop(detector);
             return train_guided(
@@ -322,6 +338,7 @@ pub(super) fn run(
                 args.keep_recordings,
                 &cancellation,
                 &NativeTrainingInteraction {
+                    devices,
                     assistance,
                     additional: 0,
                     resume: None,
@@ -367,6 +384,9 @@ pub(super) fn run(
 }
 
 trait TrainingInteraction {
+    fn devices(&self) -> Option<DevicePlan> {
+        None
+    }
     fn additional(&self) -> u16 {
         0
     }
@@ -397,11 +417,15 @@ trait TrainingInteraction {
     ) -> Result<Box<dyn crate::engine::embedding_worker::EmbeddingSession>>;
 }
 struct NativeTrainingInteraction {
+    devices: DevicePlan,
     additional: u16,
     assistance: bool,
     resume: Option<crate::enrollment::artifact::Dataset>,
 }
 impl TrainingInteraction for NativeTrainingInteraction {
+    fn devices(&self) -> Option<DevicePlan> {
+        Some(self.devices)
+    }
     fn additional(&self) -> u16 {
         self.additional
     }
@@ -447,7 +471,7 @@ fn train_guided(
     path: &Path,
     paths: &AppPaths,
     original: Option<Vec<u8>>,
-    selected: Config,
+    mut selected: Config,
     mut positives: SampleSet,
     seconds: u64,
     keep_recordings: bool,
@@ -456,11 +480,26 @@ fn train_guided(
 ) -> Result<()> {
     use crate::enrollment::artifact::Dataset;
     use std::os::unix::fs::OpenOptionsExt;
+    let devices = ui.devices().unwrap_or(DevicePlan {
+        training: EncoderDevice::from_config(&selected)?,
+        deployment: EncoderDevice::from_config(&selected)?,
+    });
+    let mut deployment = selected.clone();
+    deployment.backend.device = devices.deployment.as_str().into();
+    selected.backend.device = devices.training.as_str().into();
     // Check the actual encoder before asking for more microphone recordings.
     // Onboarding aliases are only a draft until the complete operation applies.
     let mut worker = ui.load(
         &selected, paths, Arc::clone(&cancellation.flag),
     ).context("initialize training encoder; select a configured OpenVINO Whisper base.en profile for trained onboarding")?;
+    if devices.training != devices.deployment {
+        let target = ui.load(&deployment, paths, Arc::clone(&cancellation.flag))
+            .context("initialize deployment device before collecting recordings; current detector unchanged")?;
+        anyhow::ensure!(
+            target.contract() == worker.contract(),
+            "training and deployment encoder contracts differ"
+        );
+    }
     let phrase = &config.wake_words[index].phrase;
     let mut negatives = SampleSet::create(paths)?;
     let mut dataset: Dataset = if let Some(mut saved) = ui.resume() {
@@ -598,6 +637,8 @@ fn train_guided(
             dataset: Some(manifest),
             reuse_recordings: false,
             engine: None,
+            training_device: devices.training,
+            run_device: Some(devices.deployment),
             apply: true,
             keep_recordings: keep,
             json: false,
@@ -615,8 +656,8 @@ fn train_guided(
             ui.confirm(
                 "Apply trained wake word",
                 &format!(
-                    "Phrase: {phrase:?}\nHeld-out positives: {}; misses: {}\nHeld-out negatives: {}; false activations: {}\nAction: {action:?}\nRetain recordings: {keep}\nThis is a local check, not a measured background false-activation rate.",
-                    v.positives, v.misses, v.negatives, v.false_activations
+                    "Phrase: {phrase:?}\nTraining features: {}\nFinished detector: {} (calibration and validation run here)\nHeld-out positives: {}; misses: {}\nHeld-out negatives: {}; false activations: {}\nAction: {action:?}\nRetain recordings: {keep}\nThis is a local check, not a measured background false-activation rate.",
+                    devices.training.as_str(), devices.deployment.as_str(), v.positives, v.misses, v.negatives, v.false_activations
                 ),
                 "Apply",
                 "Cancel",
@@ -798,6 +839,73 @@ fn choose_retention(interactive: bool, requested: bool) -> Result<bool> {
     }
 }
 
+#[derive(Clone, Copy)]
+struct DevicePlan {
+    training: EncoderDevice,
+    deployment: EncoderDevice,
+}
+
+fn device_items(hardware: &crate::hardware::HardwareReport) -> Vec<MenuItem> {
+    vec![
+        MenuItem::available("CPU", "OpenVINO CPU; no accelerator required"),
+        MenuItem::available(
+            "Intel NPU",
+            if hardware.intel_npu {
+                "Detected; experimental encoder path, checked before recording"
+            } else {
+                "Not detected; OpenVINO must confirm this device before recording"
+            },
+        ),
+        MenuItem::available(
+            "Intel iGPU",
+            if hardware.intel_gpu {
+                "Detected; experimental encoder path, checked before recording"
+            } else {
+                "Not detected; OpenVINO must confirm this device before recording"
+            },
+        ),
+    ]
+}
+
+fn choose_devices(
+    config: &Config,
+    training: Option<EncoderDevice>,
+    deployment: Option<EncoderDevice>,
+) -> Result<DevicePlan> {
+    anyhow::ensure!(
+        config.backend.runtime == Runtime::Openvino,
+        "initialize training encoder: trainable heads require OpenVINO model assets; configuration unchanged"
+    );
+    let choices = [EncoderDevice::Cpu, EncoderDevice::Npu, EncoderDevice::Gpu];
+    let items = device_items(&crate::hardware::detect());
+    let pick = |title: &str, help: &str, preferred: EncoderDevice| -> Result<EncoderDevice> {
+        let index = choices.iter().position(|d| *d == preferred).unwrap_or(0);
+        let chosen = select(title, help, &items, index)?
+            .context("onboarding cancelled; configuration unchanged")?;
+        Ok(choices[chosen])
+    };
+    let training = match training {
+        Some(value) => value,
+        None => pick(
+            "Training device",
+            "Where Whisper extracts training features. The tiny classifier is fitted on CPU. This does not decide where the finished detector runs.",
+            EncoderDevice::Cpu,
+        )?,
+    };
+    let deployment = match deployment {
+        Some(value) => value,
+        None => pick(
+            "Finished detector device",
+            "Where this word runs after Apply. Calibration and held-out validation run on this device; setup creates its managed profile automatically.",
+            EncoderDevice::from_config(config)?,
+        )?,
+    };
+    Ok(DevicePlan {
+        training,
+        deployment,
+    })
+}
+
 fn recognition_methods() -> [MenuItem; 3] {
     [
         MenuItem::available(
@@ -852,17 +960,17 @@ fn training_engine_choices(config: &Config) -> (Vec<Option<String>>, Vec<MenuIte
 fn select_training_engine(config: &mut Config, index: usize) -> Result<Config> {
     let (names, items) = training_engine_choices(config);
     let preferred = names.iter().zip(&items).position(|(name, item)|
-        item.enabled && config.wake_words[index].uses_trained_head() && *name == config.wake_words[index].engine)
-        .or_else(|| names.iter().zip(&items).position(|(name, item)| item.enabled && config.engine_profile(name.as_deref()).is_ok_and(|p| p.backend.device.eq_ignore_ascii_case("cpu"))))
+        item.enabled && *name == config.wake_words[index].engine)
         .or_else(|| items.iter().position(|item| item.enabled))
         .context("Trainable KWS needs an OpenVINO engine with Whisper base.en encoder assets. Run `omawake setup` to configure the model/runtime first. No recordings were collected; configuration unchanged.")?;
-    let choice = select("Trainable KWS engine",
-        "CPU is validated; iGPU/NPU are experimental. Encoder assets and device placement are checked before recording. Managed enrollment profiles preserve a trained word's settings.",
-        &items, preferred)?.context("onboarding cancelled; configuration unchanged")?;
+    eprintln!(
+        "Using model assets from {}. Training and deployment devices are chosen separately.",
+        engine_label(config, names[preferred].as_deref())
+    );
     select_engine(
         config,
         index,
-        Some(names[choice].as_deref().unwrap_or("default")),
+        Some(names[preferred].as_deref().unwrap_or("default")),
         false,
     )
 }
@@ -974,6 +1082,8 @@ pub(super) fn guided(config: Config, path: &Path, paths: &AppPaths) -> Result<()
             id: None,
             phrase: None,
             engine: None,
+            training_device: None,
+            run_device: None,
             audio: Vec::new(),
             dataset: None,
             samples: 5,
@@ -1078,6 +1188,7 @@ mod tests {
     use super::*;
     use std::cell::{Cell, RefCell};
     struct TestInteraction {
+        devices: Option<DevicePlan>,
         additional: u16,
         assistance: bool,
         generation_succeeds: bool,
@@ -1090,6 +1201,9 @@ mod tests {
         invalid_negatives: bool,
     }
     impl TrainingInteraction for TestInteraction {
+        fn devices(&self) -> Option<DevicePlan> {
+            self.devices
+        }
         fn additional(&self) -> u16 {
             self.additional
         }
@@ -1164,6 +1278,7 @@ mod tests {
     }
     fn test_interaction() -> TestInteraction {
         TestInteraction {
+            devices: None,
             additional: 0,
             assistance: false,
             generation_succeeds: false,
@@ -1370,6 +1485,12 @@ mod tests {
             let original = config_snapshot(&file).unwrap();
             let mut ui = test_interaction();
             ui.keep = keep;
+            if keep {
+                ui.devices = Some(DevicePlan {
+                    training: EncoderDevice::Cpu,
+                    deployment: EncoderDevice::Npu,
+                });
+            }
             config.wake_words[0]
                 .aliases
                 .push("reviewed spelling".into());
@@ -1391,6 +1512,14 @@ mod tests {
             assert_eq!(ui.recordings.get(), 15); // Reuse five positives, collect five more and ten negatives.
             let saved = Config::load(&file).unwrap();
             assert!(saved.wake_words[0].uses_trained_head());
+            assert_eq!(
+                saved
+                    .engine_profile(saved.wake_words[0].engine.as_deref())
+                    .unwrap()
+                    .backend
+                    .device,
+                if keep { "npu" } else { "cpu" }
+            );
             assert_eq!(saved.wake_words[0].command, action);
             assert_eq!(saved.wake_words[0].aliases, ["reviewed spelling"]);
             let screens = ui.screens.borrow();

@@ -65,3 +65,24 @@ noise/distance conditions, sustained ambient speech, energy usage, and repeated
 startup/warm timing. The existing CPU-trained head worked unchanged here; this
 does not establish that every model export, driver, NPU, or trained head will
 preserve its decision margins.
+
+## Separate training and deployment follow-up
+
+The application now supports `word train WORD --dataset MANIFEST
+--training-device cpu --run-device npu --json` without requiring an NPU-named
+engine profile. The reverse direction (`npu` training, `cpu` deployment) was also
+run using the same saved recordings, without `--apply`. Source model/runtime
+assets came from an isolated CPU profile in both cases.
+
+| Training features | Calibration/validation | Misses | False activations | Minimum held-out margin |
+| --- | --- | ---: | ---: | ---: |
+| CPU (verified) | NPU (verified) | 0/2 | 0/2 | 0.063816 |
+| NPU (verified) | CPU (verified) | 0/2 | 0/2 | 0.065164 |
+
+Both commands reported `applied: false`, no actions, and separate actual training
+and deployment execution devices. No active user config, head, or source dataset
+was modified. Local evidence: `/tmp/omawake-cross-device-training-9_2rf1i4/`.
+These are repeated checks of the saved evaluation clips, not new independent
+accuracy evidence. Automated tests additionally cover destination load failures,
+encoder-contract mismatch, and device-dependent features that cannot satisfy
+validation; none may activate or replace the prior detector.

@@ -10,6 +10,31 @@ use crate::enrollment::{
 };
 use sha2::{Digest, Sha256};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub(super) enum EncoderDevice {
+    Cpu,
+    #[value(alias = "igpu")]
+    Gpu,
+    Npu,
+}
+impl EncoderDevice {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Cpu => "cpu",
+            Self::Gpu => "gpu",
+            Self::Npu => "npu",
+        }
+    }
+    pub fn from_config(config: &Config) -> Result<Self> {
+        match config.backend.device.to_ascii_lowercase().as_str() {
+            "cpu" => Ok(Self::Cpu),
+            "gpu" | "igpu" => Ok(Self::Gpu),
+            "npu" => Ok(Self::Npu),
+            other => bail!("unsupported trained encoder device {other}"),
+        }
+    }
+}
+
 #[derive(clap::Args)]
 pub(super) struct TrainArgs {
     pub id: String,
@@ -23,9 +48,15 @@ pub(super) struct TrainArgs {
     /// Re-enroll from the newest retained labeled session for this word.
     #[arg(long)]
     pub reuse_recordings: bool,
-    /// Configured encoder profile; default is the word's current profile.
+    /// Source model/runtime profile; defaults to the word's current profile.
     #[arg(long)]
     pub engine: Option<String>,
+    /// Device for extracting training features; classifier fitting stays on CPU.
+    #[arg(long, value_enum, default_value = "cpu")]
+    pub training_device: EncoderDevice,
+    /// Where the finished detector runs; defaults to the source profile's device.
+    #[arg(long, value_enum)]
+    pub run_device: Option<EncoderDevice>,
     /// Activate only after all held-out local examples pass. No actions run here.
     #[arg(long)]
     pub apply: bool,
@@ -44,7 +75,7 @@ fn run_with(
     config: Config,
     path: &Path,
     paths: &AppPaths,
-    load: impl FnOnce(&Config, &AppPaths, Arc<AtomicBool>) -> Result<Box<dyn EmbeddingSession>>,
+    load: impl FnMut(&Config, &AppPaths, Arc<AtomicBool>) -> Result<Box<dyn EmbeddingSession>>,
 ) -> Result<()> {
     let original = config_snapshot(path)?;
     run_reviewed(args, config, path, paths, original, load, |_| Ok(()))
@@ -58,7 +89,7 @@ pub(super) fn run_reviewed(
     path: &Path,
     paths: &AppPaths,
     original: Option<Vec<u8>>,
-    load: impl FnOnce(&Config, &AppPaths, Arc<AtomicBool>) -> Result<Box<dyn EmbeddingSession>>,
+    mut load: impl FnMut(&Config, &AppPaths, Arc<AtomicBool>) -> Result<Box<dyn EmbeddingSession>>,
     review: impl FnOnce(&Head) -> Result<()>,
 ) -> Result<()> {
     validate_wake_words(&config.wake_words)?;
@@ -72,7 +103,13 @@ pub(super) fn run_reviewed(
         .as_deref()
         .or(config.wake_words[index].engine.as_deref());
     let selected_engine = selected_engine.filter(|s| *s != "default");
-    let selected = config.for_engine(selected_engine)?;
+    let mut deployment = config.for_engine(selected_engine)?;
+    if let Some(device) = args.run_device {
+        deployment.backend.device = device.as_str().into();
+    }
+    EncoderDevice::from_config(&deployment)?;
+    let mut selected = deployment.clone();
+    selected.backend.device = args.training_device.as_str().into();
     anyhow::ensure!(
         selected.backend.runtime == Runtime::Openvino,
         "trainable heads currently require a configured raw OpenVINO Whisper encoder profile"
@@ -123,13 +160,24 @@ pub(super) fn run_reviewed(
     let result = (|| -> Result<()> {
         let mut worker = load(&selected, paths, Arc::clone(&cancellation.flag))?;
         let contract = worker.contract().to_owned();
-        let execution_devices = worker.execution_devices().to_owned();
+        let training_execution_devices = worker.execution_devices().to_owned();
+        let mut execution_devices = training_execution_devices.clone();
         let mut examples = Vec::new();
         for (label, split) in [
             ("training", &prepared.training),
             ("calibration", &prepared.calibration),
             ("validation", &prepared.validation),
         ] {
+            if label == "calibration" && selected.backend.device != deployment.backend.device {
+                drop(worker);
+                worker = load(&deployment, paths, Arc::clone(&cancellation.flag))
+                    .context("initialize deployment device for calibration and held-out validation; current detector unchanged")?;
+                anyhow::ensure!(
+                    worker.contract() == contract,
+                    "deployment encoder differs from training encoder; current detector unchanged"
+                );
+                execution_devices = worker.execution_devices().to_owned();
+            }
             let mut encoded = Vec::new();
             for (i, item) in split.iter().enumerate() {
                 cancellation.check()?;
@@ -211,8 +259,8 @@ pub(super) fn run_reviewed(
                     "{:x}",
                     Sha256::digest(serde_json::to_vec(&(
                         &contract,
-                        &selected.backend,
-                        &selected.model
+                        &deployment.backend,
+                        &deployment.model
                     ))?)
                 )[..12]
             );
@@ -220,8 +268,8 @@ pub(super) fn run_reviewed(
             config.engines.insert(
                 profile_id,
                 crate::config::EngineProfile {
-                    backend: selected.backend.clone(),
-                    model: selected.model.clone(),
+                    backend: deployment.backend.clone(),
+                    model: deployment.model.clone(),
                 },
             );
             // On failure, immutable heads and explicitly retained recordings remain reusable.
@@ -232,7 +280,7 @@ pub(super) fn run_reviewed(
             println!(
                 "{}",
                 serde_json::to_string_pretty(
-                    &serde_json::json!({"applied":args.apply,"word":args.id,"encoder_contract":contract,"execution_devices":execution_devices,"local_validation":head.validation,"head":artifact_path,"recordings":retained,"actions_executed":false,"qualification":"local held-out clips only; not a measured ambient false-activation rate"})
+                    &serde_json::json!({"applied":args.apply,"word":args.id,"encoder_contract":contract,"execution_devices":execution_devices,"training_execution_devices":training_execution_devices,"training_device":selected.backend.device,"run_device":deployment.backend.device,"local_validation":head.validation,"head":artifact_path,"recordings":retained,"actions_executed":false,"qualification":"local held-out clips only; not a measured ambient false-activation rate"})
                 )?
             );
         } else {
@@ -244,6 +292,13 @@ pub(super) fn run_reviewed(
                     "Validated preview of"
                 },
                 args.id
+            );
+            println!(
+                "Training encoder: {} ({}); finished detector encoder: {} ({})",
+                selected.backend.device,
+                training_execution_devices,
+                deployment.backend.device,
+                execution_devices
             );
             println!("Held-out local clips: {:?}", head.validation);
             println!(
@@ -384,6 +439,8 @@ mod tests {
             dataset: Some(dataset),
             reuse_recordings: false,
             engine: None,
+            training_device: EncoderDevice::Cpu,
+            run_device: None,
             apply,
             keep_recordings: true,
             json: false,
@@ -392,6 +449,54 @@ mod tests {
     fn load(_: &Config, _: &AppPaths, _: Arc<AtomicBool>) -> Result<Box<dyn EmbeddingSession>> {
         Ok(Box::new(FakeEmbeddingSession::new("test-encoder")))
     }
+    #[test]
+    fn training_and_deployment_are_independent_and_target_failures_never_activate() {
+        for (training_device, run_device, failure) in [
+            (EncoderDevice::Cpu, EncoderDevice::Npu, 0),
+            (EncoderDevice::Npu, EncoderDevice::Cpu, 0),
+            (EncoderDevice::Gpu, EncoderDevice::Npu, 0),
+            (EncoderDevice::Cpu, EncoderDevice::Npu, 1),
+            (EncoderDevice::Cpu, EncoderDevice::Npu, 2),
+            (EncoderDevice::Cpu, EncoderDevice::Npu, 3),
+        ] {
+            let (root, paths, config, dataset) = fixture();
+            let file = root.join("candidate.toml");
+            let before = fs::read(&file).unwrap();
+            let mut options = args(dataset, true);
+            options.training_device = training_device;
+            options.run_device = Some(run_device);
+            let mut loaded = Vec::new();
+            let result = run_with(options, config.clone(), &file, &paths, |candidate, _, _| {
+                loaded.push(candidate.backend.device.clone());
+                let deployment = loaded.len() == 2;
+                anyhow::ensure!(!(deployment && failure == 1), "target unavailable");
+                let mut worker = FakeEmbeddingSession::new(if deployment && failure == 2 {
+                    "different-encoder"
+                } else {
+                    "test-encoder"
+                });
+                worker.inverted = deployment && failure == 3;
+                Ok(Box::new(worker))
+            });
+            assert_eq!(loaded, [training_device.as_str(), run_device.as_str()]);
+            if failure == 0 {
+                result.unwrap();
+                let saved = Config::load(&file).unwrap();
+                let profile = saved
+                    .engine_profile(saved.wake_words[0].engine.as_deref())
+                    .unwrap();
+                assert_eq!(profile.backend.device, run_device.as_str());
+                assert_eq!(saved.backend, config.backend);
+                assert!(saved.wake_words[0].uses_trained_head());
+            } else {
+                assert!(result.is_err());
+                assert_eq!(fs::read(&file).unwrap(), before);
+                assert!(!paths.data_dir.join("heads").exists());
+            }
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
     #[test]
     fn preview_then_activation_preserves_word_and_reusable_dataset() {
         let (root, paths, config, dataset) = fixture();

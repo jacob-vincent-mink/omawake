@@ -133,10 +133,11 @@ An experimental frozen-encoder head can handle phrases that transcription does
 not represent reliably. Transcript words and trained words can run together;
 compatible heads share an encoder. Applying a trained head preserves aliases and
 pins its model profile, so changing the default backend does not erase it.
-Choose **Trainable KWS — learn from my voice** at the start, then select a
-configured OpenVINO profile (CPU validated; iGPU/NPU experimental). You can also
-switch to training after reviewing
-spellings. Onboarding reuses any examples already collected, collects at least
+Choose **Trainable KWS — learn from my voice** at the start, then select
+the training device and the device where the finished detector will run
+(CPU, or experimental Intel iGPU/NPU). Configured OpenVINO model assets are reused
+and the deployment profile is created automatically. You can also switch to
+training after reviewing spellings. Onboarding reuses any examples already collected, collects at least
 10 wake-phrase and 10 other-speech recordings,
 and prepares separate training, calibration, and held-out examples automatically.
 You review validation results before Apply; no hand-written dataset is needed.
@@ -150,7 +151,16 @@ missing, onboarding offers an explicit user-local release installation. Resume a
 retained session with `word onboard --dataset manifest.json` to reuse training
 clips and collect fresh evaluation recordings. To add more human examples, run
 `omawake word onboard WORD` and choose **Add positive and negative examples**;
-saved datasets are discovered automatically.
+saved datasets are discovered automatically. Training and deployment can use
+different devices without manually creating named profiles:
+
+```bash
+omawake word train jarvis --reuse-recordings --training-device cpu --run-device npu --apply
+```
+
+Training features are extracted on the training device; the small classifier is
+fitted on CPU. Calibration and held-out validation run on the deployment device
+before activation. A failed destination check preserves the current detector.
 See [wake-word enrollment](docs/architecture/WAKE-WORD-ENROLLMENT.md) for commands,
 recording retention, profiles, retraining, and the limits of local validation.
 
