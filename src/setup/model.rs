@@ -7,7 +7,7 @@ use anyhow::{Context, Result, bail};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-use crate::catalog::{ModelAsset, ModelSpec};
+use crate::catalog::{self, ModelAsset, ModelSpec};
 use crate::paths::AppPaths;
 
 const MIT_TERMS: &str = "Permission is hereby granted, free of charge, to any person obtaining a copy\
@@ -403,11 +403,18 @@ fn verify_file(path: &Path, expected_size: u64, expected_sha256: &str) -> Result
     let metadata =
         fs::metadata(path).with_context(|| format!("file is missing: {}", path.display()))?;
     if !metadata.is_file() || metadata.len() != expected_size {
-        bail!("file size mismatch for {}", path.display());
+        bail!(
+            "file size mismatch for {}: expected {expected_size} bytes, found {}",
+            path.display(),
+            metadata.len()
+        );
     }
     let digest = sha256_file(path)?;
     if digest != expected_sha256 {
-        bail!("file checksum mismatch for {}", path.display());
+        bail!(
+            "file checksum mismatch for {}: expected {expected_sha256}, found {digest}",
+            path.display()
+        );
     }
     Ok(())
 }
@@ -482,6 +489,114 @@ fn emit(
         ),
     }
     Ok(())
+}
+
+/// Health-check every pinned catalog URL without downloading it or writing
+/// anything. `url_prefix` optionally replaces the `scheme://authority` origin of
+/// each pinned URL (maintainer mirror testing); pins themselves are never
+/// modified. Returns one report row per catalog asset.
+pub fn check_urls(url_prefix: Option<&str>) -> Vec<UrlCheck> {
+    check_urls_with(url_prefix, &mut |url| probe_url(url))
+}
+
+#[derive(Serialize)]
+pub struct UrlCheck {
+    pub model: String,
+    pub asset: String,
+    pub url: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+fn check_urls_with(
+    url_prefix: Option<&str>,
+    probe: &mut dyn FnMut(&str) -> std::result::Result<u64, String>,
+) -> Vec<UrlCheck> {
+    let mut checks = Vec::new();
+    for spec in catalog::models() {
+        for asset in spec.assets {
+            let url = rewritten_url(url_prefix, asset.url);
+            let (status, detail) = match probe(&url) {
+                Ok(size) if size == asset.size => ("ok", None),
+                Ok(size) => (
+                    "size-mismatch",
+                    Some(format!(
+                        "pinned size is {0} bytes, origin reported {size}",
+                        asset.size
+                    )),
+                ),
+                Err(error) => ("unreachable", Some(error)),
+            };
+            checks.push(UrlCheck {
+                model: spec.id.to_owned(),
+                asset: asset.path.to_owned(),
+                url,
+                status: status.to_owned(),
+                detail,
+            });
+        }
+    }
+    checks
+}
+
+/// Replace the `scheme://authority` origin of a pinned URL with `prefix`,
+/// keeping the path and query. A prefix without a trailing slash is completed.
+fn rewritten_url(prefix: Option<&str>, url: &str) -> String {
+    let Some(prefix) = prefix else {
+        return url.to_owned();
+    };
+    let Some(rest) = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+    else {
+        return url.to_owned();
+    };
+    let path = rest.split_once('/').map(|(_, path)| path).unwrap_or("");
+    let mut prefix = prefix.to_owned();
+    if !prefix.ends_with('/') {
+        prefix.push('/');
+    }
+    format!("{prefix}{path}")
+}
+
+/// HEAD the URL and return the advertised Content-Length. Follows redirects.
+fn probe_url(url: &str) -> std::result::Result<u64, String> {
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(30))
+        .redirects(5)
+        .build();
+    let response = agent
+        .head(url)
+        .call()
+        .map_err(|error| format!("request failed: {error}"))?;
+    let length = response
+        .header("content-length")
+        .and_then(|value| value.parse::<u64>().ok())
+        .ok_or_else(|| "no content-length in response".to_owned())?;
+    Ok(length)
+}
+
+pub fn print_url_checks(checks: &[UrlCheck], json: bool) {
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(checks).expect("url check report is serializable")
+        );
+        return;
+    }
+    for check in checks {
+        let detail = check
+            .detail
+            .as_deref()
+            .map(|detail| format!(" ({detail})"))
+            .unwrap_or_default();
+        println!(
+            "{}: {} {}{}",
+            check.status, check.model, check.asset, detail
+        );
+    }
 }
 
 #[cfg(test)]

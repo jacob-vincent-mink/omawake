@@ -368,3 +368,89 @@ fn interrupted_download_preserves_active_files_and_releases_the_lock() {
     assert!(!app.data_dir.join("downloads/tiny/model.gguf.part").exists());
     drop(InstallGuard::acquire(&app.data_dir, spec.id).unwrap());
 }
+
+#[test]
+fn url_checks_report_ok_mismatch_and_unreachable_without_writes() {
+    let probes: &mut dyn FnMut(&str) -> std::result::Result<u64, String> = &mut |url: &str| {
+        if url.contains("tiny") {
+            Ok(60_407_904)
+        } else if url.contains("whisper") {
+            Ok(1)
+        } else {
+            Err("request failed: connection refused".into())
+        }
+    };
+    let checks = check_urls_with(None, probes);
+    let mut seen = 0;
+    for spec in crate::catalog::models() {
+        seen += spec.assets.len();
+    }
+    assert_eq!(checks.len(), seen);
+    let by_asset: std::collections::HashMap<&str, &UrlCheck> = checks
+        .iter()
+        .map(|check| (check.asset.as_str(), check))
+        .collect();
+    let ok = by_asset.get("moonshine-streaming-tiny-q8_0.gguf").unwrap();
+    assert_eq!(ok.status, "ok");
+    assert!(ok.detail.is_none());
+    assert!(ok.url.contains("https://huggingface.co"));
+    let mismatch = checks
+        .iter()
+        .find(|check| check.status == "size-mismatch")
+        .unwrap();
+    assert!(mismatch.detail.as_deref().unwrap().contains("pinned size"));
+    let unreachable = checks
+        .iter()
+        .find(|check| check.status == "unreachable")
+        .unwrap();
+    assert!(
+        unreachable
+            .detail
+            .as_deref()
+            .unwrap()
+            .contains("connection refused")
+    );
+}
+
+#[test]
+fn url_prefix_replaces_the_origin_and_keeps_the_path() {
+    let checks = check_urls_with(Some("http://127.0.0.1:9"), &mut |_url| Ok(0));
+    assert!(
+        checks
+            .iter()
+            .all(|check| check.url.starts_with("http://127.0.0.1:9/"))
+    );
+    assert!(
+        checks
+            .iter()
+            .all(|check| !check.url.contains("huggingface.co"))
+    );
+    // The bare prefix (no trailing slash) still produces one slash.
+    let checks = check_urls_with(Some("http://127.0.0.1:9"), &mut |_url| Ok(0));
+    assert!(checks.iter().all(|check| !check.url.contains("//9")));
+}
+
+#[test]
+fn verify_file_diagnostics_name_expected_and_actual_values() {
+    let dir = temp("verify-diagnostics");
+    let path = dir.join("asset.bin");
+    fs::write(&path, b"short").unwrap();
+    let size_error = verify_file(&path, 10, digest(b"short"))
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(
+        size_error.contains("expected 10 bytes, found 5"),
+        "{size_error}"
+    );
+    let longer = vec![0_u8; 10];
+    fs::write(&path, &longer).unwrap();
+    let digest_error = verify_file(&path, 10, digest(b"other"))
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(digest_error.contains("checksum mismatch"), "{digest_error}");
+    assert!(digest_error.contains("expected"));
+    assert!(digest_error.contains("found"));
+    fs::remove_dir_all(dir).unwrap();
+}

@@ -69,7 +69,8 @@ those inputs, without declaring the first release fully qualified.
 | W04 | Implemented | Friendly compatible rows, disabled explanations, compatible preselection, narrow-terminal navigation and family discovery; CLI catalog stays stable |
 | W05 | Implemented; final audit pending | Locking, cancellation, disk preflight, hash verification and rollback tests; map cache/probe failures to acceptance before closure |
 | W06 | Partial | CPU, Vulkan, Intel GPU/NPU and GB10 CUDA evidence exists; evidence depth differs by pair, HIP pending, no blanket hardware promotion |
-| W07–W11/W22 | Next core work | Joint lifecycle first, then measured variants, maintenance and qualified language; filters/resume conditional on scale |
+| W07 | Implemented | [Pinned URL health check](CATALOG-MAINTENANCE.md) (`setup model --check-urls [--url-prefix]`), offline import diagnostics with expected/actual values, provenance manifests and atomic install already in place; 17/17 pinned URLs verified healthy |
+| W08–W10 | Next core work | Measured ASR variants, qualified language, and playback ownership; filters/resume conditional on scale |
 | W11/W22 | Deferred — scale not warranted (recorded 2026-09-16) | Pinned omawake catalog remains 3 curated model bundles and the largest single artifact is ~148 MB (whisper.cpp ggml-base.en); search/filter controls and transfer-resume stay out until an actual catalog or download-scale need appears. Any future resume work must preserve immutable pins and complete-file hashing with interruption tests |
 
 Current evidence: [defaults and gates](MODEL-DEFAULTS.md),
