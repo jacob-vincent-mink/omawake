@@ -1,0 +1,35 @@
+[backend]
+kind = "audiocpp"
+runtime = "default"
+device = "cpu"
+fallback = "error"
+library = "/home/jacob/src/github.com/jacob-vincent-mink/omarchy-pkgs-oma-rc/pkgbuilds/omawake-bin/src/omawake-0.0.2-linux-x86_64/lib/libaudiocpp.so.0.1.0"
+library_dirs = ["/home/jacob/src/github.com/jacob-vincent-mink/omarchy-pkgs-oma-rc/pkgbuilds/omawake-bin/src/omawake-0.0.2-linux-x86_64/lib"]
+
+[model]
+name = "moonshine-streaming-medium-q8_0-silero-v6.2.1"
+directory = "/home/jacob/.models/moonshine/medium"
+verifier = "moonshine-streaming-medium-q8_0.gguf"
+vad = "silero_vad_16k.safetensors"
+sample_rate = 16000
+
+[[wake_words]]
+id = "light-up"
+phrase = "light up"
+enabled = true
+command = ["true"]
+
+[[wake_words]]
+id = "lovely-child"
+phrase = "lovely child"
+enabled = true
+command = ["true"]
+
+[[wake_words]]
+id = "forever"
+phrase = "forever"
+enabled = true
+command = ["true"]
+
+[backend.options]
+"audiocpp.asr_variant" = "medium"

@@ -70,6 +70,7 @@ those inputs, without declaring the first release fully qualified.
 | W05 | Implemented; final audit pending | Locking, cancellation, disk preflight, hash verification and rollback tests; map cache/probe failures to acceptance before closure |
 | W06 | Partial | CPU, Vulkan, Intel GPU/NPU and GB10 CUDA evidence exists; evidence depth differs by pair, HIP pending, no blanket hardware promotion |
 | W07–W11/W22 | Next core work | Joint lifecycle first, then measured variants, maintenance and qualified language; filters/resume conditional on scale |
+| W08 | Done — both larger variants deferred (stop-promote, 2026-09-16) | [Moonshine Small/Medium vs Tiny](../benchmarks/results/2026-09-16-moonshine-variants/RESULTS.md) on identical corpora: identical false activations (10 per variant over 10.739 h, 0/h for `light-up`), identical clean behavior, only degraded-`forever` recall differs; 3–5× CPU and 2.5–3.5× memory cost → neither earns its footprint. Pinned opt-in profiles retained for the W14 trigger |
 | W11/W22 | Deferred — scale not warranted (recorded 2026-09-16) | Pinned omawake catalog remains 3 curated model bundles and the largest single artifact is ~148 MB (whisper.cpp ggml-base.en); search/filter controls and transfer-resume stay out until an actual catalog or download-scale need appears. Any future resume work must preserve immutable pins and complete-file hashing with interruption tests |
 
 Current evidence: [defaults and gates](MODEL-DEFAULTS.md),

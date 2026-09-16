@@ -1,0 +1,377 @@
+{
+  "application_version": "0.0.2",
+  "backend": {
+    "backend_kind": "audiocpp",
+    "effective_runtime": "default",
+    "fallback_used": false,
+    "placement_evidence": "audio.cpp created explicit CPU Silero and ASR sessions",
+    "placement_verified": true,
+    "requested_device": "cpu",
+    "requested_runtime": "default"
+  },
+  "evaluation": "omawake-phrase-verifier-accuracy",
+  "files": [
+    {
+      "audio_duration_milliseconds": 1997.25,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 305.535663,
+      "expected": [],
+      "id": "light-bulb-M1",
+      "matches": [],
+      "path": "light-bulb-M1.wav",
+      "predictions": [],
+      "real_time_factor": 0.15297817649267742,
+      "split": "synthetic-near-match",
+      "tags": {
+        "ground_truth": "synthesis-prompt-not-human-transcription",
+        "text": "The light bulb is broken.",
+        "voice": "M1"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2000.875,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 301.532341,
+      "expected": [],
+      "id": "light-bulb-F1",
+      "matches": [],
+      "path": "light-bulb-F1.wav",
+      "predictions": [],
+      "real_time_factor": 0.1507002391453739,
+      "split": "synthetic-near-match",
+      "tags": {
+        "ground_truth": "synthesis-prompt-not-human-transcription",
+        "text": "The light bulb is broken.",
+        "voice": "F1"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2155.0625,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 310.447786,
+      "expected": [],
+      "id": "line-up-M1",
+      "matches": [],
+      "path": "line-up-M1.wav",
+      "predictions": [],
+      "real_time_factor": 0.14405511951509528,
+      "split": "synthetic-near-match",
+      "tags": {
+        "ground_truth": "synthesis-prompt-not-human-transcription",
+        "text": "Please line up by the door.",
+        "voice": "M1"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2159.1875,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 313.38715,
+      "expected": [],
+      "id": "line-up-F1",
+      "matches": [],
+      "path": "line-up-F1.wav",
+      "predictions": [],
+      "real_time_factor": 0.1451412394708658,
+      "split": "synthetic-near-match",
+      "tags": {
+        "ground_truth": "synthesis-prompt-not-human-transcription",
+        "text": "Please line up by the door.",
+        "voice": "F1"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2206.0625,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 317.95307699999995,
+      "expected": [],
+      "id": "bright-cup-M1",
+      "matches": [],
+      "path": "bright-cup-M1.wav",
+      "predictions": [],
+      "real_time_factor": 0.1441269578717738,
+      "split": "synthetic-near-match",
+      "tags": {
+        "ground_truth": "synthesis-prompt-not-human-transcription",
+        "text": "A bright cup is on the desk.",
+        "voice": "M1"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2209.375,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 310.25573899999995,
+      "expected": [],
+      "id": "bright-cup-F1",
+      "matches": [],
+      "path": "bright-cup-F1.wav",
+      "predictions": [],
+      "real_time_factor": 0.1404269257142857,
+      "split": "synthetic-near-match",
+      "tags": {
+        "ground_truth": "synthesis-prompt-not-human-transcription",
+        "text": "A bright cup is on the desk.",
+        "voice": "F1"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 3251.1875,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 449.781337,
+      "expected": [],
+      "id": "computerized-M1",
+      "matches": [],
+      "path": "computerized-M1.wav",
+      "predictions": [],
+      "real_time_factor": 0.13834370887560316,
+      "split": "synthetic-near-match",
+      "tags": {
+        "ground_truth": "synthesis-prompt-not-human-transcription",
+        "text": "This is a computerized inventory system.",
+        "voice": "M1"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 3252.8125,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 449.65,
+      "expected": [],
+      "id": "computerized-F1",
+      "matches": [],
+      "path": "computerized-F1.wav",
+      "predictions": [],
+      "real_time_factor": 0.13823422038620423,
+      "split": "synthetic-near-match",
+      "tags": {
+        "ground_truth": "synthesis-prompt-not-human-transcription",
+        "text": "This is a computerized inventory system.",
+        "voice": "F1"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2015.9375,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 289.24122,
+      "expected": [],
+      "id": "compute-M1",
+      "matches": [],
+      "path": "compute-M1.wav",
+      "predictions": [],
+      "real_time_factor": 0.1434772754611688,
+      "split": "synthetic-near-match",
+      "tags": {
+        "ground_truth": "synthesis-prompt-not-human-transcription",
+        "text": "Please compute the total.",
+        "voice": "M1"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2019.5625,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 296.121648,
+      "expected": [],
+      "id": "compute-F1",
+      "matches": [],
+      "path": "compute-F1.wav",
+      "predictions": [],
+      "real_time_factor": 0.14662663225327266,
+      "split": "synthetic-near-match",
+      "tags": {
+        "ground_truth": "synthesis-prompt-not-human-transcription",
+        "text": "Please compute the total.",
+        "voice": "F1"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2510.75,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 336.259608,
+      "expected": [],
+      "id": "commuter-M1",
+      "matches": [],
+      "path": "commuter-M1.wav",
+      "predictions": [],
+      "real_time_factor": 0.133927953002091,
+      "split": "synthetic-near-match",
+      "tags": {
+        "ground_truth": "synthesis-prompt-not-human-transcription",
+        "text": "The commuter train arrived early.",
+        "voice": "M1"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2514.0625,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 379.265552,
+      "expected": [],
+      "id": "commuter-F1",
+      "matches": [],
+      "path": "commuter-F1.wav",
+      "predictions": [],
+      "real_time_factor": 0.1508576465382225,
+      "split": "synthetic-near-match",
+      "tags": {
+        "ground_truth": "synthesis-prompt-not-human-transcription",
+        "text": "The commuter train arrived early.",
+        "voice": "F1"
+      },
+      "wrong_id_prediction_indices": []
+    }
+  ],
+  "inputs": {
+    "config_sha256": "b6e4737135c59342ce5717427963ac3d9b01763fd42dbb81afaa49ad75ff71d7",
+    "corpus": {
+      "id": "light-up-computer-synthetic-near-matches-v1",
+      "license_spdx": "NOASSERTION",
+      "source": "Locally authored sentences synthesized with Supertonic 3 (Open RAIL-M model); output licensing not asserted by this manifest",
+      "version": "1"
+    },
+    "enabled_keyword_ids": [
+      "light-up"
+    ],
+    "manifest_sha256": "031175708367fc49ac942de13f1771f4a2fb624a6128a86a2f82ccb0f499696b",
+    "matching": {
+      "early_tolerance_ms": 250,
+      "late_tolerance_ms": 750
+    },
+    "model_directory": "/home/jacob/.models/moonshine/medium",
+    "model_name": "moonshine-streaming-medium-q8_0-silero-v6.2.1"
+  },
+  "model_load_milliseconds": 339.06704199999996,
+  "per_keyword": {
+    "light-up": {
+      "duplicate_predictions": 0,
+      "expected_events": 0,
+      "f1": null,
+      "false_activations": 0,
+      "false_activations_per_hour": 0.0,
+      "false_negatives": 0,
+      "false_positives": 0,
+      "negative_audio_hours": 0.00785892361111111,
+      "precision": null,
+      "predictions": 0,
+      "recall": null,
+      "true_positives": 0,
+      "wrong_id_predictions": 0
+    }
+  },
+  "prediction_fingerprint": "26abee312441f881eb22e5840a8175738ac019443fe6709b740411ccf3fb0e7a",
+  "schema_version": 1,
+  "summary": {
+    "duplicate_predictions": 0,
+    "expected_events": 0,
+    "f1": null,
+    "false_activations": 0,
+    "false_activations_per_hour": 0.0,
+    "false_negatives": 0,
+    "false_positives": 0,
+    "negative_audio_hours": 0.00785892361111111,
+    "precision": null,
+    "predictions": 0,
+    "recall": null,
+    "true_positives": 0,
+    "wrong_id_predictions": 0
+  },
+  "timing": {
+    "aggregate_real_time_factor": 0.14348272252437733,
+    "files": 12,
+    "p50_file_milliseconds": 310.447786,
+    "p95_file_milliseconds": 449.781337,
+    "total_audio_milliseconds": 28292.125,
+    "total_elapsed_milliseconds": 4059.431120999999
+  }
+}
