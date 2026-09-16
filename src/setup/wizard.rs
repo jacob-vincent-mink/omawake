@@ -208,13 +208,22 @@ fn render(
     items: &[MenuItem],
     selected: usize,
 ) -> Result<()> {
-    let width = terminal::size()
+    let (width, height) = terminal::size()
         .ok()
-        .filter(|(width, _)| *width > 0)
-        .map_or(80, |(width, _)| width as usize);
-    render_at_width(output, title, help, items, selected, width)
+        .filter(|(w, h)| *w > 0 && *h > 0)
+        .unwrap_or((80, 24));
+    render_at_size(
+        output,
+        title,
+        help,
+        items,
+        selected,
+        width.max(1) as usize,
+        height.max(1) as usize,
+    )
 }
 
+#[cfg(test)]
 fn render_at_width(
     output: &mut impl Write,
     title: &str,
@@ -223,47 +232,108 @@ fn render_at_width(
     selected: usize,
     width: usize,
 ) -> Result<()> {
+    render_at_size(output, title, help, items, selected, width, 24)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_at_size(
+    output: &mut impl Write,
+    title: &str,
+    help: &str,
+    items: &[MenuItem],
+    selected: usize,
+    width: usize,
+    height: usize,
+) -> Result<()> {
+    let height = height.max(1);
+    let mut header = vec![clip(title, width)];
+    if height >= 8 {
+        header.extend(
+            wrap(help, width, 0)
+                .split("\r\n")
+                .take(height.saturating_sub(5))
+                .map(str::to_owned),
+        );
+    }
+    // Reserve the last row and never emit a trailing newline: raw terminals
+    // otherwise scroll the selection off-screen at the bottom edge.
+    header.truncate(height.saturating_sub(2));
+    let budget = height.saturating_sub(header.len() + 1).max(1);
+    let mut lines = Vec::new();
+    let mut selected_line = 0;
+    for (index, item) in items.iter().enumerate() {
+        if index == selected {
+            selected_line = lines.len();
+        }
+        let prefix = if index == selected { "  › " } else { "    " };
+        lines.push((index, clip(&format!("{prefix}{}", item.label), width)));
+        let detail = wrap(&item.detail, width, 6);
+        for (line, value) in detail.split("\r\n").enumerate() {
+            let value = if line == 0 {
+                format!("      {value}")
+            } else {
+                value.to_owned()
+            };
+            lines.push((index, clip(&value, width)));
+        }
+    }
+    let start = selected_line
+        .saturating_sub(budget / 3)
+        .min(lines.len().saturating_sub(budget));
     queue!(
         output,
         terminal::Clear(ClearType::All),
-        cursor::MoveTo(0, 0),
-        SetAttribute(Attribute::Bold),
-        Print(wrap(title, width, 0)),
-        SetAttribute(Attribute::Reset),
-        Print("\r\n\r\n"),
-        Print(wrap(help, width, 0)),
-        Print("\r\n"),
-        SetForegroundColor(Color::DarkGrey),
-        Print(wrap("↑↓ navigate · Enter select · Esc cancel", width, 0)),
-        ResetColor,
-        Print("\r\n\r\n")
+        cursor::MoveTo(0, 0)
     )?;
-
-    for (index, item) in items.iter().enumerate() {
-        if !item.enabled {
-            queue!(output, SetForegroundColor(Color::DarkGrey))?;
-        } else if index == selected {
-            queue!(
-                output,
-                SetForegroundColor(Color::Cyan),
-                SetAttribute(Attribute::Bold)
-            )?;
+    for line in header {
+        queue!(output, Print(line), Print("\r\n"))?;
+    }
+    let visible = lines.iter().skip(start).take(budget);
+    for (offset, (index, line)) in visible.enumerate() {
+        let color = if !items[*index].enabled {
+            Color::DarkGrey
+        } else if *index == selected {
+            Color::Cyan
+        } else {
+            Color::Reset
+        };
+        queue!(output, SetForegroundColor(color), Print(line), ResetColor)?;
+        if offset + 1 < budget || height > 1 {
+            queue!(output, Print("\r\n"))?;
         }
+    }
+    if height > 1 {
+        let footer = format!(
+            "{}/{} · ↑↓ navigate · Enter select · Esc cancel",
+            selected + 1,
+            items.len()
+        );
         queue!(
             output,
-            Print(if index == selected { "  › " } else { "    " }),
-            Print(wrap(&item.label, width, 4)),
-            SetAttribute(Attribute::Reset),
-            ResetColor,
-            Print("\r\n      "),
-            SetForegroundColor(Color::DarkGrey),
-            Print(wrap(&item.detail, width, 6)),
-            ResetColor,
-            Print("\r\n\r\n")
+            SetAttribute(Attribute::Dim),
+            Print(clip(&footer, width)),
+            SetAttribute(Attribute::Reset)
         )?;
     }
     output.flush()?;
     Ok(())
+}
+
+fn clip(text: &str, width: usize) -> String {
+    use unicode_width::UnicodeWidthChar;
+    let mut remaining = width.saturating_sub(1);
+    text.chars()
+        .filter(|c| !c.is_control())
+        .take_while(|c| {
+            let size = c.width().unwrap_or(0);
+            if size > remaining {
+                false
+            } else {
+                remaining -= size;
+                true
+            }
+        })
+        .collect()
 }
 
 fn wrap(text: &str, width: usize, indent: usize) -> String {

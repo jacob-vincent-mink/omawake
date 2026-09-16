@@ -172,7 +172,7 @@ fn menu_renders_metadata_and_processes_arrow_enter_and_cancel() {
     assert!(rendered.contains("Runtime"));
     assert!(rendered.contains("CUDA"));
     assert!(rendered.contains("Unavailable in this build"));
-    assert!(rendered.contains("\r\n      "));
+    assert!(plain_terminal_output(rendered.as_bytes()).contains("\r\n      "));
     assert_no_bare_line_feeds(rendered.as_bytes());
 
     let mut events = VecDeque::from([key(KeyCode::Char('q'))]);
@@ -511,4 +511,59 @@ fn terminal_entry_points_fail_cleanly_without_a_tty() {
     );
     assert!(confirm_apply(Runtime::Default, "cpu", "model", false).is_err());
     assert!(confirm_runtime_apply(Runtime::Default, "cpu", None).is_err());
+}
+
+fn plain_terminal_output(output: &[u8]) -> String {
+    let mut text = String::new();
+    let mut escape = false;
+    for character in String::from_utf8_lossy(output).chars() {
+        if character == '\x1b' {
+            escape = true;
+        } else if escape {
+            if character.is_ascii_alphabetic() {
+                escape = false;
+            }
+        } else {
+            text.push(character);
+        }
+    }
+    text
+}
+
+#[test]
+fn viewport_keeps_selection_visible_without_overflow_on_resize() {
+    use unicode_width::UnicodeWidthStr;
+    let items = (0..100)
+        .map(|n| {
+            MenuItem::available(
+                format!("Choice {n}"),
+                "Long details with Unicode 运行时 and many words to wrap across a narrow terminal.",
+            )
+        })
+        .collect::<Vec<_>>();
+    for (width, height) in [(24, 8), (80, 24), (12, 4), (4, 2), (1, 1)] {
+        for selected in [0, 50, 99] {
+            let mut output = Vec::new();
+            render_at_size(
+                &mut output,
+                "Choose a model",
+                "Navigate the installed and downloadable catalog.",
+                &items,
+                selected,
+                width,
+                height,
+            )
+            .unwrap();
+            let text = plain_terminal_output(&output);
+            assert!(
+                text.split("\r\n").count() <= height,
+                "{width}x{height}: {text:?}"
+            );
+            assert!(text.split("\r\n").all(|line| line.width() < width));
+            if width >= 24 {
+                assert!(text.contains(&format!("› Choice {selected}")), "{text:?}");
+            }
+            assert_no_bare_line_feeds(&output);
+        }
+    }
 }

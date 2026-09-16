@@ -60,5 +60,14 @@ explicit quality/resource tradeoff review rather than inheriting these claims.
 The existing 60 synthetic positives and 15-minute clean negative set are smoke
 baselines, not continuous-listening qualification. Real multi-speaker positives,
 long negative/adverse corpora and idle-power evidence are still outstanding W01
-work. HIP remains unqualified here. W04/W05 setup filtering/scrolling and added
+work. HIP remains unqualified here. W04/W05 compatibility filtering and added
 installer protections, and W06 device qualification, remain subsequent slices.
+
+## Setup list navigation (W04)
+
+Setup selectors now size their viewport to the terminal height, keep the
+highlighted row visible, and show its position in the list. Long details wrap
+within the terminal width; arrow-key navigation brings subsequent rows into
+view. Resizing recomputes the layout. Zero-size terminals use an 80×24 fallback.
+The CLI catalog and JSON interfaces are unchanged. Compatibility filtering and
+provider-family discovery remain subsequent W04 work.
