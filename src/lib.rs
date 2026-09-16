@@ -16,3 +16,5 @@ pub mod setup;
 
 #[cfg(test)]
 mod test_support;
+
+pub mod audio_devices;

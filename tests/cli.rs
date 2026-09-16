@@ -881,3 +881,108 @@ fn systemd_lifecycle_uses_user_manager_and_propagates_failures() {
     );
     assert!(!root.join("config/systemd/user/omawake.service").exists());
 }
+
+#[cfg(unix)]
+#[test]
+fn daemon_recovers_a_pinned_microphone_and_keeps_controls_responsive() {
+    let root = sandbox();
+    let library = build_fake_whisper(&root, None);
+    let (config_path, _) = write_fake_whisper_config(&root, library);
+    let mut config = Config::load(&config_path).unwrap();
+    config.audio.device = "pipewire:test-mic".into();
+    config.wake_words[0].command = vec!["true".into()];
+    config.save(&config_path).unwrap();
+    let inventory = root.join("inventory.json");
+    fs::write(&inventory, "[]").unwrap();
+    let dump = root.join("test-bin/pw-dump");
+    fs::write(&dump, "#!/bin/sh\ncat \"$OMAWAKE_TEST_INVENTORY\"\n").unwrap();
+    fs::set_permissions(&dump, fs::Permissions::from_mode(0o755)).unwrap();
+    let recorder = root.join("test-bin/pw-record");
+    fs::write(&recorder, "#!/usr/bin/python3\nimport sys,time,os\nopen(os.environ['OMAWAKE_TEST_RECORDER_PID'],'w').write(str(os.getpid()))\nwhile True:\n sys.stdout.buffer.write(bytes(1024));sys.stdout.buffer.flush();time.sleep(0.016)\n").unwrap();
+    fs::set_permissions(&recorder, fs::Permissions::from_mode(0o755)).unwrap();
+    let pid_file = root.join("recorder.pid");
+    struct Daemon(std::process::Child);
+    impl Drop for Daemon {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let mut daemon = Daemon(
+        Command::new(env!("CARGO_BIN_EXE_omawake"))
+            .args(["--config", config_path.to_str().unwrap(), "daemon"])
+            .env("XDG_CONFIG_HOME", root.join("config"))
+            .env("XDG_DATA_HOME", root.join("data"))
+            .env("XDG_CACHE_HOME", root.join("cache"))
+            .env("XDG_STATE_HOME", root.join("state"))
+            .env("XDG_RUNTIME_DIR", root.join("run"))
+            .env("PATH", test_path(&root))
+            .env("OMAWAKE_TEST_INVENTORY", &inventory)
+            .env("OMAWAKE_TEST_RECORDER_PID", &pid_file)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let wait_state = |wanted: &str| {
+        let deadline = Instant::now() + Duration::from_secs(8);
+        loop {
+            let out = run(&root, &["status", "--json"]);
+            let state: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+            if state["state"] == wanted {
+                return state;
+            }
+            assert!(Instant::now() < deadline, "did not reach {wanted}: {state}");
+            thread::sleep(Duration::from_millis(50));
+        }
+    };
+    let unavailable = wait_state("audio_unavailable");
+    assert_eq!(
+        unavailable["details"]["audio"]["requested"],
+        "pipewire:test-mic"
+    );
+    assert_eq!(unavailable["details"]["audio"]["available"], false);
+    assert!(run(&root, &["pause"]).status.success());
+    wait_state("paused");
+    assert!(run(&root, &["resume"]).status.success());
+    wait_state("audio_unavailable");
+    let connected = r#"[{"type":"PipeWire:Interface:Node","info":{"props":{"media.class":"Audio/Source","node.name":"test-mic"}}}]"#;
+    fs::write(&inventory, connected).unwrap();
+    let armed = wait_state("armed");
+    assert_eq!(armed["details"]["audio"]["effective"], "pipewire:test-mic");
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !pid_file.exists() {
+        assert!(Instant::now() < deadline);
+        thread::sleep(Duration::from_millis(10));
+    }
+    fs::write(&inventory, "[]").unwrap();
+    let pid: i32 = fs::read_to_string(&pid_file)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    assert_eq!(unsafe { libc::kill(pid, libc::SIGTERM) }, 0);
+    wait_state("audio_unavailable");
+    fs::write(&inventory, connected).unwrap();
+    wait_state("armed");
+    config.audio.device = "pipewire:saved-but-not-active".into();
+    config.save(&config_path).unwrap();
+    let status = wait_state("armed");
+    assert_eq!(status["details"]["audio"]["requested"], "pipewire:test-mic");
+    assert_eq!(
+        status["details"]["audio"]["saved"],
+        "pipewire:saved-but-not-active"
+    );
+    assert_eq!(status["details"]["audio"]["restart_required"], true);
+    assert!(run(&root, &["stop"]).status.success());
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        if let Some(status) = daemon.0.try_wait().unwrap() {
+            assert!(status.success());
+            break;
+        }
+        assert!(Instant::now() < deadline, "daemon did not stop");
+        thread::sleep(Duration::from_millis(25));
+    }
+}
