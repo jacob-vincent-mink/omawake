@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-16",
+  "host": "Linux-7.2.3-arch1-1-ptl-x86_64-with-glibc2.44",
+  "python": "3.14.7",
+  "build_profile": "release",
+  "threads": 2,
+  "fallback": "error",
+  "live_config_modified": false,
+  "microphone_opened": false,
+  "audio_played": false,
+  "concurrent_workloads": "Other qualification lanes use separate CPU affinities; shared host thermal, memory and unrelated workloads remain uncontrolled.",
+  "commits": {
+    "wake_reference": "af250567335da71ab870f4eec4565754ed765ef9",
+    "wake_candidate": "5f25f0e384389ea91bd4f27677d48e15c30eee34",
+    "speech_reference": "86064f66d33c3490447e51a9e6251ad36b2a39aa",
+    "speech_candidate": "d6c84cd199e8ddeae59216a57f5c3c802b46fd68"
+  },
+  "sha256": {
+    ".qualification/20260916/bin/omawake-candidate": "4366f5baff2057ee37b09cc96375a9e7bea00b85c4e2780bebecfa2931b165f4",
+    ".qualification/20260916/bin/omaspeak-candidate": "2ea1dc76fabb0e62e1ed55eb451d9949354c7abf54a4973a883d127bfc2d9611",
+    ".qualification/20260916/bin/omawake-reference": "d8a9d975db71a9b5c4a06cd0dc2559958b7147541a12a25948f829c63091f723",
+    ".qualification/20260916/bin/omaspeak-reference": "da1bb2baedcfc3cb9427b5e2bb294769503ea17fe8502e3acfdee3fb18e43d16",
+    ".qualification/20260916/speech-cpu.toml": "b7b4b586e29254361a817522829d194e47debc356083dd7a03cad5b706cb8b88",
+    ".qualification/20260916/speech-gpu.toml": "7a1fe704f38cc278aff9312629d1d59628eb058a7ef8f069077d8ffcc027b0f6",
+    ".qualification/20260916/speech-npu.toml": "ddc4224e8a4c6dd4d874eb813cbbc050a3ed14fc909ed70ed9df0667980cf055",
+    ".qualification/20260916/wake-adverse.toml": "b82fa669317d036520daab877ac618f1bb64c6156500dba32db73075cb1178d6",
+    ".qualification/20260916/wake-ov-cpu.toml": "7c203b57267a0d7e6712bca999ab2bcf9ce917381909880c33859677bc12f748",
+    ".qualification/20260916/wake-ov-gpu.toml": "b4aa7cc51c20a4e75215c0024facc80aa3846140386a053650b548e1d3840952",
+    ".qualification/20260916/wake-ov-npu.toml": "920dde2afa51930b11022b165f3ac146157ab1622d3a682f2096ad65cb3ad029",
+    "/usr/lib/omawake/libaudiocpp.so.0.1.0": "29b506eae5bc764cf68c428009c1dd21b5bc58cee458453aaa9adac8fa325c10",
+    "/usr/lib/libopenvino_c.so.2026.3.1": "c6294fe9eeacbd9b25a860b91aac9d4f42ee9dfbeb3f1cab989b60c0366f1dbc",
+    "/home/jacob/.local/share/omaspeak/models/supertonic-3-openvino/.omaspeak-model.json": "ed9d05f2648918ed7394974bb3a6a2cc49e231b18f3a8d48c21ac72ab48c1134",
+    "/home/jacob/.local/share/omawake/models/moonshine-streaming-tiny-q8_0-silero-v6.2.1/.omawake-model.json": "eba71befef499c79bbe206ccf151b94d88e04f4b6a70add9e51ac3b81cd7e70f",
+    "/home/jacob/.local/share/omawake/models/whisper-base.en-int8-ov-silero-v6.2.1/.omawake-model.json": "648af93d26598d94b39adbe8548e9e63c55b4d947ef23d33e54c649fb3136cd6"
+  },
+  "limits": {
+    "power": "RAPL energy_uj permission denied; sudo -n requires password. AC power/full battery; no battery discharge estimate.",
+    "cuda": "SANDERS DNS unresolved; BENSON SSH connection timed out. No local NVIDIA device/tool.",
+    "hip": "No local AMD device or ROCm tooling.",
+    "listening": "Pack prepared; no human ratings yet.",
+    "crash": "PID 3168053 SIGBUS in ld-linux immediately after /tmp cache-copy quota failure; exact cause unresolved. Matching-hash executable and complete copied cache succeeded on workspace filesystem. No live state changed."
+  },
+  "cpu_affinities": {
+    "long-negative": "14,15",
+    "speech-paired-cpu": "0,1",
+    "wake-adverse-cpu": "2,3",
+    "speech-npu": "4,5",
+    "wake-ov-gpu": "4,5",
+    "wake-ov-npu": "6,7",
+    "silence-noise": "6,7"
+  }
+}

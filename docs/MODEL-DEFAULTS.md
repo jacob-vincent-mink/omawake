@@ -58,9 +58,9 @@ calling a regression; record cold load separately. A changed model needs an
 explicit quality/resource tradeoff review rather than inheriting these claims.
 
 The existing 60 synthetic positives and 15-minute clean negative set are smoke
-baselines, not continuous-listening qualification. Real multi-speaker positives,
-long negative/adverse corpora and idle-power evidence are still outstanding W01
-work. HIP remains unqualified here. W04 compatibility filtering and W06 device qualification remain incomplete.
+baselines, not continuous-listening qualification. The [broader qualification run](../benchmarks/results/2026-09-16-qualification/RESULTS.md)
+extends multi-speaker, adverse, negative and offline VAD evidence. Real-room
+recordings and idle-power qualification remain outstanding W01 work. HIP remains unqualified here. W04 compatibility filtering and W06 device qualification remain incomplete.
 Provider-family checks and installer guards are now documented in
 [installer protections](INSTALLER-PROTECTIONS.md).
 
@@ -80,3 +80,7 @@ implemented slice, its tests and remaining limits.
 
 [Default corpus checks](../benchmarks/results/2026-09-16-default-corpus/RESULTS.md)
 record the new file-only evidence and qualification limits.
+
+[Broader qualification evidence](../benchmarks/results/2026-09-16-qualification/RESULTS.md)
+records release-build comparisons, generated adverse/near-match corpora, Intel
+GPU/NPU checks and remaining promotion gates.

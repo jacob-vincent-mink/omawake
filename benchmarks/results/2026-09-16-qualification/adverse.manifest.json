@@ -1,0 +1,775 @@
+{
+  "schema_version": 1,
+  "corpus": {
+    "id": "librispeech-light-up-lovely-child-forever-positives-generated-adverse-v1",
+    "version": "openslr-12-test-clean+test-other",
+    "license_spdx": "CC-BY-4.0",
+    "source": "https://www.openslr.org/12"
+  },
+  "matching": {
+    "early_tolerance_ms": 250,
+    "late_tolerance_ms": 750
+  },
+  "clips": [
+    {
+      "id": "1089-134686-0002-clean",
+      "path": "1089-134686-0002-clean.wav",
+      "sha256": "6bc58a4efdf20daac252b6b1502632601a71efe0308f6757dc1eda34891a7e4f",
+      "split": "clean",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "clean",
+        "source_sha256": "dfb54074469700446b889a622230fb6d918a19f3e6cb90afeb62d0ec98651c01",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "light-up"
+        }
+      ]
+    },
+    {
+      "id": "1089-134686-0002-white-noise-10db",
+      "path": "1089-134686-0002-white-noise-10db.wav",
+      "sha256": "f44ff74344b65bcca45ec8941c77b51591799d706968c098502a0bc69662dd7c",
+      "split": "white-noise-10db",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "white-noise-10db",
+        "source_sha256": "dfb54074469700446b889a622230fb6d918a19f3e6cb90afeb62d0ec98651c01",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "light-up"
+        }
+      ]
+    },
+    {
+      "id": "1089-134686-0002-white-noise-0db",
+      "path": "1089-134686-0002-white-noise-0db.wav",
+      "sha256": "867e0b1331cf579ba73c9eede33188d5380a6d9f4e1be1ff476dda8b13d4070a",
+      "split": "white-noise-0db",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "white-noise-0db",
+        "source_sha256": "dfb54074469700446b889a622230fb6d918a19f3e6cb90afeb62d0ec98651c01",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "light-up"
+        }
+      ]
+    },
+    {
+      "id": "1089-134686-0002-echo-120-240ms",
+      "path": "1089-134686-0002-echo-120-240ms.wav",
+      "sha256": "c6279d9020b73c95da4fdfe1fe626cedec7b955c274369d7c34b96689dd58021",
+      "split": "echo-120-240ms",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "echo-120-240ms",
+        "source_sha256": "dfb54074469700446b889a622230fb6d918a19f3e6cb90afeb62d0ec98651c01",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "light-up"
+        }
+      ]
+    },
+    {
+      "id": "1221-135766-0001-clean",
+      "path": "1221-135766-0001-clean.wav",
+      "sha256": "5143a6ba93c4b274e2c4ac22deb75c2c48936c853f0519add1de828b6c79cc5a",
+      "split": "clean",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "clean",
+        "source_sha256": "19cfcf141db2f71de563525ed0a9b673f6aa51208e974f9c765a159789cddc2c",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "lovely-child"
+        },
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "1221-135766-0001-white-noise-10db",
+      "path": "1221-135766-0001-white-noise-10db.wav",
+      "sha256": "b23bf608e5669b58246ae3df1187f1387fd28015c9551d7168cd0dac90fa2469",
+      "split": "white-noise-10db",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "white-noise-10db",
+        "source_sha256": "19cfcf141db2f71de563525ed0a9b673f6aa51208e974f9c765a159789cddc2c",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "lovely-child"
+        },
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "1221-135766-0001-white-noise-0db",
+      "path": "1221-135766-0001-white-noise-0db.wav",
+      "sha256": "fb34f320521767ddfbf9e22efcbbe0c9274636ac02479c584894d827e38968fb",
+      "split": "white-noise-0db",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "white-noise-0db",
+        "source_sha256": "19cfcf141db2f71de563525ed0a9b673f6aa51208e974f9c765a159789cddc2c",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "lovely-child"
+        },
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "1221-135766-0001-echo-120-240ms",
+      "path": "1221-135766-0001-echo-120-240ms.wav",
+      "sha256": "0ce7e3ce170e43733e3697499b3e91736a6f25f43c1964ee5c1dec19b15ccee8",
+      "split": "echo-120-240ms",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "echo-120-240ms",
+        "source_sha256": "19cfcf141db2f71de563525ed0a9b673f6aa51208e974f9c765a159789cddc2c",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "lovely-child"
+        },
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "2830-3979-0012-clean",
+      "path": "2830-3979-0012-clean.wav",
+      "sha256": "b3c86cc7197289f637502e3adcd26335318b87eabe8b6446a96f6569c0137a41",
+      "split": "clean",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "clean",
+        "source_sha256": "1a75d6cdf314c9bdc7f0d55ed91a59882f57d835b2a64148b30dee443657dd61",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "2830-3979-0012-white-noise-10db",
+      "path": "2830-3979-0012-white-noise-10db.wav",
+      "sha256": "ca4f669a6034d7eed49cc641f42a71b95b369af8aea7ccc536b6b698e1e4424d",
+      "split": "white-noise-10db",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "white-noise-10db",
+        "source_sha256": "1a75d6cdf314c9bdc7f0d55ed91a59882f57d835b2a64148b30dee443657dd61",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "2830-3979-0012-white-noise-0db",
+      "path": "2830-3979-0012-white-noise-0db.wav",
+      "sha256": "0282b909d94e91441b585bdaa2ffdc1673895fcec98260d5df7ba8d0a4c7790e",
+      "split": "white-noise-0db",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "white-noise-0db",
+        "source_sha256": "1a75d6cdf314c9bdc7f0d55ed91a59882f57d835b2a64148b30dee443657dd61",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "2830-3979-0012-echo-120-240ms",
+      "path": "2830-3979-0012-echo-120-240ms.wav",
+      "sha256": "64bcdfb0fb8866ab57c2de350c2ad46c7c51ac82eeb8b154b2c0fbd08fe918bf",
+      "split": "echo-120-240ms",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "echo-120-240ms",
+        "source_sha256": "1a75d6cdf314c9bdc7f0d55ed91a59882f57d835b2a64148b30dee443657dd61",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "2961-961-0010-clean",
+      "path": "2961-961-0010-clean.wav",
+      "sha256": "057d02c02f961852afb1439d24a2430b87de9cd1ea4173e755e3d505cac0887e",
+      "split": "clean",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "clean",
+        "source_sha256": "95b8b4e547bf7f0c78ad50a82794838190525298b8eee056d5474c0183228b7d",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "2961-961-0010-white-noise-10db",
+      "path": "2961-961-0010-white-noise-10db.wav",
+      "sha256": "ed8c50cffa8b977b3fe6a5757ecde44cc1f4359fdcfd9d86f2cd2c0fe62cf8d5",
+      "split": "white-noise-10db",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "white-noise-10db",
+        "source_sha256": "95b8b4e547bf7f0c78ad50a82794838190525298b8eee056d5474c0183228b7d",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "2961-961-0010-white-noise-0db",
+      "path": "2961-961-0010-white-noise-0db.wav",
+      "sha256": "04a4173397cd954d66e8c378465eec8cafae8c67cb62e585b9427506c7685870",
+      "split": "white-noise-0db",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "white-noise-0db",
+        "source_sha256": "95b8b4e547bf7f0c78ad50a82794838190525298b8eee056d5474c0183228b7d",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "2961-961-0010-echo-120-240ms",
+      "path": "2961-961-0010-echo-120-240ms.wav",
+      "sha256": "730cd9f44daef8a7a176b9151bde0a3614c13bcbe7fca084968a7c6ffb14870a",
+      "split": "echo-120-240ms",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "echo-120-240ms",
+        "source_sha256": "95b8b4e547bf7f0c78ad50a82794838190525298b8eee056d5474c0183228b7d",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "5484-24318-0019-clean",
+      "path": "5484-24318-0019-clean.wav",
+      "sha256": "a22a7ae007d0de2c651e7e386de9577a63e227b48ed5ef15ad9010ffeb521273",
+      "split": "clean",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "clean",
+        "source_sha256": "b40369fd57296bd37223f685402a205d18b6883c0e5e0589b731b4a6e83428ec",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "5484-24318-0019-white-noise-10db",
+      "path": "5484-24318-0019-white-noise-10db.wav",
+      "sha256": "61715d96426415f24e2a4366b9f1446bb1c148a0e9f331511fc7d25c2e42e7a8",
+      "split": "white-noise-10db",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "white-noise-10db",
+        "source_sha256": "b40369fd57296bd37223f685402a205d18b6883c0e5e0589b731b4a6e83428ec",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "5484-24318-0019-white-noise-0db",
+      "path": "5484-24318-0019-white-noise-0db.wav",
+      "sha256": "26597744331d65a8237c404e2dfe367f363d042f664679a0a4869a3b39fd1421",
+      "split": "white-noise-0db",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "white-noise-0db",
+        "source_sha256": "b40369fd57296bd37223f685402a205d18b6883c0e5e0589b731b4a6e83428ec",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "5484-24318-0019-echo-120-240ms",
+      "path": "5484-24318-0019-echo-120-240ms.wav",
+      "sha256": "da0b3334e06ea0a76115dad84a15c8e8a30a8be9e206cdcd118df0c984de9881",
+      "split": "echo-120-240ms",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "echo-120-240ms",
+        "source_sha256": "b40369fd57296bd37223f685402a205d18b6883c0e5e0589b731b4a6e83428ec",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "5639-40744-0035-clean",
+      "path": "5639-40744-0035-clean.wav",
+      "sha256": "e6948c2a2fcdfadbac88dcebe0ad10e47c3afbd040bc74b5e87e7ccb4eda9fba",
+      "split": "clean",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "clean",
+        "source_sha256": "6c1136edbc00572c892e2b3df6b95b5ae52ce51a54dfb2147d1cc3b9f453304d",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "5639-40744-0035-white-noise-10db",
+      "path": "5639-40744-0035-white-noise-10db.wav",
+      "sha256": "ea527bcb610a29a2cc313ebee3e749d984c2789fa5aa2834c30468e2ba689c25",
+      "split": "white-noise-10db",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "white-noise-10db",
+        "source_sha256": "6c1136edbc00572c892e2b3df6b95b5ae52ce51a54dfb2147d1cc3b9f453304d",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "5639-40744-0035-white-noise-0db",
+      "path": "5639-40744-0035-white-noise-0db.wav",
+      "sha256": "318b8218151e07337a4052140e2c100861976365c6a20c89ed24fdf574acfc9a",
+      "split": "white-noise-0db",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "white-noise-0db",
+        "source_sha256": "6c1136edbc00572c892e2b3df6b95b5ae52ce51a54dfb2147d1cc3b9f453304d",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "5639-40744-0035-echo-120-240ms",
+      "path": "5639-40744-0035-echo-120-240ms.wav",
+      "sha256": "5b0a7bfc69c24affb4344772886f04358978dea960de328ddf84e6cf3f6a2b90",
+      "split": "echo-120-240ms",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "echo-120-240ms",
+        "source_sha256": "6c1136edbc00572c892e2b3df6b95b5ae52ce51a54dfb2147d1cc3b9f453304d",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "5764-299665-0019-clean",
+      "path": "5764-299665-0019-clean.wav",
+      "sha256": "e443fbf3aee1a8d466c6d3d984cd8111c78de2ab81f338358efac42ded378e28",
+      "split": "clean",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "clean",
+        "source_sha256": "f4ee1151b1edf05557514223653cb636ff8ebd0b983efe88db8a05562b1503d5",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "5764-299665-0019-white-noise-10db",
+      "path": "5764-299665-0019-white-noise-10db.wav",
+      "sha256": "f307878723a45bbe74f270230364a22bc6c5ccb535e1e8bb6de28fecfea036d7",
+      "split": "white-noise-10db",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "white-noise-10db",
+        "source_sha256": "f4ee1151b1edf05557514223653cb636ff8ebd0b983efe88db8a05562b1503d5",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "5764-299665-0019-white-noise-0db",
+      "path": "5764-299665-0019-white-noise-0db.wav",
+      "sha256": "006da33708a139fcb4af63f0f4e7468235c20adf3f8d8fc02536c10963af0a12",
+      "split": "white-noise-0db",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "white-noise-0db",
+        "source_sha256": "f4ee1151b1edf05557514223653cb636ff8ebd0b983efe88db8a05562b1503d5",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "5764-299665-0019-echo-120-240ms",
+      "path": "5764-299665-0019-echo-120-240ms.wav",
+      "sha256": "ac08dd12d8e729bf5d0490fc29e3ef54772d8af6edb74e925def517738e02ea3",
+      "split": "echo-120-240ms",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "echo-120-240ms",
+        "source_sha256": "f4ee1151b1edf05557514223653cb636ff8ebd0b983efe88db8a05562b1503d5",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "5764-299665-0089-clean",
+      "path": "5764-299665-0089-clean.wav",
+      "sha256": "6a19f5fb6b2579dd2a0b1baa0924708faf37df4dbfb9fbeb4b21752c91bd6ac9",
+      "split": "clean",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "clean",
+        "source_sha256": "84338ec469ad1f93b906dc9b506aaeb2c72a143b0ed8f53c44e699ad30f25121",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "5764-299665-0089-white-noise-10db",
+      "path": "5764-299665-0089-white-noise-10db.wav",
+      "sha256": "4a812ecb844477b5f273d560d61be0cdda63d2cf1fb61c8c555e576789709a0b",
+      "split": "white-noise-10db",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "white-noise-10db",
+        "source_sha256": "84338ec469ad1f93b906dc9b506aaeb2c72a143b0ed8f53c44e699ad30f25121",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "5764-299665-0089-white-noise-0db",
+      "path": "5764-299665-0089-white-noise-0db.wav",
+      "sha256": "dc8f72d3477d45937878393aecaf337aaa9ed8105500663112274fabd59bb020",
+      "split": "white-noise-0db",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "white-noise-0db",
+        "source_sha256": "84338ec469ad1f93b906dc9b506aaeb2c72a143b0ed8f53c44e699ad30f25121",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "5764-299665-0089-echo-120-240ms",
+      "path": "5764-299665-0089-echo-120-240ms.wav",
+      "sha256": "2c809efb3c7fcbb6966e62859a361feb295e7afdf3fd2da9d20f23c316cec04e",
+      "split": "echo-120-240ms",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "echo-120-240ms",
+        "source_sha256": "84338ec469ad1f93b906dc9b506aaeb2c72a143b0ed8f53c44e699ad30f25121",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "6128-63240-0023-clean",
+      "path": "6128-63240-0023-clean.wav",
+      "sha256": "cb606f92ea9d228101dbcd9183a5ed6e70f134ab6d82f468282c008511f99dde",
+      "split": "clean",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "clean",
+        "source_sha256": "f3647daac9547ce471fbf7196b32c29e57923a308d322292deabc02515399d75",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "light-up"
+        }
+      ]
+    },
+    {
+      "id": "6128-63240-0023-white-noise-10db",
+      "path": "6128-63240-0023-white-noise-10db.wav",
+      "sha256": "086ab44ba4811a7ab12f76bddb0f7c8e8003fc43c806c0c7eec430b08631bcd1",
+      "split": "white-noise-10db",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "white-noise-10db",
+        "source_sha256": "f3647daac9547ce471fbf7196b32c29e57923a308d322292deabc02515399d75",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "light-up"
+        }
+      ]
+    },
+    {
+      "id": "6128-63240-0023-white-noise-0db",
+      "path": "6128-63240-0023-white-noise-0db.wav",
+      "sha256": "e85fdc56693234d71c413c128dadba3ce022ab592357390744638851d950f016",
+      "split": "white-noise-0db",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "white-noise-0db",
+        "source_sha256": "f3647daac9547ce471fbf7196b32c29e57923a308d322292deabc02515399d75",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "light-up"
+        }
+      ]
+    },
+    {
+      "id": "6128-63240-0023-echo-120-240ms",
+      "path": "6128-63240-0023-echo-120-240ms.wav",
+      "sha256": "a28d69be7d5095356ad36ef515557bb18279a7b8fda48e652a26493df8093662",
+      "split": "echo-120-240ms",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "echo-120-240ms",
+        "source_sha256": "f3647daac9547ce471fbf7196b32c29e57923a308d322292deabc02515399d75",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "light-up"
+        }
+      ]
+    },
+    {
+      "id": "7902-96591-0020-clean",
+      "path": "7902-96591-0020-clean.wav",
+      "sha256": "0a3e578cf08fe111f43823e918a24e31f0757aeaa88515a9b1b3c546661aa8fc",
+      "split": "clean",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "clean",
+        "source_sha256": "dddd703c5b66d27201937825e499253d0dbfda60381b7f3ee0e2354b35a2958d",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "7902-96591-0020-white-noise-10db",
+      "path": "7902-96591-0020-white-noise-10db.wav",
+      "sha256": "60ef594989f4b0f419c54df9542eb3f5d08eb00d91cce6ad410e04299aa4b157",
+      "split": "white-noise-10db",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "white-noise-10db",
+        "source_sha256": "dddd703c5b66d27201937825e499253d0dbfda60381b7f3ee0e2354b35a2958d",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "7902-96591-0020-white-noise-0db",
+      "path": "7902-96591-0020-white-noise-0db.wav",
+      "sha256": "30e2e1320db1d772786d2ee631e3c6415fb72cdc072aa6f90d12bc3504b3c32b",
+      "split": "white-noise-0db",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "white-noise-0db",
+        "source_sha256": "dddd703c5b66d27201937825e499253d0dbfda60381b7f3ee0e2354b35a2958d",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "7902-96591-0020-echo-120-240ms",
+      "path": "7902-96591-0020-echo-120-240ms.wav",
+      "sha256": "83ac5a3a43246b7ccebd1e34895455f46ba9e17dfc07ffecbc68f517a3fa57f7",
+      "split": "echo-120-240ms",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "echo-120-240ms",
+        "source_sha256": "dddd703c5b66d27201937825e499253d0dbfda60381b7f3ee0e2354b35a2958d",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "8555-292519-0005-clean",
+      "path": "8555-292519-0005-clean.wav",
+      "sha256": "94ce71b2563151a74e5ef138ede4c0ca12f7bb7d5039e9a82c1e58302093769a",
+      "split": "clean",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "clean",
+        "source_sha256": "6b7a596ebaef14ca53c7e96dd1f009afaef2d0bf08faa0dc692de2595bc31580",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "8555-292519-0005-white-noise-10db",
+      "path": "8555-292519-0005-white-noise-10db.wav",
+      "sha256": "eb2024f381c57e7897907b020a28cbc644fa2563922825a3d54ab5c2c1d63a88",
+      "split": "white-noise-10db",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "white-noise-10db",
+        "source_sha256": "6b7a596ebaef14ca53c7e96dd1f009afaef2d0bf08faa0dc692de2595bc31580",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "8555-292519-0005-white-noise-0db",
+      "path": "8555-292519-0005-white-noise-0db.wav",
+      "sha256": "0c6ba5b3173f4260b7eff17b8a4a862aff4d8a334da590277581019a5568d67a",
+      "split": "white-noise-0db",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "white-noise-0db",
+        "source_sha256": "6b7a596ebaef14ca53c7e96dd1f009afaef2d0bf08faa0dc692de2595bc31580",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "8555-292519-0005-echo-120-240ms",
+      "path": "8555-292519-0005-echo-120-240ms.wav",
+      "sha256": "1052d913fed10589df2cc459a92fd9edb7524e4964429d1a5d818a1ca581e751",
+      "split": "echo-120-240ms",
+      "tags": {
+        "ground_truth": "reference-transcript",
+        "recipe": "echo-120-240ms",
+        "source_sha256": "6b7a596ebaef14ca53c7e96dd1f009afaef2d0bf08faa0dc692de2595bc31580",
+        "kind": "generated-corruption-not-real-room"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    }
+  ]
+}
