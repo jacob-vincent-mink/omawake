@@ -164,6 +164,29 @@ before activation. A failed destination check preserves the current detector.
 See [wake-word enrollment](docs/architecture/WAKE-WORD-ENROLLMENT.md) for commands,
 recording retention, profiles, retraining, and the limits of local validation.
 
+For trained words, inspect or override the detection threshold and opt in to
+local audio history when diagnosing false activations:
+
+```bash
+omawake word threshold jarvis              # show calibrated/effective threshold
+omawake word threshold jarvis 0.8          # example override; tune to your recordings
+omawake word threshold jarvis auto         # restore the calibrated threshold
+omawake word history jarvis enable --max-events 100
+omawake word history jarvis list
+omawake word history jarvis play EVENT_ID
+omawake word history jarvis label EVENT_ID false-positive
+omawake word onboard jarvis                # offers reviewed clips during retraining
+omawake word history jarvis disable        # stop capture; preserve existing clips
+omawake word history jarvis clear          # delete captured clips and labels
+```
+
+History is **off by default**. It saves only live trained detections, locally,
+with scores and the triggering speech clip. Oldest events expire at the limit,
+including labeled events. Higher thresholds reduce activations but can miss
+real wake phrases; scores are not calibrated probabilities. Labels do not
+silently change the active model: guided retraining uses them as training
+examples, collects fresh evaluation clips, and requires validation before Apply.
+
 Use `evaluate` for reproducible accuracy and false-activation measurements over
 a labeled WAV corpus:
 

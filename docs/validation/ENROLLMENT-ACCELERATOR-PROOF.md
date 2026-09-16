@@ -86,3 +86,29 @@ These are repeated checks of the saved evaluation clips, not new independent
 accuracy evidence. Automated tests additionally cover destination load failures,
 encoder-contract mismatch, and device-dependent features that cannot satisfy
 validation; none may activate or replace the prior detector.
+
+## Opt-in history and correction workflow (2026-09-16)
+
+A temporary file-fed live stream exercised the real trained encoder on NPU,
+using an existing negative **training** clip. The test deliberately lowered the
+threshold to 0.01 to force a capture; this is not an accuracy measurement or a
+recommended operating threshold. The classifier scored the clip 0.166334 and
+saved one private PCM WAV event with NPU placement, score, threshold, head, and
+encoder metadata. Processing the same input through the offline file-test path
+produced no history. The captured event was labeled false-positive.
+
+A real `word train --feedback --training-device cpu --run-device npu` candidate
+then included the correction in training, extracted training features on CPU,
+and calibrated/validated on NPU. The candidate passed the existing two-positive,
+two-negative held-out split: zero misses, zero false activations, minimum margin
+0.064015, calibrated threshold 0.638166. It was **not applied**. The reused split
+and forced trigger demonstrate plumbing and deployment validation, not improved
+ambient accuracy. No microphone, playback, or wake-word action was used, and
+all new config, history, and cache files were isolated under `/tmp`.
+
+The corresponding automated suite passed 316 tests with 90.38% line coverage.
+It covers threshold override/reset, disabled-by-default and bounded private
+history, live/offline separation, replay via a fake player, labels, training-only
+feedback, deduplication and relabeling, evaluation-overlap rejection, guided
+feedback collection, and deployment validation with an explicit threshold.
+Formatting and Clippy with warnings denied also passed.

@@ -48,6 +48,9 @@ pub(super) struct TrainArgs {
     /// Re-enroll from the newest retained labeled session for this word.
     #[arg(long)]
     pub reuse_recordings: bool,
+    /// Add explicitly labeled detection-history clips to training only.
+    #[arg(long)]
+    pub feedback: bool,
     /// Source model/runtime profile; defaults to the word's current profile.
     #[arg(long)]
     pub engine: Option<String>,
@@ -115,7 +118,13 @@ pub(super) fn run_reviewed(
         "trainable heads currently require a configured raw OpenVINO Whisper encoder profile"
     );
     let dataset_path = dataset_path(&args, paths)?;
-    let dataset = Dataset::load(&dataset_path)?;
+    let mut dataset = Dataset::load(&dataset_path)?;
+    if args.feedback {
+        let added = crate::enrollment::history::merge_feedback(paths, &args.id, &mut dataset)?;
+        if !args.json {
+            eprintln!("Applied {added} new or updated history labels to training examples");
+        }
+    }
     let cancellation = Cancellation::new()?;
     let mut samples = SampleSet::create(paths)?;
     let mut prepared = dataset.clone();
@@ -235,10 +244,23 @@ pub(super) fn run_reviewed(
                 .join("; ");
             format!("Held-out clip scores: {scores}")
         })?;
+        let mut operating_head = head.clone();
+        if let Some(threshold) = config.wake_words[index]
+            .enrollment
+            .as_ref()
+            .and_then(|e| e.threshold)
+        {
+            operating_head.threshold = threshold;
+            operating_head.validation = None;
+            operating_head.validation_ids.clear();
+            operating_head.validate_held_out(&examples[2]).context(
+                "configured threshold failed deployment validation; current detector unchanged",
+            )?;
+        }
         cancellation.check()?;
         let mut artifact_path = None;
         if args.apply {
-            review(&head)?;
+            review(&operating_head)?;
             cancellation.check()?;
             anyhow::ensure!(
                 config_snapshot(path)? == original,
@@ -271,7 +293,7 @@ pub(super) fn run_reviewed(
             println!(
                 "{}",
                 serde_json::to_string_pretty(
-                    &serde_json::json!({"applied":args.apply,"word":args.id,"encoder_contract":contract,"execution_devices":execution_devices,"training_execution_devices":training_execution_devices,"training_device":selected.backend.device,"run_device":deployment.backend.device,"local_validation":head.validation,"head":artifact_path,"recordings":retained,"actions_executed":false,"qualification":"local held-out clips only; not a measured ambient false-activation rate"})
+                    &serde_json::json!({"applied":args.apply,"word":args.id,"encoder_contract":contract,"execution_devices":execution_devices,"training_execution_devices":training_execution_devices,"training_device":selected.backend.device,"run_device":deployment.backend.device,"local_validation":operating_head.validation,"effective_threshold":operating_head.threshold,"calibrated_threshold":head.threshold,"head":artifact_path,"recordings":retained,"actions_executed":false,"qualification":"local held-out clips only; not a measured ambient false-activation rate"})
                 )?
             );
         } else {
@@ -291,7 +313,7 @@ pub(super) fn run_reviewed(
                 deployment.backend.device,
                 execution_devices
             );
-            println!("Held-out local clips: {:?}", head.validation);
+            println!("Held-out local clips: {:?}", operating_head.validation);
             println!(
                 "This checks your clips; it does not establish an ambient false-activation rate. Test with representative background speech before relying on it."
             );
@@ -471,6 +493,7 @@ mod tests {
             id: "computer".into(),
             dataset: Some(dataset),
             reuse_recordings: false,
+            feedback: false,
             engine: None,
             training_device: EncoderDevice::Cpu,
             run_device: None,
@@ -482,6 +505,64 @@ mod tests {
     fn load(_: &Config, _: &AppPaths, _: Arc<AtomicBool>) -> Result<Box<dyn EmbeddingSession>> {
         Ok(Box::new(FakeEmbeddingSession::new("test-encoder")))
     }
+    #[test]
+    fn feedback_retraining_checks_the_operating_threshold_and_keeps_evaluation_separate() {
+        use crate::enrollment::history::{self, Event, HistoryConfig, Label};
+        let (root, paths, mut config, dataset) = fixture();
+        let file = root.join("candidate.toml");
+        let event = Event {
+            id: String::new(),
+            word_id: "computer".into(),
+            created_ms: 0,
+            score: 0.7,
+            threshold: 0.6,
+            encoder_contract: "test-encoder".into(),
+            head: "old".into(),
+            device: "CPU".into(),
+            label: Label::FalsePositive,
+            audio: PathBuf::new(),
+        };
+        history::record(
+            &paths,
+            &HistoryConfig {
+                enabled: true,
+                max_events: 10,
+            },
+            event,
+            &[-12000; 4000],
+        )
+        .unwrap();
+        config.wake_words[0].enrollment = Some(artifact::EnrollmentBinding {
+            threshold: Some(1.0),
+            ..Default::default()
+        });
+        config.save(&file).unwrap();
+        let before = fs::read(&file).unwrap();
+        let mut options = args(dataset.clone(), true);
+        options.feedback = true;
+        let error = run_with(options, config.clone(), &file, &paths, load).unwrap_err();
+        assert!(format!("{error:#}").contains("configured threshold failed"));
+        assert_eq!(fs::read(&file).unwrap(), before);
+        config.wake_words[0].enrollment.as_mut().unwrap().threshold = Some(0.75);
+        config.save(&file).unwrap();
+        let mut options = args(dataset, true);
+        options.feedback = true;
+        run_with(options, config, &file, &paths, load).unwrap();
+        let config = Config::load(&file).unwrap();
+        let binding = config.wake_words[0].enrollment.as_ref().unwrap();
+        assert_eq!(binding.threshold, Some(0.75));
+        let head = artifact::load(&binding.heads["test-encoder"]).unwrap();
+        assert_eq!(head.training_ids.len(), 5);
+        assert_eq!(head.calibration_ids.len(), 4);
+        assert_eq!(head.validation_ids.len(), 4);
+        assert_ne!(head.threshold, 0.75);
+        assert_eq!(
+            history::list(&paths, "computer").unwrap()[0].label,
+            Label::FalsePositive
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn retraining_prunes_only_unreferenced_unchanged_managed_profiles() {
         for shared in [false, true] {

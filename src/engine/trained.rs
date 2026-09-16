@@ -23,6 +23,7 @@ pub(crate) struct TrainedBackend {
     worker: RefCell<Box<dyn EmbeddingSession>>,
     words: Vec<WakeWord>,
     heads: Vec<Head>,
+    paths: AppPaths,
     active: Cell<bool>,
 }
 impl TrainedBackend {
@@ -48,6 +49,7 @@ impl TrainedBackend {
                 .enrollment
                 .as_ref()
                 .context("trained engine received a transcript-only word")?;
+            binding.validate()?;
             let path = binding.heads.get(worker.contract()).with_context(|| format!("word {} has no head for this encoder; its existing heads are preserved. Retrain from retained recordings or select its previous engine", word.id))?;
             let path = if path.is_absolute() {
                 path.clone()
@@ -70,10 +72,11 @@ impl TrainedBackend {
             worker: RefCell::new(worker),
             words,
             heads,
+            paths: paths.clone(),
             active: Cell::new(false),
         })
     }
-    fn detections(&self, utterances: Vec<EncodedUtterance>) -> Result<Vec<Detection>> {
+    fn detections(&self, utterances: Vec<EncodedUtterance>, live: bool) -> Result<Vec<Detection>> {
         let mut detections = Vec::new();
         for utterance in utterances {
             let scores = score_many(
@@ -82,7 +85,35 @@ impl TrainedBackend {
                 &utterance.embedding.values,
             )?;
             for ((word, head), score) in self.words.iter().zip(&self.heads).zip(scores) {
-                if score >= head.threshold {
+                let binding = word.enrollment.as_ref().context("missing enrollment")?;
+                let threshold = binding.threshold.unwrap_or(head.threshold);
+                if score >= threshold {
+                    eprintln!(
+                        "trained detection {}: score={score:.6} threshold={threshold:.6} device={}",
+                        word.id, utterance.embedding.execution_devices
+                    );
+                    if live && binding.history.enabled {
+                        let event = crate::enrollment::history::Event {
+                            id: String::new(),
+                            word_id: word.id.clone(),
+                            created_ms: 0,
+                            score,
+                            threshold,
+                            encoder_contract: head.encoder_contract.clone(),
+                            head: binding.heads[&head.encoder_contract].display().to_string(),
+                            device: utterance.embedding.execution_devices.clone(),
+                            label: crate::enrollment::history::Label::Unreviewed,
+                            audio: Default::default(),
+                        };
+                        if let Err(error) = crate::enrollment::history::record(
+                            &self.paths,
+                            &binding.history,
+                            event,
+                            &utterance.audio,
+                        ) {
+                            eprintln!("history for {} could not be saved: {error:#}", word.id);
+                        }
+                    }
                     detections.push(Detection {
                         id: word.id.clone(),
                         tokens: crate::phrase::normalize_tokens(&word.phrase),
@@ -102,6 +133,16 @@ impl WakeWordBackend for TrainedBackend {
     fn stream(&self) -> Box<dyn WakeWordStream + '_> {
         Box::new(Stream {
             backend: self,
+            live: false,
+            resampler: RefCell::new(AudioResampler::new()),
+            started: Cell::new(false),
+            finished: Cell::new(false),
+        })
+    }
+    fn live_stream(&self) -> Box<dyn WakeWordStream + '_> {
+        Box::new(Stream {
+            backend: self,
+            live: true,
             resampler: RefCell::new(AudioResampler::new()),
             started: Cell::new(false),
             finished: Cell::new(false),
@@ -114,6 +155,7 @@ impl WakeWordBackend for TrainedBackend {
 }
 struct Stream<'a> {
     backend: &'a TrainedBackend,
+    live: bool,
     resampler: RefCell<AudioResampler>,
     started: Cell<bool>,
     finished: Cell<bool>,
@@ -136,7 +178,7 @@ impl Stream<'_> {
         let mut detected = Vec::new();
         for chunk in samples.chunks(16_000) {
             let utterances = self.backend.worker.borrow_mut().audio(chunk)?;
-            detected.extend(self.backend.detections(utterances)?);
+            detected.extend(self.backend.detections(utterances, self.live)?);
         }
         Ok(detected)
     }
@@ -150,7 +192,7 @@ impl WakeWordStream for Stream<'_> {
         self.start()?;
         let mut detected = self.send(&self.resampler.borrow_mut().finish()?)?;
         let utterances = self.backend.worker.borrow_mut().finish()?;
-        detected.extend(self.backend.detections(utterances)?);
+        detected.extend(self.backend.detections(utterances, self.live)?);
         self.finished.set(true);
         self.backend.active.set(false);
         Ok(detected)
@@ -187,6 +229,55 @@ mod tests {
             .collect()
     }
     #[test]
+    fn threshold_controls_detection_and_only_opted_in_live_streams_save_audio() {
+        let root = unique_directory("trained-history", "live");
+        let paths = isolated_paths(&root);
+        let mut head = Head::train("test-encoder", &split("train"), &split("cal")).unwrap();
+        head.validate_held_out(&split("validation")).unwrap();
+        let artifact = artifact::install(&root.join("heads"), &head).unwrap();
+        let mut config = Config::default();
+        config.wake_words[0].enrollment = Some(crate::enrollment::artifact::EnrollmentBinding {
+            heads: [("test-encoder".into(), artifact)].into(),
+            ..Default::default()
+        });
+        for (enabled, threshold, live, expected) in [
+            (false, None, true, 1),
+            (true, None, false, 1),
+            (true, Some(1.0), true, 0),
+            (true, None, true, 1),
+        ] {
+            let binding = config.wake_words[0].enrollment.as_mut().unwrap();
+            binding.history.enabled = enabled;
+            binding.threshold = threshold;
+            let backend = TrainedBackend::load_with(&config, &paths, |_, _, _| {
+                Ok(Box::new(FakeEmbeddingSession::new("test-encoder")))
+            })
+            .unwrap();
+            let stream = if live {
+                backend.live_stream()
+            } else {
+                backend.stream()
+            };
+            stream.accept(16000, &vec![0.2; 1600]).unwrap();
+            assert_eq!(stream.finish().unwrap().len(), expected);
+            let events = crate::enrollment::history::list(&paths, "computer").unwrap();
+            assert_eq!(events.len(), usize::from(enabled && live && expected > 0));
+        }
+        let event = &crate::enrollment::history::list(&paths, "computer").unwrap()[0];
+        assert!(event.score >= event.threshold);
+        assert_eq!(event.device, "TEST");
+        assert!(event.audio.is_file());
+        config.wake_words[0].enrollment.as_mut().unwrap().threshold = Some(f32::NAN);
+        assert!(
+            TrainedBackend::load_with(&config, &paths, |_, _, _| Ok(Box::new(
+                FakeEmbeddingSession::new("test-encoder")
+            )))
+            .is_err()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn compatible_heads_share_stream_and_reject_incompatible_encoder() {
         let root = unique_directory("trained-runtime", "heads");
         let paths = isolated_paths(&root);
@@ -199,6 +290,8 @@ mod tests {
         config.wake_words.push(second);
         for word in &mut config.wake_words {
             word.enrollment = Some(crate::enrollment::artifact::EnrollmentBinding {
+                threshold: None,
+                history: Default::default(),
                 active: true,
                 heads: [("test-encoder".into(), artifact.clone())].into(),
             });

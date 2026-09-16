@@ -961,6 +961,8 @@ fn onboarding_selects_named_profile_and_keeps_prior_heads() {
     config.wake_words[0].phrase = "Unusual name".into();
     let command = config.wake_words[0].command.clone();
     config.wake_words[0].enrollment = Some(omawake::enrollment::artifact::EnrollmentBinding {
+        threshold: None,
+        history: Default::default(),
         active: true,
         heads: [(
             "previous-encoder".into(),
@@ -1398,6 +1400,176 @@ raise AssertionError(data.decode(errors='replace'))
         assert_eq!(fs::read(&config).unwrap(), before);
         assert_eq!(fs::read(&manifest).unwrap(), saved_before);
     }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn threshold_and_history_commands_are_explicit_private_and_reversible() {
+    use omawake::enrollment::{
+        artifact::{self, EnrollmentBinding},
+        head::{Example, Head},
+        history::{self, Event, HistoryConfig, Label},
+    };
+    let root = sandbox();
+    let mut config = Config::default();
+    let config_file = root.join("config/omawake/config.toml");
+    let split = |label: &str| {
+        (0..4)
+            .map(|i| Example {
+                id: format!("{label}-{i}"),
+                values: vec![if i < 2 { 1.0 } else { -1.0 }, 0.1],
+                positive: i < 2,
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut head = Head::train("test", &split("train"), &split("cal")).unwrap();
+    head.validate_held_out(&split("held")).unwrap();
+    let artifact = artifact::install(&root.join("heads"), &head).unwrap();
+    config.wake_words[0].enrollment = Some(EnrollmentBinding {
+        heads: [("test".into(), artifact)].into(),
+        ..Default::default()
+    });
+    config.save(&config_file).unwrap();
+    for value in ["0.9", "auto"] {
+        let out = run(&root, &["word", "threshold", "computer", value]);
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let saved = Config::load(&config_file).unwrap();
+        assert_eq!(
+            saved.wake_words[0].enrollment.as_ref().unwrap().threshold,
+            if value == "auto" { None } else { Some(0.9) }
+        );
+    }
+    let before = fs::read(&config_file).unwrap();
+    for value in ["0", "1.1", "NaN", "nonsense"] {
+        assert!(
+            !run(&root, &["word", "threshold", "computer", value])
+                .status
+                .success()
+        );
+        assert_eq!(fs::read(&config_file).unwrap(), before);
+    }
+    assert!(
+        run(&root, &["word", "threshold", "computer"])
+            .status
+            .success()
+    );
+    assert!(
+        !run(&root, &["word", "threshold", "unknown"])
+            .status
+            .success()
+    );
+    assert!(
+        run(
+            &root,
+            &["word", "history", "computer", "enable", "--max-events", "2"]
+        )
+        .status
+        .success()
+    );
+    let saved = Config::load(&config_file).unwrap();
+    assert!(
+        saved.wake_words[0]
+            .enrollment
+            .as_ref()
+            .unwrap()
+            .history
+            .enabled
+    );
+    let paths = omawake::paths::AppPaths {
+        config_file: config_file.clone(),
+        data_dir: root.join("data/omawake"),
+        cache_dir: root.join("cache/omawake"),
+        state_dir: root.join("state/omawake"),
+        runtime_dir: root.join("run/omawake"),
+    };
+    let event = Event {
+        id: String::new(),
+        word_id: "computer".into(),
+        created_ms: 0,
+        score: 0.9,
+        threshold: 0.8,
+        encoder_contract: "test".into(),
+        head: "test-head".into(),
+        device: "CPU".into(),
+        label: Label::Unreviewed,
+        audio: PathBuf::new(),
+    };
+    let id = history::record(
+        &paths,
+        &HistoryConfig {
+            enabled: true,
+            max_events: 2,
+        },
+        event,
+        &[1000; 1600],
+    )
+    .unwrap()
+    .unwrap();
+    let out = run(&root, &["word", "history", "computer", "list", "--json"]);
+    assert!(out.status.success());
+    let events: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(events[0]["label"], "unreviewed");
+    assert!(
+        run(&root, &["word", "history", "computer", "list"])
+            .status
+            .success()
+    );
+    assert!(
+        run(
+            &root,
+            &[
+                "word",
+                "history",
+                "computer",
+                "label",
+                &id,
+                "false-positive"
+            ]
+        )
+        .status
+        .success()
+    );
+    assert_eq!(
+        history::list(&paths, "computer").unwrap()[0].label,
+        Label::FalsePositive
+    );
+    let player = root.join("test-bin/pw-play");
+    fs::write(&player, "#!/bin/sh\n[ -f \"$1\" ]\n").unwrap();
+    fs::set_permissions(&player, fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(
+        run(&root, &["word", "history", "computer", "play", &id])
+            .status
+            .success()
+    );
+    assert!(
+        !run(&root, &["word", "history", "computer", "play", "unknown"])
+            .status
+            .success()
+    );
+    assert!(
+        run(&root, &["word", "history", "computer", "disable"])
+            .status
+            .success()
+    );
+    assert!(
+        !Config::load(&config_file).unwrap().wake_words[0]
+            .enrollment
+            .as_ref()
+            .unwrap()
+            .history
+            .enabled
+    );
+    assert_eq!(history::list(&paths, "computer").unwrap().len(), 1);
+    assert!(
+        run(&root, &["word", "history", "computer", "clear"])
+            .status
+            .success()
+    );
+    assert!(history::list(&paths, "computer").unwrap().is_empty());
     fs::remove_dir_all(root).unwrap();
 }
 

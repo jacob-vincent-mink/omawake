@@ -387,6 +387,9 @@ trait TrainingInteraction {
     fn devices(&self) -> Option<DevicePlan> {
         None
     }
+    fn feedback(&self, _count: usize) -> Result<bool> {
+        Ok(false)
+    }
     fn additional(&self) -> u16 {
         0
     }
@@ -423,6 +426,13 @@ struct NativeTrainingInteraction {
     resume: Option<crate::enrollment::artifact::Dataset>,
 }
 impl TrainingInteraction for NativeTrainingInteraction {
+    fn feedback(&self, count: usize) -> Result<bool> {
+        let answer = select("Use reviewed detection history", &format!("{count} labeled detections are available. Add corrections to training only; fresh human evaluation recordings stay separate."), &[
+            MenuItem::available("Use labeled clips", "False positives become negative examples; true positives become positive examples"),
+            MenuItem::available("Skip history", "Train only from this enrollment dataset"),
+        ], 0)?.context("onboarding cancelled; configuration unchanged")?;
+        Ok(answer == 0)
+    }
     fn devices(&self) -> Option<DevicePlan> {
         Some(self.devices)
     }
@@ -590,7 +600,28 @@ fn train_guided(
         split_recordings(&positives.files, &negatives.files)?
     };
     drop(worker);
-    let keep = ui.retention(keep_recordings)?;
+    let labeled = crate::enrollment::history::list(paths, &config.wake_words[index].id)?
+        .iter()
+        .filter(|e| e.label != crate::enrollment::history::Label::Unreviewed)
+        .count();
+    let use_feedback = labeled > 0 && ui.feedback(labeled)?;
+    let keep = ui.retention(keep_recordings || use_feedback)?;
+    if use_feedback
+        && let Err(error) = crate::enrollment::history::merge_feedback(
+            paths,
+            &config.wake_words[index].id,
+            &mut dataset,
+        )
+    {
+        if keep {
+            let saved = training::retain_dataset(paths, &config.wake_words[index].id, &dataset)?;
+            return Err(error.context(format!(
+                "History corrections could not be applied; kept your human dataset at {}",
+                saved.join("manifest.json").display()
+            )));
+        }
+        return Err(error);
+    }
     let _synthetic = if ui.assistance() {
         if keep {
             let checkpoint =
@@ -636,6 +667,7 @@ fn train_guided(
             id,
             dataset: Some(manifest),
             reuse_recordings: false,
+            feedback: false,
             engine: None,
             training_device: devices.training,
             run_device: Some(devices.deployment),
@@ -1188,6 +1220,7 @@ mod tests {
     use super::*;
     use std::cell::{Cell, RefCell};
     struct TestInteraction {
+        feedback: bool,
         devices: Option<DevicePlan>,
         additional: u16,
         assistance: bool,
@@ -1201,6 +1234,10 @@ mod tests {
         invalid_negatives: bool,
     }
     impl TrainingInteraction for TestInteraction {
+        fn feedback(&self, count: usize) -> Result<bool> {
+            assert!(count > 0);
+            Ok(self.feedback)
+        }
         fn devices(&self) -> Option<DevicePlan> {
             self.devices
         }
@@ -1278,6 +1315,7 @@ mod tests {
     }
     fn test_interaction() -> TestInteraction {
         TestInteraction {
+            feedback: false,
             devices: None,
             additional: 0,
             assistance: false,
@@ -1422,6 +1460,32 @@ mod tests {
             let mut ui = test_interaction();
             ui.resume = Some(dataset.clone());
             ui.additional = additional;
+            if additional > 0 {
+                ui.feedback = true;
+                use crate::enrollment::history::{self, Event, HistoryConfig, Label};
+                let event = Event {
+                    id: String::new(),
+                    word_id: "computer".into(),
+                    created_ms: 0,
+                    score: 0.7,
+                    threshold: 0.6,
+                    encoder_contract: "guided-encoder".into(),
+                    head: "old".into(),
+                    device: "CPU".into(),
+                    label: Label::FalsePositive,
+                    audio: PathBuf::new(),
+                };
+                history::record(
+                    &paths,
+                    &HistoryConfig {
+                        enabled: true,
+                        max_events: 10,
+                    },
+                    event,
+                    &[-12000; 4000],
+                )
+                .unwrap();
+            }
             ui.keep = true;
             let file = root.join("config.toml");
             train_guided(
@@ -1454,7 +1518,10 @@ mod tests {
                 &sessions[0].directory.join("manifest.json"),
             )
             .unwrap();
-            assert_eq!(saved.training.len(), 12 + 2 * usize::from(additional));
+            assert_eq!(
+                saved.training.len(),
+                12 + 2 * usize::from(additional) + usize::from(additional > 0)
+            );
             assert_eq!(
                 saved_training_sessions(&paths, "computer").unwrap().len(),
                 1

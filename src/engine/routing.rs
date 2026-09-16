@@ -28,7 +28,7 @@ pub struct GroupStatus {
     pub words: Vec<String>,
 }
 enum Command {
-    Start,
+    Start { live: bool },
     Audio(i32, Arc<[f32]>),
     Finish,
     Cancel,
@@ -133,11 +133,15 @@ impl RoutedBackend {
                     let mut session = None;
                     while let Ok(command) = commands.recv() {
                         let result = match command {
-                            Command::Start => {
+                            Command::Start { live } => {
                                 if session.is_some() {
                                     Err(anyhow::anyhow!("engine stream already active"))
                                 } else {
-                                    session = Some(detector.session());
+                                    session = Some(if live {
+                                        detector.live_session()
+                                    } else {
+                                        detector.session()
+                                    });
                                     Ok(Vec::new())
                                 }
                             }
@@ -256,6 +260,15 @@ impl WakeWordBackend for RoutedBackend {
     fn stream(&self) -> Box<dyn WakeWordStream + '_> {
         Box::new(Stream {
             backend: self,
+            live: false,
+            started: Cell::new(false),
+            finished: Cell::new(false),
+        })
+    }
+    fn live_stream(&self) -> Box<dyn WakeWordStream + '_> {
+        Box::new(Stream {
+            backend: self,
+            live: true,
             started: Cell::new(false),
             finished: Cell::new(false),
         })
@@ -270,6 +283,7 @@ impl WakeWordBackend for RoutedBackend {
 }
 struct Stream<'a> {
     backend: &'a RoutedBackend,
+    live: bool,
     started: Cell<bool>,
     finished: Cell<bool>,
 }
@@ -281,7 +295,8 @@ impl Stream<'_> {
                 !self.backend.active.get(),
                 "another routed stream is active"
             );
-            self.backend.exchange(|| Command::Start)?;
+            self.backend
+                .exchange(|| Command::Start { live: self.live })?;
             self.started.set(true);
             self.backend.active.set(true);
         }
@@ -413,7 +428,7 @@ mod tests {
             stream.finish().unwrap();
         }
         assert_eq!(loads.load(Ordering::SeqCst), 2);
-        let abandoned = routed.stream();
+        let abandoned = routed.live_stream();
         abandoned.accept(16000, &[0.25, 0.5]).unwrap();
         drop(abandoned);
         routed.stream().finish().unwrap();

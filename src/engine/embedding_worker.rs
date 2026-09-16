@@ -43,6 +43,8 @@ enum Request {
 pub(crate) struct EncodedUtterance {
     pub embedding: Embedding,
     pub start_sample: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub audio: Vec<i16>,
 }
 #[derive(Serialize, Deserialize)]
 enum Response {
@@ -261,6 +263,7 @@ impl Worker {
                     ensure!(v.len() <= 32, "too many encoder utterances");
                     for item in v {
                         item.embedding.validate()?;
+                        ensure!(item.audio.len() <= 480_000, "oversized history audio");
                         ensure!(
                             item.embedding.encoder_contract == self.contract,
                             "encoder contract changed in response"
@@ -379,6 +382,10 @@ fn worker_loop(wire: &mut Wire, config: &Config, paths: &AppPaths) -> Result<()>
     let mut encoder = Encoder::load(config, paths)?;
     serve(
         wire,
+        config
+            .wake_words
+            .iter()
+            .any(|w| w.enabled && w.enrollment.as_ref().is_some_and(|e| e.history.enabled)),
         |samples| encoder.encode_samples(samples),
         || {
             let library =
@@ -392,8 +399,20 @@ fn worker_loop(wire: &mut Wire, config: &Config, paths: &AppPaths) -> Result<()>
         },
     )
 }
+fn history_audio(enabled: bool, samples: &[f32]) -> Vec<i16> {
+    if enabled {
+        samples
+            .iter()
+            .map(|s| (s.clamp(-1.0, 1.0) * 32767.0).round() as i16)
+            .collect()
+    } else {
+        Vec::new()
+    }
+}
+
 fn serve(
     wire: &mut Wire,
+    retain_audio: bool,
     mut encode: impl FnMut(&[f32]) -> Result<Embedding>,
     mut load_vad: impl FnMut() -> Result<Box<dyn ActivityDetector>>,
 ) -> Result<()> {
@@ -437,6 +456,7 @@ fn serve(
                         outputs.push(EncodedUtterance {
                             embedding: encode(&utterance.samples)?,
                             start_sample: utterance.start_sample,
+                            audio: history_audio(retain_audio, &utterance.samples),
                         });
                     }
                 }
@@ -453,6 +473,7 @@ fn serve(
                         outputs.push(EncodedUtterance {
                             embedding: encode(&u.samples)?,
                             start_sample: u.start_sample,
+                            audio: history_audio(retain_audio, &u.samples),
                         });
                     }
                     pending.clear();
@@ -461,6 +482,7 @@ fn serve(
                     outputs.push(EncodedUtterance {
                         embedding: encode(&u.samples)?,
                         start_sample: u.start_sample,
+                        audio: history_audio(retain_audio, &u.samples),
                     });
                 }
                 Response::Utterances(outputs)
@@ -553,60 +575,71 @@ mod tests {
     }
     #[test]
     fn persistent_service_segments_audio_and_restarts_without_reloading_vad() {
-        let (parent, child) = UnixStream::pair().unwrap();
-        let loads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let count = Arc::clone(&loads);
-        let handle = std::thread::spawn(move || {
-            let mut wire = Wire::new(child, Arc::new(AtomicBool::new(false))).unwrap();
-            serve(
-                &mut wire,
-                |_| Ok(embedding()),
-                || {
-                    count.fetch_add(1, Ordering::Relaxed);
-                    Ok(Box::new(Vad { frames: 0 }) as Box<dyn ActivityDetector>)
-                },
-            )
-        });
-        let mut wire = Wire::new(parent, Arc::new(AtomicBool::new(false))).unwrap();
-        assert!(matches!(
-            wire.receive::<Response>().unwrap(),
-            Response::Ready { .. }
-        ));
-        wire.send(&Request::Encode {
-            samples: vec![0.1; 1600],
-        })
-        .unwrap();
-        assert!(matches!(
-            wire.receive::<Response>().unwrap(),
-            Response::Encoded(_)
-        ));
-        for samples in [vec![0.1; 8000], vec![0.1; 1000]] {
-            wire.send(&Request::Start).unwrap();
-            let _: Response = wire.receive().unwrap();
-            wire.send(&Request::Audio { samples }).unwrap();
-            let a: Response = wire.receive().unwrap();
-            wire.send(&Request::Finish).unwrap();
-            let b: Response = wire.receive().unwrap();
-            let count = match (a, b) {
-                (Response::Utterances(a), Response::Utterances(b)) => a.len() + b.len(),
-                _ => 0,
-            };
-            assert_eq!(count, 1);
+        for retain_audio in [false, true] {
+            let (parent, child) = UnixStream::pair().unwrap();
+            let loads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let count = Arc::clone(&loads);
+            let handle = std::thread::spawn(move || {
+                let mut wire = Wire::new(child, Arc::new(AtomicBool::new(false))).unwrap();
+                serve(
+                    &mut wire,
+                    retain_audio,
+                    |_| Ok(embedding()),
+                    || {
+                        count.fetch_add(1, Ordering::Relaxed);
+                        Ok(Box::new(Vad { frames: 0 }) as Box<dyn ActivityDetector>)
+                    },
+                )
+            });
+            let mut wire = Wire::new(parent, Arc::new(AtomicBool::new(false))).unwrap();
+            assert!(matches!(
+                wire.receive::<Response>().unwrap(),
+                Response::Ready { .. }
+            ));
+            wire.send(&Request::Encode {
+                samples: vec![0.1; 1600],
+            })
+            .unwrap();
+            assert!(matches!(
+                wire.receive::<Response>().unwrap(),
+                Response::Encoded(_)
+            ));
+            for samples in [vec![0.1; 8000], vec![0.1; 1000]] {
+                wire.send(&Request::Start).unwrap();
+                let _: Response = wire.receive().unwrap();
+                wire.send(&Request::Audio { samples }).unwrap();
+                let a: Response = wire.receive().unwrap();
+                wire.send(&Request::Finish).unwrap();
+                let b: Response = wire.receive().unwrap();
+                let count = match (a, b) {
+                    (Response::Utterances(a), Response::Utterances(b)) => {
+                        assert!(
+                            a.iter()
+                                .chain(&b)
+                                .all(|u| u.audio.is_empty() != retain_audio)
+                        );
+                        a.len() + b.len()
+                    }
+                    _ => 0,
+                };
+                assert_eq!(count, 1);
+            }
+            wire.send(&Request::Audio {
+                samples: vec![0.1; 512],
+            })
+            .unwrap();
+            assert!(
+                handle
+                    .join()
+                    .unwrap()
+                    .unwrap_err()
+                    .to_string()
+                    .contains("stream not started")
+            );
+            assert_eq!(loads.load(Ordering::Relaxed), 1);
         }
-        wire.send(&Request::Audio {
-            samples: vec![0.1; 512],
-        })
-        .unwrap();
-        assert!(
-            handle
-                .join()
-                .unwrap()
-                .unwrap_err()
-                .to_string()
-                .contains("stream not started")
-        );
-        assert_eq!(loads.load(Ordering::Relaxed), 1);
     }
+
     #[test]
     fn startup_failure_removes_owned_rendezvous_directory() {
         let root = unique_directory("ew", "exit");

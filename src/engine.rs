@@ -34,6 +34,9 @@ pub trait WakeWordBackend {
     }
     fn kind(&self) -> &'static str;
     fn stream(&self) -> Box<dyn WakeWordStream + '_>;
+    fn live_stream(&self) -> Box<dyn WakeWordStream + '_> {
+        self.stream()
+    }
     fn detect_file(&self, path: &Path) -> Result<Vec<Detection>>;
 }
 
@@ -318,6 +321,13 @@ impl Detector {
         DetectionSession {
             detector: self,
             stream: self.backend.stream(),
+        }
+    }
+
+    pub fn live_session(&self) -> DetectionSession<'_> {
+        DetectionSession {
+            detector: self,
+            stream: self.backend.live_stream(),
         }
     }
 

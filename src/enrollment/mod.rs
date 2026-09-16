@@ -1,6 +1,7 @@
 //! Shared, local-only onboarding samples and transcript alias review.
 pub mod artifact;
 pub mod head;
+pub mod history;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::io::Write;

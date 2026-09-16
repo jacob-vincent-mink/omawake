@@ -21,6 +21,26 @@ pub struct EnrollmentBinding {
     /// Model/preprocessing contract to an immutable, content-addressed head.
     /// Changing the runtime/device does not discard earlier encoder heads.
     pub heads: BTreeMap<String, PathBuf>,
+    /// Explicit operating threshold; None uses the head's calibrated value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub threshold: Option<f32>,
+    #[serde(
+        default,
+        skip_serializing_if = "super::history::HistoryConfig::is_default"
+    )]
+    pub history: super::history::HistoryConfig,
+}
+
+impl EnrollmentBinding {
+    pub fn validate(&self) -> Result<()> {
+        if let Some(threshold) = self.threshold {
+            ensure!(
+                threshold.is_finite() && threshold > 0.0 && threshold <= 1.0,
+                "trained threshold must be greater than 0 and at most 1"
+            );
+        }
+        self.history.validate()
+    }
 }
 
 fn active_by_default() -> bool {
@@ -31,6 +51,8 @@ impl Default for EnrollmentBinding {
         Self {
             active: true,
             heads: BTreeMap::new(),
+            threshold: None,
+            history: Default::default(),
         }
     }
 }

@@ -331,3 +331,66 @@ settings are pinned in the managed enrollment profile. Failure to load the
 selected device, incompatible encoder contracts, or failed held-out validation
 leave the current detector unchanged. Guided onboarding loads both devices before
 requesting recordings, also preparing the deployment encoder's compilation cache.
+
+### Thresholds and reviewed detection history
+
+`word threshold WORD` reports calibrated and effective thresholds for each bound
+head. `word threshold WORD VALUE` sets a per-word override in `(0, 1]`;
+`word threshold WORD auto` removes it. These config changes reload the active
+daemon. An override applies to all heads bound to that word and survives
+retraining; retraining must pass deployment validation at that override too.
+The saved artifact retains its calibrated threshold so `auto` remains useful.
+Scores are classifier outputs, not calibrated probabilities. Raising the
+threshold trades fewer activations for more missed wake phrases.
+
+History is disabled by default and currently supports trained words only:
+
+```sh
+omawake word history WORD enable --max-events 100
+omawake word history WORD list --json
+omawake word history WORD play EVENT_ID
+omawake word history WORD label EVENT_ID false-positive
+omawake word history WORD label EVENT_ID true-positive
+omawake word history WORD label EVENT_ID unreviewed
+omawake word history WORD disable
+omawake word history WORD clear
+```
+
+Only the live daemon records detected VAD utterances; file tests, benchmarks,
+evaluation, and training do not populate history. There is no continuous ambient
+recording. Clips are mono 16 kHz PCM WAVs, capped at 30 seconds, with event time,
+score, effective threshold, encoder contract, head artifact, and device metadata.
+They are stored beneath `$XDG_DATA_HOME/omawake/history/WORD` (normally
+`~/.local/share/omawake/history/WORD`) with private directories (0700) and files
+(0600). The default limit is 100 events per word, configurable from 1 to 1000.
+Oldest events, **including labeled events**, expire when new events reach the
+limit. Disable stops new capture without deleting existing evidence; clear
+removes history and labels, but not copies in retained enrollment datasets.
+Playback is explicit. History I/O errors are reported without stopping detection.
+Accepted trained detections log their scores and thresholds even with audio
+history disabled. Detection text is the configured phrase, not a transcription
+of the triggering speech. History cannot recover audio from earlier activations
+or show missed phrases that did not trigger.
+
+A false-positive label adds a negative example; a true-positive label adds a
+positive example. Unreviewed clips are ignored. Labels never modify a running
+head. Guided `word onboard WORD` offers reviewed history, collects fresh human
+calibration/validation clips, and asks about retaining the resulting dataset.
+Labeled audio is deduplicated against training examples, and changing an event's
+label updates its training label on the next merge. Any overlap with held-out
+or calibration audio is rejected. Only the training split receives feedback.
+
+For an explicit low-level candidate using saved evaluation clips:
+
+```sh
+omawake word train WORD --reuse-recordings --feedback --training-device cpu --run-device npu
+# Add --apply only when ready to activate a candidate that passes validation.
+```
+
+This reuses the old evaluation split; repeated success is not new independent
+accuracy evidence. Prefer guided collection of fresh held-out examples for
+feedback-driven changes. The training set remains bounded at 128 examples;
+reaching the limit requests curation instead of silently dropping examples.
+Local validation is still a small acceptance gate, not an ambient false-activation
+rate measurement. Feedback supports reviewed incremental retraining, not
+unsupervised online updates to the active detector.

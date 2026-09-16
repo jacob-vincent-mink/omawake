@@ -93,6 +93,7 @@ impl crate::engine::embedding_worker::EmbeddingSession for FakeEmbeddingSession 
                 execution_devices: "TEST".into(),
             },
             start_sample: 0,
+            audio: vec![1000; 1600],
         }])
     }
 }

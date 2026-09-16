@@ -1,5 +1,6 @@
 use crate::setup::wizard::MenuItem;
 mod assisted;
+mod feedback;
 mod onboarding;
 mod training;
 
@@ -206,6 +207,13 @@ enum ConfigCommand {
 
 #[derive(Subcommand)]
 enum WakeWordCommand {
+    /// Get/set the trained detector threshold; use auto to restore calibration.
+    Threshold {
+        id: String,
+        value: Option<String>,
+    },
+    /// Opt-in live detection clips, review labels, and bounded local retention.
+    History(feedback::HistoryArgs),
     /// Train an experimental phrase head using independent labeled recordings.
     Train(training::TrainArgs),
     /// Guided setup for Whisper spellings or experimental trainable KWS.
@@ -828,6 +836,10 @@ fn wake_word_command(
     paths: &AppPaths,
 ) -> Result<()> {
     let message = match command {
+        WakeWordCommand::Threshold { id, value } => {
+            return feedback::threshold(id, value, config, path, paths);
+        }
+        WakeWordCommand::History(args) => return feedback::run(args, config, path, paths),
         WakeWordCommand::Train(args) => return training::run(args, config, path, paths),
         WakeWordCommand::Onboard(args) => return onboarding::run(args, config, path, paths),
         WakeWordCommand::Recordings {
@@ -3173,7 +3185,7 @@ fn run_loaded_daemon(
                     "armed on {} ({} Hz, {} channel(s))",
                     capture.device_name, capture.sample_rate, capture.channels
                 );
-                let session = detector.session();
+                let session = detector.live_session();
                 collect_armed_detections(
                     &capture.device_name,
                     capture.sample_rate,
