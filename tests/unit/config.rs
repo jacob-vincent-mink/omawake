@@ -95,7 +95,8 @@ fn multilingual_language_validation_rejects_non_supported_models_and_unknown_cod
     config.model.language = "es".into();
     let profile = crate::engine::openvino_genai::verifier_profile_for_name(&config.model.name);
     assert!(profile.multilingual);
-    let language = crate::engine::openvino_genai::validate_language_for_test(&config, &profile).unwrap();
+    let language =
+        crate::engine::openvino_genai::validate_language_for_test(&config, &profile).unwrap();
     assert_eq!(language, "es");
     config.model.language = "xx".into();
     assert!(crate::engine::openvino_genai::validate_language_for_test(&config, &profile).is_err());
@@ -103,6 +104,10 @@ fn multilingual_language_validation_rejects_non_supported_models_and_unknown_cod
     config.model.language = "es".into();
     let english = crate::engine::openvino_genai::verifier_profile_for_name(&config.model.name);
     assert!(!english.multilingual);
-    let error = crate::engine::openvino_genai::validate_language_for_test(&config, &english).unwrap_err();
-    assert!(error.to_string().contains("multilingual verifier"), "{error}");
+    let error =
+        crate::engine::openvino_genai::validate_language_for_test(&config, &english).unwrap_err();
+    assert!(
+        error.to_string().contains("multilingual verifier"),
+        "{error}"
+    );
 }
