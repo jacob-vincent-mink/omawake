@@ -73,6 +73,9 @@ pub struct ModelConfig {
     pub verifier: String,
     pub vad: String,
     pub sample_rate: i32,
+    /// Language code passed to multilingual verifiers; empty uses the model
+    /// default. Only the curated Spanish profile is qualified (W09).
+    pub language: String,
 }
 
 impl Default for ModelConfig {
@@ -83,6 +86,7 @@ impl Default for ModelConfig {
             verifier: "moonshine-streaming-tiny-q8_0.gguf".into(),
             vad: "silero_vad_16k.safetensors".into(),
             sample_rate: 16_000,
+            language: String::new(),
         }
     }
 }

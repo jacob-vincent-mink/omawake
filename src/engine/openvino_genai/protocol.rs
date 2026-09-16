@@ -26,6 +26,8 @@ pub(super) struct Transcript {
 pub(crate) struct PlacementEvidence {
     pub profile_id: String,
     pub languages: Vec<String>,
+    /// Explicit language sent to inference; empty follows the model default.
+    pub language: String,
     pub multilingual: bool,
     pub runtime_build: String,
     pub runtime_description: String,
@@ -177,6 +179,7 @@ mod tests {
             evidence: Box::new(PlacementEvidence {
                 profile_id: "whisper-base.en-int8-ov".into(),
                 languages: vec!["en".into()],
+                language: String::new(),
                 multilingual: false,
                 runtime_build: "2026.3".into(),
                 runtime_description: "OpenVINO".into(),

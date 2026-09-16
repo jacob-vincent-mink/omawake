@@ -972,6 +972,7 @@ fn hidden_native_worker_dispatch_forwards_exact_provider_arguments() {
         Cli {
             config: None,
             command: TopCommand::OpenVinoGenAiWorker {
+                language: String::new(),
                 genai_library: path("genai"),
                 core_library: path("core"),
                 audiocpp_library: path("audio"),
@@ -2038,6 +2039,8 @@ fn metadata_helpers_return_stable_shapes() {
         true,
         Duration::from_millis(12),
         Some(json!({"device":"test"})),
+        "whisper-base-int8-ov-silero-v6.2.1",
+        "es",
     );
     assert_eq!(details["backend"]["kind"], "fake");
     assert_eq!(details["model_load_milliseconds"], 12);
@@ -2962,9 +2965,11 @@ fn control_socket_handles_status_commands_and_bad_clients() {
         encoded_request(1, "status", Command::Status),
     );
     assert!(
-        poll_control(&FakeControl, "armed", None, || accept_control(&listener))
-            .unwrap()
-            .is_none()
+        poll_control(&FakeControl, "armed", None, "fake", "", || accept_control(
+            &listener
+        ))
+        .unwrap()
+        .is_none()
     );
     for (stream, code) in [
         (&mut invalid, "invalid_request"),
@@ -3755,6 +3760,8 @@ fn control_polling_skips_non_commands_and_stops_at_transition_in_memory() {
         &FakeControl,
         "armed",
         Some(json!({"device": "test microphone"})),
+        "fake",
+        "",
         || {
             Ok(Some(ScriptedStream::responding_with(encoded_request(
                 1,
@@ -3827,7 +3834,10 @@ fn real_detector_forwards_control_metadata_without_native_backend() {
         Command::Pause,
     ))]);
     assert!(matches!(
-        poll_control(&detector, "armed", None, || Ok(streams.pop_front())).unwrap(),
+        poll_control(&detector, "armed", None, "fake", "", || Ok(
+            streams.pop_front()
+        ))
+        .unwrap(),
         Some(Command::Pause)
     ));
 }

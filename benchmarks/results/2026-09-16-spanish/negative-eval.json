@@ -1,0 +1,2477 @@
+{
+  "application_version": "0.0.2",
+  "backend": {
+    "backend_kind": "openvino-genai",
+    "effective_runtime": "openvino",
+    "fallback_used": false,
+    "placement_evidence": "CPU fallback was disabled while every model graph initialized on the selected OpenVINO device",
+    "placement_verified": true,
+    "requested_device": "cpu",
+    "requested_runtime": "openvino"
+  },
+  "evaluation": "omawake-phrase-verifier-accuracy",
+  "files": [
+    {
+      "audio_duration_milliseconds": 16980.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 1459.882088,
+      "expected": [],
+      "id": "12716912110208003007",
+      "matches": [],
+      "path": "0.wav",
+      "predictions": [],
+      "real_time_factor": 0.08597656584216726,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "podemos comenzar a llevar una vida más amigable con el planeta formar parte de movimientos ambientalistas o incluso podemos volvernos activistas y luchar para aminorar en alguna medida el sufrimiento futuro",
+        "speaker": "1635"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 16920.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 698.646966,
+      "expected": [],
+      "id": "6010961844709072189",
+      "matches": [],
+      "path": "1.wav",
+      "predictions": [],
+      "real_time_factor": 0.041291191843971634,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "podemos comenzar a llevar una vida más amigable con el planeta formar parte de movimientos ambientalistas o incluso podemos volvernos activistas y luchar para aminorar en alguna medida el sufrimiento futuro",
+        "speaker": "1635"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 14280.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 926.247026,
+      "expected": [],
+      "id": "4151236193246321517",
+      "matches": [],
+      "path": "2.wav",
+      "predictions": [],
+      "real_time_factor": 0.06486323711484594,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "podemos comenzar a llevar una vida más amigable con el planeta formar parte de movimientos ambientalistas o incluso podemos volvernos activistas y luchar para aminorar en alguna medida el sufrimiento futuro",
+        "speaker": "1635"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 7260.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 446.835789,
+      "expected": [],
+      "id": "809628312584936889",
+      "matches": [],
+      "path": "3.wav",
+      "predictions": [],
+      "real_time_factor": 0.061547629338842974,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "aún intentan establecer cuán importante fue el impacto y de qué modo afectará al planeta",
+        "speaker": "1551"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 6960.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 424.267747,
+      "expected": [],
+      "id": "2662885021183687116",
+      "matches": [],
+      "path": "4.wav",
+      "predictions": [],
+      "real_time_factor": 0.06095800962643678,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "aún intentan establecer cuán importante fue el impacto y de qué modo afectará al planeta",
+        "speaker": "1551"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 7320.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 457.49601,
+      "expected": [],
+      "id": "3328037239752806429",
+      "matches": [],
+      "path": "5.wav",
+      "predictions": [],
+      "real_time_factor": 0.06249945491803279,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "aún intentan establecer cuán importante fue el impacto y de qué modo afectará al planeta",
+        "speaker": "1551"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 9660.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 737.669212,
+      "expected": [],
+      "id": "9132359738133842351",
+      "matches": [],
+      "path": "6.wav",
+      "predictions": [],
+      "real_time_factor": 0.07636327246376812,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "el informe comienza con un llamado a debate abierto y a formar un consenso en los estados unidos acerca de las políticas sobre el oriente medio",
+        "speaker": "1569"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 11160.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 751.995845,
+      "expected": [],
+      "id": "16958393874706389584",
+      "matches": [],
+      "path": "7.wav",
+      "predictions": [],
+      "real_time_factor": 0.06738314023297491,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "el informe comienza con un llamado a debate abierto y a formar un consenso en los estados unidos acerca de las políticas sobre el oriente medio",
+        "speaker": "1569"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 14820.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 813.655644,
+      "expected": [],
+      "id": "6301772384907442579",
+      "matches": [],
+      "path": "8.wav",
+      "predictions": [],
+      "real_time_factor": 0.05490254008097167,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "el objetivo capital de la ciencia es descifrar el modo en que funciona el mundo a través del método científico en efecto este método sirve de guía para la mayor parte de las investigaciones científicas",
+        "speaker": "1565"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 14520.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 995.458114,
+      "expected": [],
+      "id": "14602354604510834291",
+      "matches": [],
+      "path": "9.wav",
+      "predictions": [],
+      "real_time_factor": 0.06855772134986225,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "el objetivo capital de la ciencia es descifrar el modo en que funciona el mundo a través del método científico en efecto este método sirve de guía para la mayor parte de las investigaciones científicas",
+        "speaker": "1565"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 14640.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 696.384342,
+      "expected": [],
+      "id": "9953125741287649378",
+      "matches": [],
+      "path": "10.wav",
+      "predictions": [],
+      "real_time_factor": 0.047567236475409835,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "el objetivo capital de la ciencia es descifrar el modo en que funciona el mundo a través del método científico en efecto este método sirve de guía para la mayor parte de las investigaciones científicas",
+        "speaker": "1565"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 9540.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 474.136116,
+      "expected": [],
+      "id": "12309249212943067327",
+      "matches": [],
+      "path": "11.wav",
+      "predictions": [],
+      "real_time_factor": 0.04969980251572327,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "tampoco estaba facultado para anular leyes fiscales o aranceles entre estados",
+        "speaker": "1570"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 9720.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 454.006758,
+      "expected": [],
+      "id": "12567461606544247708",
+      "matches": [],
+      "path": "12.wav",
+      "predictions": [],
+      "real_time_factor": 0.046708514197530866,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "tampoco estaba facultado para anular leyes fiscales o aranceles entre estados",
+        "speaker": "1570"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 7140.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 398.7782140000001,
+      "expected": [],
+      "id": "10922832216158917272",
+      "matches": [],
+      "path": "13.wav",
+      "predictions": [],
+      "real_time_factor": 0.05585129047619048,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "tampoco estaba facultado para anular leyes fiscales o aranceles entre estados",
+        "speaker": "1570"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 8640.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 604.742131,
+      "expected": [],
+      "id": "7617330369291194520",
+      "matches": [],
+      "path": "14.wav",
+      "predictions": [],
+      "real_time_factor": 0.06999330219907407,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "ello se volvió en una práctica habitual aunque el hierro provocó un mayor desgaste en las ruedas de los vagones hechas de madera",
+        "speaker": "1562"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 12480.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 689.77133,
+      "expected": [],
+      "id": "285611128637980752",
+      "matches": [],
+      "path": "15.wav",
+      "predictions": [],
+      "real_time_factor": 0.05527013862179488,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "ello se volvió en una práctica habitual aunque el hierro provocó un mayor desgaste en las ruedas de los vagones hechas de madera",
+        "speaker": "1562"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 13980.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 687.3388110000001,
+      "expected": [],
+      "id": "15269603754875748715",
+      "matches": [],
+      "path": "16.wav",
+      "predictions": [],
+      "real_time_factor": 0.04916586630901288,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "un teléfono satelital no puede equipararse a un teléfono móvil porque para realizar una llamada se debe estar al aire libre y con línea de visión despejada hacia el satélite",
+        "speaker": "1573"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 14520.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 821.053649,
+      "expected": [],
+      "id": "9307909642516960104",
+      "matches": [],
+      "path": "17.wav",
+      "predictions": [],
+      "real_time_factor": 0.05654639455922865,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "un teléfono satelital no puede equipararse a un teléfono móvil porque para realizar una llamada se debe estar al aire libre y con línea de visión despejada hacia el satélite",
+        "speaker": "1573"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 14280.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 805.353714,
+      "expected": [],
+      "id": "17294686688878458504",
+      "matches": [],
+      "path": "18.wav",
+      "predictions": [],
+      "real_time_factor": 0.05639731890756302,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "un teléfono satelital no puede equipararse a un teléfono móvil porque para realizar una llamada se debe estar al aire libre y con línea de visión despejada hacia el satélite",
+        "speaker": "1573"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 10200.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 609.352954,
+      "expected": [],
+      "id": "139282854823872998",
+      "matches": [],
+      "path": "19.wav",
+      "predictions": [],
+      "real_time_factor": 0.059740485686274505,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "en esta lanzadera de traslado dinámico todos están de algún modo conectados con un sistema de transporte basado en el uso de automóviles privados y lo sostienen",
+        "speaker": "1633"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 14280.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 1258.930313,
+      "expected": [],
+      "id": "10756847912699918473",
+      "matches": [],
+      "path": "20.wav",
+      "predictions": [],
+      "real_time_factor": 0.08816038606442578,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "en esta lanzadera de traslado dinámico todos están de algún modo conectados con un sistema de transporte basado en el uso de automóviles privados y lo sostienen",
+        "speaker": "1633"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 12840.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 732.8581389999999,
+      "expected": [],
+      "id": "13694264896722266022",
+      "matches": [],
+      "path": "21.wav",
+      "predictions": [],
+      "real_time_factor": 0.05707617904984423,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "en esta lanzadera de traslado dinámico todos están de algún modo conectados con un sistema de transporte basado en el uso de automóviles privados y lo sostienen",
+        "speaker": "1633"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 11700.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 636.154143,
+      "expected": [],
+      "id": "1724246153888262069",
+      "matches": [],
+      "path": "22.wav",
+      "predictions": [],
+      "real_time_factor": 0.05437214897435897,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "si bien las bases del budismo tibetano son las enseñanzas de buda se extendieron por el sendero del amor mahayana y numerosas técnicas del yoga de la india",
+        "speaker": "1595"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 12960.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 551.066308,
+      "expected": [],
+      "id": "17434956586718032269",
+      "matches": [],
+      "path": "23.wav",
+      "predictions": [],
+      "real_time_factor": 0.042520548456790125,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "si bien las bases del budismo tibetano son las enseñanzas de buda se extendieron por el sendero del amor mahayana y numerosas técnicas del yoga de la india",
+        "speaker": "1595"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 11460.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 736.583443,
+      "expected": [],
+      "id": "14406259103844395700",
+      "matches": [],
+      "path": "24.wav",
+      "predictions": [],
+      "real_time_factor": 0.06427429694589877,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "si bien las bases del budismo tibetano son las enseñanzas de buda se extendieron por el sendero del amor mahayana y numerosas técnicas del yoga de la india",
+        "speaker": "1595"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 16260.000000000002,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 1055.515898,
+      "expected": [],
+      "id": "2698432360255509236",
+      "matches": [],
+      "path": "25.wav",
+      "predictions": [],
+      "real_time_factor": 0.06491487687576875,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "en una unión entre npws y la asociación de tiradores deportivos de australia nsw inc. se reclutaron voluntarios idóneos dentro del programa de caza de la asociación de tiradores deportivos",
+        "speaker": "1653"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 18240.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 1432.339073,
+      "expected": [],
+      "id": "13368764041128105552",
+      "matches": [],
+      "path": "26.wav",
+      "predictions": [],
+      "real_time_factor": 0.07852736145833333,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "en una unión entre npws y la asociación de tiradores deportivos de australia nsw inc. se reclutaron voluntarios idóneos dentro del programa de caza de la asociación de tiradores deportivos",
+        "speaker": "1653"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 19320.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 714.545059,
+      "expected": [],
+      "id": "17487947184792292312",
+      "matches": [],
+      "path": "27.wav",
+      "predictions": [],
+      "real_time_factor": 0.03698473390269151,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "en una unión entre npws y la asociación de tiradores deportivos de australia nsw inc. se reclutaron voluntarios idóneos dentro del programa de caza de la asociación de tiradores deportivos",
+        "speaker": "1653"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 8400.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 561.9618899999999,
+      "expected": [],
+      "id": "4262758442093652329",
+      "matches": [],
+      "path": "28.wav",
+      "predictions": [],
+      "real_time_factor": 0.066900225,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "el islam también fue llevado a las tierras por los árabes y se impuso en buena medida en las comores y mayotte",
+        "speaker": "1571"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 10140.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 644.183196,
+      "expected": [],
+      "id": "4914905555570679868",
+      "matches": [],
+      "path": "29.wav",
+      "predictions": [],
+      "real_time_factor": 0.0635289147928994,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "el islam también fue llevado a las tierras por los árabes y se impuso en buena medida en las comores y mayotte",
+        "speaker": "1571"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 9720.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 572.198299,
+      "expected": [],
+      "id": "14960941296385410809",
+      "matches": [],
+      "path": "30.wav",
+      "predictions": [],
+      "real_time_factor": 0.05886813775720165,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "el islam también fue llevado a las tierras por los árabes y se impuso en buena medida en las comores y mayotte",
+        "speaker": "1571"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 10800.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 475.368286,
+      "expected": [],
+      "id": "9035598705266738316",
+      "matches": [],
+      "path": "31.wav",
+      "predictions": [],
+      "real_time_factor": 0.04401558203703703,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "number one es la cerveza local más popular y no es compleja sino más bien agradable y refrescante la otra cerveza regional es la manta",
+        "speaker": "1590"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 10920.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 611.453967,
+      "expected": [],
+      "id": "8237442583132331775",
+      "matches": [],
+      "path": "32.wav",
+      "predictions": [],
+      "real_time_factor": 0.05599395302197802,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "number one es la cerveza local más popular y no es compleja sino más bien agradable y refrescante la otra cerveza regional es la manta",
+        "speaker": "1590"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 11700.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 661.89443,
+      "expected": [],
+      "id": "14106022581198973431",
+      "matches": [],
+      "path": "33.wav",
+      "predictions": [],
+      "real_time_factor": 0.05657217350427351,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "number one es la cerveza local más popular y no es compleja sino más bien agradable y refrescante la otra cerveza regional es la manta",
+        "speaker": "1590"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 10920.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 644.875667,
+      "expected": [],
+      "id": "8780837405502012584",
+      "matches": [],
+      "path": "34.wav",
+      "predictions": [],
+      "real_time_factor": 0.05905454826007326,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "no es posible que las recetas de la antigua roma incluyeran alimentos que llegaron a europa desde américa o asia siglos después",
+        "speaker": "1627"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 10080.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 677.141802,
+      "expected": [],
+      "id": "15143648718343383856",
+      "matches": [],
+      "path": "35.wav",
+      "predictions": [],
+      "real_time_factor": 0.06717676607142857,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "no es posible que las recetas de la antigua roma incluyeran alimentos que llegaron a europa desde américa o asia siglos después",
+        "speaker": "1627"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 10380.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 435.334553,
+      "expected": [],
+      "id": "15150653143988709365",
+      "matches": [],
+      "path": "36.wav",
+      "predictions": [],
+      "real_time_factor": 0.04193974499036609,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "no es posible que las recetas de la antigua roma incluyeran alimentos que llegaron a europa desde américa o asia siglos después",
+        "speaker": "1627"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 7740.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 593.159882,
+      "expected": [],
+      "id": "563233278035086965",
+      "matches": [],
+      "path": "37.wav",
+      "predictions": [],
+      "real_time_factor": 0.07663564366925064,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "los primeros casos de la enfermedad durante esta temporada se registraron hacia fines de julio",
+        "speaker": "1587"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 7560.000000000001,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 406.795871,
+      "expected": [],
+      "id": "14174529953994194323",
+      "matches": [],
+      "path": "38.wav",
+      "predictions": [],
+      "real_time_factor": 0.05380897764550264,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "los primeros casos de la enfermedad durante esta temporada se registraron hacia fines de julio",
+        "speaker": "1587"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 6480.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 482.158493,
+      "expected": [],
+      "id": "9072175803483717623",
+      "matches": [],
+      "path": "39.wav",
+      "predictions": [],
+      "real_time_factor": 0.07440717484567902,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "los primeros casos de la enfermedad durante esta temporada se registraron hacia fines de julio",
+        "speaker": "1587"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 8880.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 507.385683,
+      "expected": [],
+      "id": "4154247550451398216",
+      "matches": [],
+      "path": "40.wav",
+      "predictions": [],
+      "real_time_factor": 0.05713802736486486,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "después de eso lakkha singh pasó al frente para cantar los bhajans",
+        "speaker": "1578"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 6540.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 497.227118,
+      "expected": [],
+      "id": "15521026596233340817",
+      "matches": [],
+      "path": "41.wav",
+      "predictions": [],
+      "real_time_factor": 0.07602861131498471,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "después de eso lakkha singh pasó al frente para cantar los bhajans",
+        "speaker": "1578"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 5700.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 415.812147,
+      "expected": [],
+      "id": "17828064149002081679",
+      "matches": [],
+      "path": "42.wav",
+      "predictions": [],
+      "real_time_factor": 0.07294949947368422,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "después de eso lakkha singh pasó al frente para cantar los bhajans",
+        "speaker": "1578"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 7320.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 461.761194,
+      "expected": [],
+      "id": "12832763676170496221",
+      "matches": [],
+      "path": "43.wav",
+      "predictions": [],
+      "real_time_factor": 0.06308213032786886,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "el cristianismo ortodoxo es la religión mayoritaria en moldavia",
+        "speaker": "1652"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 7080.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 609.414656,
+      "expected": [],
+      "id": "10953383748233911445",
+      "matches": [],
+      "path": "44.wav",
+      "predictions": [],
+      "real_time_factor": 0.0860755163841808,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "el cristianismo ortodoxo es la religión mayoritaria en moldavia",
+        "speaker": "1652"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 8640.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 434.023629,
+      "expected": [],
+      "id": "6153923534060353431",
+      "matches": [],
+      "path": "45.wav",
+      "predictions": [],
+      "real_time_factor": 0.05023421631944445,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "el cristianismo ortodoxo es la religión mayoritaria en moldavia",
+        "speaker": "1652"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 14040.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 1006.00713,
+      "expected": [],
+      "id": "14444456949745319932",
+      "matches": [],
+      "path": "46.wav",
+      "predictions": [],
+      "real_time_factor": 0.07165292948717948,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "además existen monturas en especial las inglesas con barras de seguridad que permiten que el cuero del estribo se desprenda de su estructura si un jinete que sale despedido tira hacia atrás",
+        "speaker": "1613"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 13320.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 621.963291,
+      "expected": [],
+      "id": "15754560489536896791",
+      "matches": [],
+      "path": "47.wav",
+      "predictions": [],
+      "real_time_factor": 0.046693940765765767,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "además existen monturas en especial las inglesas con barras de seguridad que permiten que el cuero del estribo se desprenda de su estructura si un jinete que sale despedido tira hacia atrás",
+        "speaker": "1613"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 13920.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 692.1361459999999,
+      "expected": [],
+      "id": "12679094052184499570",
+      "matches": [],
+      "path": "48.wav",
+      "predictions": [],
+      "real_time_factor": 0.04972242428160919,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "además existen monturas en especial las inglesas con barras de seguridad que permiten que el cuero del estribo se desprenda de su estructura si un jinete que sale despedido tira hacia atrás",
+        "speaker": "1613"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 5520.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 477.120627,
+      "expected": [],
+      "id": "10576560181272987628",
+      "matches": [],
+      "path": "49.wav",
+      "predictions": [],
+      "real_time_factor": 0.08643489619565217,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "en cuatro años es el quinto cep de martelly",
+        "speaker": "1515"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 5580.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 426.998061,
+      "expected": [],
+      "id": "16255658476875547265",
+      "matches": [],
+      "path": "50.wav",
+      "predictions": [],
+      "real_time_factor": 0.07652295,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "en cuatro años es el quinto cep de martelly",
+        "speaker": "1515"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 5280.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 485.090855,
+      "expected": [],
+      "id": "5319887885770092037",
+      "matches": [],
+      "path": "51.wav",
+      "predictions": [],
+      "real_time_factor": 0.09187326799242423,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "en cuatro años es el quinto cep de martelly",
+        "speaker": "1515"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 6780.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 469.187824,
+      "expected": [],
+      "id": "15713060686889135136",
+      "matches": [],
+      "path": "52.wav",
+      "predictions": [],
+      "real_time_factor": 0.06920174395280236,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "el resultado del análisis de rastreo se dará a conocer en un sitio web de acceso libre",
+        "speaker": "1552"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 8760.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 530.067451,
+      "expected": [],
+      "id": "7652813761713281846",
+      "matches": [],
+      "path": "53.wav",
+      "predictions": [],
+      "real_time_factor": 0.06050998299086758,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "el resultado del análisis de rastreo se dará a conocer en un sitio web de acceso libre",
+        "speaker": "1552"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 6600.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 488.7238420000001,
+      "expected": [],
+      "id": "17938721031453164782",
+      "matches": [],
+      "path": "54.wav",
+      "predictions": [],
+      "real_time_factor": 0.07404906696969697,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "el resultado del análisis de rastreo se dará a conocer en un sitio web de acceso libre",
+        "speaker": "1552"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 12720.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 567.897146,
+      "expected": [],
+      "id": "2691040502038487312",
+      "matches": [],
+      "path": "55.wav",
+      "predictions": [],
+      "real_time_factor": 0.04464600204402515,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "el doctor moll cree que algunos pacientes podrían haber contraído el virus dentro del hospital y que al menos dos de los infectados eran trabajadores de salud de ese nosocomio",
+        "speaker": "1564"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 12840.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 745.226257,
+      "expected": [],
+      "id": "705534160794720130",
+      "matches": [],
+      "path": "56.wav",
+      "predictions": [],
+      "real_time_factor": 0.0580394281152648,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "el doctor moll cree que algunos pacientes podrían haber contraído el virus dentro del hospital y que al menos dos de los infectados eran trabajadores de salud de ese nosocomio",
+        "speaker": "1564"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 15180.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 1019.126353,
+      "expected": [],
+      "id": "14174207670770285689",
+      "matches": [],
+      "path": "57.wav",
+      "predictions": [],
+      "real_time_factor": 0.06713612338603427,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "los casos registrados de esclerosis múltiple em en ee. uu. ascienden a cerca de 400 000 lo que la hace la enfermedad neurológica más frecuente entre adultos jóvenes y de mediana edad",
+        "speaker": "1580"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 15720.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 787.231955,
+      "expected": [],
+      "id": "10922563909898312695",
+      "matches": [],
+      "path": "58.wav",
+      "predictions": [],
+      "real_time_factor": 0.050078368638676846,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "los casos registrados de esclerosis múltiple em en ee. uu. ascienden a cerca de 400 000 lo que la hace la enfermedad neurológica más frecuente entre adultos jóvenes y de mediana edad",
+        "speaker": "1580"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 8160.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 560.342264,
+      "expected": [],
+      "id": "636242247147479250",
+      "matches": [],
+      "path": "59.wav",
+      "predictions": [],
+      "real_time_factor": 0.06866939509803921,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "no se han producido cambios en la población original que aún precisan de las mismas adaptaciones que en el pasado",
+        "speaker": "1599"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 9180.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 552.1450199999999,
+      "expected": [],
+      "id": "10284528973491487253",
+      "matches": [],
+      "path": "60.wav",
+      "predictions": [],
+      "real_time_factor": 0.06014651633986928,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "no se han producido cambios en la población original que aún precisan de las mismas adaptaciones que en el pasado",
+        "speaker": "1599"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 10320.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 611.286763,
+      "expected": [],
+      "id": "1070402814562291484",
+      "matches": [],
+      "path": "61.wav",
+      "predictions": [],
+      "real_time_factor": 0.05923321346899224,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "no se han producido cambios en la población original que aún precisan de las mismas adaptaciones que en el pasado",
+        "speaker": "1599"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 10560.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 578.1325969999999,
+      "expected": [],
+      "id": "8689878644313465474",
+      "matches": [],
+      "path": "62.wav",
+      "predictions": [],
+      "real_time_factor": 0.054747405018939384,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "normalmente un curso abarcará todos los temas que se han tratado aquí con mucho más detalle y en general con experiencia práctica",
+        "speaker": "1576"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 9960.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 617.405886,
+      "expected": [],
+      "id": "1968788261711673344",
+      "matches": [],
+      "path": "63.wav",
+      "predictions": [],
+      "real_time_factor": 0.061988542771084336,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "normalmente un curso abarcará todos los temas que se han tratado aquí con mucho más detalle y en general con experiencia práctica",
+        "speaker": "1576"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 13440.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 1280.782833,
+      "expected": [],
+      "id": "352810419899130902",
+      "matches": [],
+      "path": "64.wav",
+      "predictions": [],
+      "real_time_factor": 0.09529634174107143,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "normalmente un curso abarcará todos los temas que se han tratado aquí con mucho más detalle y en general con experiencia práctica",
+        "speaker": "1576"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 11580.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 691.567004,
+      "expected": [],
+      "id": "12272481321089400725",
+      "matches": [],
+      "path": "65.wav",
+      "predictions": [],
+      "real_time_factor": 0.05972081208981002,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "al pasar el tiempo a medida que la incipiente población se va adaptando al nuevo entorno comienza a asemejarse cada vez menos a la otra población",
+        "speaker": "1585"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 11400.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 617.361058,
+      "expected": [],
+      "id": "3916236382729635891",
+      "matches": [],
+      "path": "66.wav",
+      "predictions": [],
+      "real_time_factor": 0.05415447877192982,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "al pasar el tiempo a medida que la incipiente población se va adaptando al nuevo entorno comienza a asemejarse cada vez menos a la otra población",
+        "speaker": "1585"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 11040.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 1034.1832399999998,
+      "expected": [],
+      "id": "5549872575094949695",
+      "matches": [],
+      "path": "67.wav",
+      "predictions": [],
+      "real_time_factor": 0.09367601811594202,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "al pasar el tiempo a medida que la incipiente población se va adaptando al nuevo entorno comienza a asemejarse cada vez menos a la otra población",
+        "speaker": "1585"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 10200.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 670.0624859999999,
+      "expected": [],
+      "id": "4859874052408980092",
+      "matches": [],
+      "path": "68.wav",
+      "predictions": [],
+      "real_time_factor": 0.06569240058823529,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "la investigación en el campo de la ia supone el desarrollo de máquinas a fin de automatizar tareas que requieren un comportamiento inteligente",
+        "speaker": "1517"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 15420.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 1454.556281,
+      "expected": [],
+      "id": "18142468751126065192",
+      "matches": [],
+      "path": "69.wav",
+      "predictions": [],
+      "real_time_factor": 0.09432920110246432,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "la investigación en el campo de la ia supone el desarrollo de máquinas a fin de automatizar tareas que requieren un comportamiento inteligente",
+        "speaker": "1517"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 16800.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 1170.617578,
+      "expected": [],
+      "id": "12542262690303810433",
+      "matches": [],
+      "path": "70.wav",
+      "predictions": [],
+      "real_time_factor": 0.06967961773809524,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "la solución viene de la mano de la tecnología a través de las excursiones virtuales los alumnos pueden observar los objetos exhibidos en un museo visitar un acuario o contemplar hermosas obras de arte sentados con su clase",
+        "speaker": "1522"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 16800.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 862.5729090000001,
+      "expected": [],
+      "id": "7397935617289718584",
+      "matches": [],
+      "path": "71.wav",
+      "predictions": [],
+      "real_time_factor": 0.05134362553571429,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "la solución viene de la mano de la tecnología a través de las excursiones virtuales los alumnos pueden observar los objetos exhibidos en un museo visitar un acuario o contemplar hermosas obras de arte sentados con su clase",
+        "speaker": "1522"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 13200.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 684.0713480000001,
+      "expected": [],
+      "id": "1821698740083128810",
+      "matches": [],
+      "path": "72.wav",
+      "predictions": [],
+      "real_time_factor": 0.05182358696969697,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "debido a que se encuentran muy alejadas del continente los mamíferos no lograban llegar hasta allí lo que hizo que la tortuga gigante se volviera la principal criatura de pastoreo en las galápagos",
+        "speaker": "1605"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 12840.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 895.5035310000001,
+      "expected": [],
+      "id": "11852202992164944587",
+      "matches": [],
+      "path": "73.wav",
+      "predictions": [],
+      "real_time_factor": 0.06974326565420562,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "debido a que se encuentran muy alejadas del continente los mamíferos no lograban llegar hasta allí lo que hizo que la tortuga gigante se volviera la principal criatura de pastoreo en las galápagos",
+        "speaker": "1605"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 13800.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 698.471683,
+      "expected": [],
+      "id": "16570363743667261750",
+      "matches": [],
+      "path": "74.wav",
+      "predictions": [],
+      "real_time_factor": 0.050613890072463766,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "en el sector norte cordillera sentinel se encuentran los picos más elevados de la antártida el macizo de vinson con una cumbre a 4892 metros en el monte vinson",
+        "speaker": "1618"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 10620.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 488.874517,
+      "expected": [],
+      "id": "1193954095328160401",
+      "matches": [],
+      "path": "75.wav",
+      "predictions": [],
+      "real_time_factor": 0.04603338201506592,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "en el camposanto hay interesantes esculturas de mármol con forma de paloma sobre algunas tumbas",
+        "speaker": "1555"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 9480.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 509.678504,
+      "expected": [],
+      "id": "13937992686249768770",
+      "matches": [],
+      "path": "76.wav",
+      "predictions": [],
+      "real_time_factor": 0.0537635552742616,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "en el camposanto hay interesantes esculturas de mármol con forma de paloma sobre algunas tumbas",
+        "speaker": "1555"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 8400.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 549.670362,
+      "expected": [],
+      "id": "8086652677028177022",
+      "matches": [],
+      "path": "77.wav",
+      "predictions": [],
+      "real_time_factor": 0.06543694785714285,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "en el camposanto hay interesantes esculturas de mármol con forma de paloma sobre algunas tumbas",
+        "speaker": "1555"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 12000.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 636.986303,
+      "expected": [],
+      "id": "1348280729357499175",
+      "matches": [],
+      "path": "78.wav",
+      "predictions": [],
+      "real_time_factor": 0.05308219191666667,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "los accidentes de avión son habituales en irán que tiene una flota antigua que no recibe buen mantenimiento ya sea para operaciones civiles o militares",
+        "speaker": "1603"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 11280.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 661.385475,
+      "expected": [],
+      "id": "5858622374114392944",
+      "matches": [],
+      "path": "79.wav",
+      "predictions": [],
+      "real_time_factor": 0.058633464095744686,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "los accidentes de avión son habituales en irán que tiene una flota antigua que no recibe buen mantenimiento ya sea para operaciones civiles o militares",
+        "speaker": "1603"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 10740.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 638.267984,
+      "expected": [],
+      "id": "14754564646255875270",
+      "matches": [],
+      "path": "80.wav",
+      "predictions": [],
+      "real_time_factor": 0.05942904878957169,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "los accidentes de avión son habituales en irán que tiene una flota antigua que no recibe buen mantenimiento ya sea para operaciones civiles o militares",
+        "speaker": "1603"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 9900.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 496.278711,
+      "expected": [],
+      "id": "2082414369732400386",
+      "matches": [],
+      "path": "81.wav",
+      "predictions": [],
+      "real_time_factor": 0.050129162727272726,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "argentina es famosa por contar con uno de los mejores equipos y los mejores jugadores de polo a nivel mundial",
+        "speaker": "1513"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 12540.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 468.564021,
+      "expected": [],
+      "id": "4767683865088707795",
+      "matches": [],
+      "path": "82.wav",
+      "predictions": [],
+      "real_time_factor": 0.0373655519138756,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "argentina es famosa por contar con uno de los mejores equipos y los mejores jugadores de polo a nivel mundial",
+        "speaker": "1513"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 9000.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 475.370574,
+      "expected": [],
+      "id": "14634551948257134147",
+      "matches": [],
+      "path": "83.wav",
+      "predictions": [],
+      "real_time_factor": 0.05281895266666666,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "argentina es famosa por contar con uno de los mejores equipos y los mejores jugadores de polo a nivel mundial",
+        "speaker": "1513"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 11760.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 686.25495,
+      "expected": [],
+      "id": "15879981966779781500",
+      "matches": [],
+      "path": "84.wav",
+      "predictions": [],
+      "real_time_factor": 0.05835501275510204,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "no obstante debido a que el catalán es legalmente la primera lengua de carácter oficial la mayor parte de los letreros están redactados solo en ese idioma",
+        "speaker": "1619"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 13380.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 950.842573,
+      "expected": [],
+      "id": "15280928357636931868",
+      "matches": [],
+      "path": "85.wav",
+      "predictions": [],
+      "real_time_factor": 0.0710644673393124,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "no obstante debido a que el catalán es legalmente la primera lengua de carácter oficial la mayor parte de los letreros están redactados solo en ese idioma",
+        "speaker": "1619"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 12360.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 709.178965,
+      "expected": [],
+      "id": "16302540047190194022",
+      "matches": [],
+      "path": "86.wav",
+      "predictions": [],
+      "real_time_factor": 0.0573769389158576,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "no obstante debido a que el catalán es legalmente la primera lengua de carácter oficial la mayor parte de los letreros están redactados solo en ese idioma",
+        "speaker": "1619"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 7800.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 536.9746309999999,
+      "expected": [],
+      "id": "15804215244889766538",
+      "matches": [],
+      "path": "87.wav",
+      "predictions": [],
+      "real_time_factor": 0.0688429014102564,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "su tala se había programado para el día martes pero fue salvado después de un fallo judicial de emergencia",
+        "speaker": "1530"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 14460.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 757.653262,
+      "expected": [],
+      "id": "1724592885233408615",
+      "matches": [],
+      "path": "88.wav",
+      "predictions": [],
+      "real_time_factor": 0.05239649114799447,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "las mujeres deben darse cuenta de que las diferencias culturales pueden provocar lo que ellas consideran acoso y que no es poco común que sean seguidas tomadas por el brazo etc",
+        "speaker": "1632"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 12840.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 614.610558,
+      "expected": [],
+      "id": "9411406033799509435",
+      "matches": [],
+      "path": "89.wav",
+      "predictions": [],
+      "real_time_factor": 0.04786686588785047,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "las mujeres deben darse cuenta de que las diferencias culturales pueden provocar lo que ellas consideran acoso y que no es poco común que sean seguidas tomadas por el brazo etc",
+        "speaker": "1632"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 12840.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 613.063852,
+      "expected": [],
+      "id": "13527920260769080257",
+      "matches": [],
+      "path": "90.wav",
+      "predictions": [],
+      "real_time_factor": 0.047746405919003115,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "las mujeres deben darse cuenta de que las diferencias culturales pueden provocar lo que ellas consideran acoso y que no es poco común que sean seguidas tomadas por el brazo etc",
+        "speaker": "1632"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 11520.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 678.306745,
+      "expected": [],
+      "id": "1547915604535364384",
+      "matches": [],
+      "path": "91.wav",
+      "predictions": [],
+      "real_time_factor": 0.05888079383680555,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "israel exige una presencia militar constante en el valle por diez años una vez que se firme el acuerdo mientras que pa solo acepta cinco",
+        "speaker": "1575"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 12780.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 583.059845,
+      "expected": [],
+      "id": "16693855012137982349",
+      "matches": [],
+      "path": "92.wav",
+      "predictions": [],
+      "real_time_factor": 0.04562283607198748,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "israel exige una presencia militar constante en el valle por diez años una vez que se firme el acuerdo mientras que pa solo acepta cinco",
+        "speaker": "1575"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 11160.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 547.787011,
+      "expected": [],
+      "id": "10818205632897574329",
+      "matches": [],
+      "path": "93.wav",
+      "predictions": [],
+      "real_time_factor": 0.049084857616487454,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "israel exige una presencia militar constante en el valle por diez años una vez que se firme el acuerdo mientras que pa solo acepta cinco",
+        "speaker": "1575"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 21240.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 1702.0685009999995,
+      "expected": [],
+      "id": "9572379207870535002",
+      "matches": [],
+      "path": "94.wav",
+      "predictions": [],
+      "real_time_factor": 0.08013505183615818,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "el esquiador del grupo masculino con discapacidad visual maciej krezel y su guía anna ogarzynska de polonia terminaron en el decimotercer lugar en el super-g jong seork park de corea del sur obtuvo el vigésimo cuarto puesto en el grupo masculino sentados",
+        "speaker": "1527"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 24960.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 2352.9795670000003,
+      "expected": [],
+      "id": "6081435499249010957",
+      "matches": [],
+      "path": "95.wav",
+      "predictions": [],
+      "real_time_factor": 0.09427001470352564,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "el esquiador del grupo masculino con discapacidad visual maciej krezel y su guía anna ogarzynska de polonia terminaron en el decimotercer lugar en el super-g jong seork park de corea del sur obtuvo el vigésimo cuarto puesto en el grupo masculino sentados",
+        "speaker": "1527"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 18840.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 1130.888787,
+      "expected": [],
+      "id": "8590370792323234470",
+      "matches": [],
+      "path": "96.wav",
+      "predictions": [],
+      "real_time_factor": 0.06002594410828025,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "el esquiador del grupo masculino con discapacidad visual maciej krezel y su guía anna ogarzynska de polonia terminaron en el decimotercer lugar en el super-g jong seork park de corea del sur obtuvo el vigésimo cuarto puesto en el grupo masculino sentados",
+        "speaker": "1527"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 9900.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 475.13768,
+      "expected": [],
+      "id": "6123656367808681724",
+      "matches": [],
+      "path": "97.wav",
+      "predictions": [],
+      "real_time_factor": 0.04799370505050505,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "según las autoridades policiales es poco probable que el conductor del vehículo que embistió al fotógrafo sea procesado penalmente",
+        "speaker": "1588"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 9720.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 543.296978,
+      "expected": [],
+      "id": "5943872017910794357",
+      "matches": [],
+      "path": "98.wav",
+      "predictions": [],
+      "real_time_factor": 0.055894750823045264,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "según las autoridades policiales es poco probable que el conductor del vehículo que embistió al fotógrafo sea procesado penalmente",
+        "speaker": "1588"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 10080.0,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 611.532912,
+      "expected": [],
+      "id": "4445876756112550206",
+      "matches": [],
+      "path": "99.wav",
+      "predictions": [],
+      "real_time_factor": 0.06066794761904762,
+      "split": "dev",
+      "tags": {
+        "ground_truth": "según las autoridades policiales es poco probable que el conductor del vehículo que embistió al fotógrafo sea procesado penalmente",
+        "speaker": "1588"
+      },
+      "wrong_id_prediction_indices": []
+    }
+  ],
+  "inputs": {
+    "config_sha256": "46d788a544bfb4dfc74896d71b7a8211008cb051d0ba81a88cac55f17e93f117",
+    "corpus": {
+      "id": "fleurs-es-419-dev-first-100-negative-smoke",
+      "license_spdx": "CC-BY-4.0",
+      "source": "https://huggingface.co/datasets/google/fleurs",
+      "version": "google/fleurs@70bb2e84b976b7e960aa89f1c648e09c59f894dd"
+    },
+    "enabled_keyword_ids": [
+      "enciende-luz"
+    ],
+    "manifest_sha256": "9a921110b69e4f1fc892cfae4cfd339b444482e2d2c5cb287d01ebe315df43c9",
+    "matching": {
+      "early_tolerance_ms": 250,
+      "late_tolerance_ms": 1000
+    },
+    "model_directory": "/tmp/tmp.9JaOlTVWeB/d/omawake/models/whisper-base-int8-ov-silero-v6.2.1",
+    "model_name": "whisper-base-int8-ov-silero-v6.2.1"
+  },
+  "model_load_milliseconds": 457.489709,
+  "per_keyword": {
+    "enciende-luz": {
+      "duplicate_predictions": 0,
+      "expected_events": 0,
+      "f1": null,
+      "false_activations": 0,
+      "false_activations_per_hour": 0.0,
+      "false_negatives": 0,
+      "false_positives": 0,
+      "negative_audio_hours": 0.31989999999999985,
+      "precision": null,
+      "predictions": 0,
+      "recall": null,
+      "true_positives": 0,
+      "wrong_id_predictions": 0
+    }
+  },
+  "prediction_fingerprint": "a5b2099e077b0a2793d704effbec05fa2faf0003bced882d96991bb333c08a83",
+  "schema_version": 1,
+  "summary": {
+    "duplicate_predictions": 0,
+    "expected_events": 0,
+    "f1": null,
+    "false_activations": 0,
+    "false_activations_per_hour": 0.0,
+    "false_negatives": 0,
+    "false_positives": 0,
+    "negative_audio_hours": 0.31989999999999985,
+    "precision": null,
+    "predictions": 0,
+    "recall": null,
+    "true_positives": 0,
+    "wrong_id_predictions": 0
+  },
+  "timing": {
+    "aggregate_real_time_factor": 0.061197742598381434,
+    "files": 100,
+    "p50_file_milliseconds": 617.405886,
+    "p95_file_milliseconds": 1280.782833,
+    "total_audio_milliseconds": 1151640.0,
+    "total_elapsed_milliseconds": 70477.76828599999
+  }
+}

@@ -1614,7 +1614,7 @@ int audiocpp_registry_family(const void *registry, size_t index, const char **ou
         return 0;
     }
     if (openvino) {
-        write_response("{\"type\":\"ready\",\"evidence\":{\"profile_id\":\"whisper-base.en-int8-ov\",\"languages\":[\"en\"],\"multilingual\":false,\"runtime_build\":\"fake\",\"runtime_description\":\"fake\",\"requested_device\":\"CPU\",\"available_device\":\"CPU\",\"full_device_name\":\"Fake CPU\",\"device_architecture\":\"fake\",\"driver_version\":\"fake\",\"static_pipeline\":false,\"pipeline_load_milliseconds\":1.0,\"cache_directory\":\"/tmp\",\"cache_files\":0,\"cache_bytes\":0,\"genai_library\":\"fake\",\"core_library\":\"fake\"}}");
+        write_response("{\"type\":\"ready\",\"evidence\":{\"profile_id\":\"whisper-base.en-int8-ov\",\"languages\":[\"en\"],\"language\":\"\",\"multilingual\":false,\"runtime_build\":\"fake\",\"runtime_description\":\"fake\",\"requested_device\":\"CPU\",\"available_device\":\"CPU\",\"full_device_name\":\"Fake CPU\",\"device_architecture\":\"fake\",\"driver_version\":\"fake\",\"static_pipeline\":false,\"pipeline_load_milliseconds\":1.0,\"cache_directory\":\"/tmp\",\"cache_files\":0,\"cache_bytes\":0,\"genai_library\":\"fake\",\"core_library\":\"fake\"}}");
     } else {
         write_response("{\"type\":\"ready\",\"version\":\"safe fake worker\"}");
     }

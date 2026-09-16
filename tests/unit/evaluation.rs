@@ -331,6 +331,7 @@ fn evaluation_loads_once_scores_exact_matches_and_is_fingerprinted() {
             enabled_keyword_ids: vec!["wake".into(), "unused".into()],
             model_name: "fake-model".into(),
             model_directory: "/fake".into(),
+            model_language: String::new(),
             application_version: "test".into(),
         },
         || {
