@@ -4,6 +4,20 @@ Proposed 2026-09-15 for Omawake and Omaspeak. This document is mirrored in both
 planning worktrees so either plan is reviewable independently. It specifies new
 behavior; the illustrative commands and fields are not implemented yet.
 
+## Scope and implementation priority
+
+[PRIORITIES.md](PRIORITIES.md) controls which parts of this contract enter the
+implementation queue in this repository. This document describes a compatible
+long-term data shape, not a requirement to build every field and command now.
+First implement complete defaults, compatibility, readable listings and atomic
+installation. Add search/variant grouping when the curated list needs them;
+add clone/style fields only with an approved family that consumes them.
+
+Remote catalog refresh, provider editions and advanced voice authoring are
+deferred. Generic task runners, unfiltered model browsers and a separate shared
+catalog service are recommended declines. Maintained project-hosted artifacts
+remain a fallback when canonical sources cannot supply a good default.
+
 ## Design
 
 Ship a curated, versioned catalog with each application. Setup should work from

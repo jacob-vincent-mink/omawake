@@ -5,6 +5,13 @@ packaged audio.cpp revision `e9ff20042ec85af960a720368c6927cda19ad65f`.
 This is a planning change; no models, runtime providers, or user configuration
 were installed or changed. New candidates below have not been run in Omawake.
 
+## Review order and scope
+
+Read [PRIORITIES.md](PRIORITIES.md) first for the ranked backlog, dependencies,
+release cuts, deferred experiments and recommended explicit declines. It
+supersedes the ordering below. This assessment preserves the technical research;
+a capability appearing here is not a commitment to implement it.
+
 ## Recommendation
 
 Keep Moonshine Streaming Tiny as the English default, add downloadable
@@ -34,8 +41,8 @@ Omaspeak worktree contains the TTS and voice-capability plan.
 The current implementation detects phrases from speech transcripts; these ASR
 models are phrase verifiers, not interchangeable trained keyword-spotting heads.
 Enrollment/head work exists in other branches and is not part of these main
-snapshots. Integrate this catalog contract into that work later without assuming
-it has shipped.
+snapshots. Evaluate that work under W13 in PRIORITIES.md before planning integration; do
+not assume it has shipped or automatically belongs in the next release.
 
 ## Default coverage
 
@@ -107,7 +114,7 @@ ownership so generated speech cannot wake the assistant repeatedly. True
 barge-in requires playback-reference echo handling and an evaluation set with
 simultaneous speaker output; VAD or diarization alone is insufficient.
 
-## Implementation sequence and acceptance
+## Technical implementation notes (subject to priorities)
 
 1. **Complete defaults and catalog metadata.** Implement the common contract,
    whisper.cpp profile, explicit backend choice, actual ASR family and per-profile
