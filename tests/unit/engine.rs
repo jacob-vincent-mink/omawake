@@ -81,6 +81,8 @@ fn detection(id: &str) -> Detection {
 
 fn detector(id: &str, command: Vec<String>, detected: &str) -> Detector {
     let action = WakeWord {
+        engine: None,
+        enrollment: None,
         id: id.into(),
         phrase: "Test".into(),
         aliases: Vec::new(),
@@ -251,6 +253,8 @@ fn blocked_action_dispatch_returns_immediately_and_the_child_is_reaped() {
 fn backend_assembly_filters_disabled_actions_and_records_metadata() {
     let mut config = Config::default();
     config.wake_words.push(WakeWord {
+        engine: None,
+        enrollment: None,
         id: "disabled".into(),
         phrase: "Disabled".into(),
         aliases: Vec::new(),

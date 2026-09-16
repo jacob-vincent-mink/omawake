@@ -1725,6 +1725,8 @@ pub(crate) mod tests {
     #[test]
     fn transcript_conversion_uses_whole_phrase_matcher() {
         let matcher = PhraseMatcher::compile(&[WakeWord {
+            engine: None,
+            enrollment: None,
             id: "lights".into(),
             phrase: "light up".into(),
             aliases: Vec::new(),
@@ -2236,6 +2238,8 @@ pub(crate) mod tests {
         let backend = AudioCppBackend {
             worker: RefCell::new(Worker::spawn(spec).unwrap()),
             matcher: PhraseMatcher::compile(&[WakeWord {
+                engine: None,
+                enrollment: None,
                 id: "greeting".into(),
                 phrase: "hello oma".into(),
                 aliases: Vec::new(),

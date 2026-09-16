@@ -1,4 +1,9 @@
 use crate::setup::wizard::MenuItem;
+mod assisted;
+mod feedback;
+mod onboarding;
+mod training;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
@@ -44,6 +49,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum TopCommand {
+    #[command(name = "__embedding-worker", hide = true)]
+    EmbeddingWorker { socket: PathBuf },
     #[command(name = "__model-cache-prepare", hide = true)]
     ModelCachePrepare {
         candidate: String,
@@ -200,6 +207,25 @@ enum ConfigCommand {
 
 #[derive(Subcommand)]
 enum WakeWordCommand {
+    /// Get/set the trained detector threshold; use auto to restore calibration.
+    Threshold {
+        id: String,
+        value: Option<String>,
+    },
+    /// Opt-in live detection clips, review labels, and bounded local retention.
+    History(feedback::HistoryArgs),
+    /// Train an experimental phrase head using independent labeled recordings.
+    Train(training::TrainArgs),
+    /// Guided setup for Whisper spellings or experimental trainable KWS.
+    Onboard(onboarding::OnboardArgs),
+    /// List retained local enrollment recordings, or delete one session.
+    Recordings {
+        id: String,
+        #[arg(long)]
+        remove: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
     List {
         #[arg(long)]
         json: bool,
@@ -322,6 +348,9 @@ pub fn entry() -> ExitCode {
 }
 
 fn run_entry(cli: Cli) -> Result<()> {
+    if let TopCommand::EmbeddingWorker { socket } = &cli.command {
+        return crate::engine::embedding_worker::main(socket);
+    }
     let paths = AppPaths::discover();
     run_entry_with_workers(
         cli,
@@ -708,6 +737,7 @@ where
         }
         TopCommand::ModelCachePrepare { .. }
         | TopCommand::NativeJson { .. }
+        | TopCommand::EmbeddingWorker { .. }
         | TopCommand::AudioCppWorker { .. }
         | TopCommand::OpenVinoGenAiWorker { .. }
         | TopCommand::OpenVinoRuntimeWorker { .. }
@@ -806,6 +836,35 @@ fn wake_word_command(
     paths: &AppPaths,
 ) -> Result<()> {
     let message = match command {
+        WakeWordCommand::Threshold { id, value } => {
+            return feedback::threshold(id, value, config, path, paths);
+        }
+        WakeWordCommand::History(args) => return feedback::run(args, config, path, paths),
+        WakeWordCommand::Train(args) => return training::run(args, config, path, paths),
+        WakeWordCommand::Onboard(args) => return onboarding::run(args, config, path, paths),
+        WakeWordCommand::Recordings {
+            id,
+            remove,
+            json: as_json,
+        } => {
+            if let Some(session) = remove {
+                crate::enrollment::remove_recordings(paths, &id, &session)?;
+            }
+            let sessions = crate::enrollment::recordings(paths, &id)?;
+            if as_json {
+                println!("{}", serde_json::to_string_pretty(&sessions)?);
+            } else {
+                for session in sessions {
+                    println!(
+                        "{}\t{} clip(s)\t{}",
+                        session.session,
+                        session.clips,
+                        session.directory.display()
+                    );
+                }
+            }
+            return Ok(());
+        }
         WakeWordCommand::List { json: as_json } => {
             if as_json {
                 println!("{}", serde_json::to_string_pretty(&config.wake_words)?);
@@ -829,6 +888,8 @@ fn wake_word_command(
         } => {
             let message = format!("added wake word: {id}");
             config.wake_words.push(WakeWord {
+                engine: None,
+                enrollment: None,
                 id,
                 phrase,
                 aliases,
@@ -1383,6 +1444,9 @@ fn guided_setup_with(
 ) -> Result<()> {
     match prompts.setup_mode()? {
         Some(SetupMode::Audio) => setup_audio(config_path, paths, None, false, false),
+        Some(SetupMode::Onboard) => {
+            onboarding::guided(Config::load(config_path)?, config_path, paths)
+        }
         Some(SetupMode::Full) => guided_all_with(config_path, paths, prompts),
         Some(SetupMode::Runtime) => guided_runtime_with(config_path, paths, prompts),
         Some(SetupMode::Model) => guided_model_with(config_path, paths, prompts),
@@ -2584,13 +2648,15 @@ fn parse_fallback(value: &str) -> Result<Fallback> {
 }
 
 fn evaluation_report(config: &Config, paths: &AppPaths, manifest_path: &Path) -> Result<Value> {
-    evaluation_report_with(
+    let groups = std::cell::RefCell::new(Vec::new());
+    let mut report = evaluation_report_with(
         config,
         paths,
         manifest_path,
         || Detector::load(config, paths),
         |detector, path| detector.detect_file(path),
         |detector| {
+            groups.replace(detector.engine_statuses());
             let (placement_verified, placement_evidence) =
                 backend_placement(detector.backend_kind, detector.effective_runtime);
             Ok(RuntimeIdentity {
@@ -2603,7 +2669,9 @@ fn evaluation_report(config: &Config, paths: &AppPaths, manifest_path: &Path) ->
                 placement_evidence: placement_evidence.into(),
             })
         },
-    )
+    )?;
+    attach_group_values(&mut report, groups.into_inner());
+    Ok(report)
 }
 
 fn evaluation_report_with<D, L, F, I>(
@@ -2708,7 +2776,7 @@ fn benchmark_report(
             .flat_map(|file| file.iterations.iter())
             .map(|iteration| (iteration.elapsed_milliseconds, iteration.real_time_factor)),
     );
-    Ok(json!({
+    let mut report = json!({
         "schema_version": 1,
         "benchmark": "omawake-file-detection",
         "model_load_milliseconds": milliseconds(detector.load_time()),
@@ -2725,7 +2793,9 @@ fn benchmark_report(
         },
         "files": files,
         "summary": summary,
-    }))
+    });
+    attach_engine_groups(&mut report, detector);
+    Ok(report)
 }
 
 fn runtime_placement(runtime: Runtime) -> (bool, &'static str) {
@@ -2752,6 +2822,11 @@ fn runtime_placement(runtime: Runtime) -> (bool, &'static str) {
 
 fn backend_placement(kind: &str, runtime: Runtime) -> (bool, &'static str) {
     match (kind, runtime) {
+        ("multi-engine", _) => (false, "placement belongs to individual engine groups"),
+        ("trained-whisper-encoder", Runtime::Openvino) => (
+            true,
+            "OpenVINO frozen encoder execution device verified; Silero VAD runs on CPU",
+        ),
         ("audiocpp", Runtime::Default) => (
             true,
             "audio.cpp created explicit CPU Silero and ASR sessions",
@@ -2958,7 +3033,7 @@ fn detection_report(
     execute: bool,
 ) -> Result<Value> {
     let actions = collect_detection_actions(&detections, execute, |id| detector.run(id))?;
-    Ok(detections_report(
+    let mut report = detections_report(
         detections,
         actions,
         detector.load_time(),
@@ -2966,7 +3041,27 @@ fn detection_report(
         detector.backend_kind(),
         detector.effective_runtime(),
         detector.fallback_used(),
-    ))
+    );
+    attach_engine_groups(&mut report, detector);
+    Ok(report)
+}
+
+fn attach_engine_groups(report: &mut Value, detector: &impl DetectorControl) {
+    attach_group_values(report, detector.engine_groups());
+}
+fn attach_group_values(report: &mut Value, groups: Vec<crate::engine::GroupStatus>) {
+    if !groups.is_empty() {
+        report["backend"]["groups"] = json!(groups);
+        // A mixed detector has no single effective runtime.
+        report["backend"]["effective_runtime"] = json!("mixed");
+        if report["backend"].get("requested_device").is_some() {
+            report["backend"]["requested_device"] = json!("per-engine");
+            report["backend"]["requested_runtime"] = json!("mixed");
+            report["backend"]["placement_verified"] = json!(false);
+            report["backend"]["placement_evidence"] =
+                json!("placement belongs to individual engine groups");
+        }
+    }
 }
 
 fn collect_detection_actions<F>(
@@ -3090,7 +3185,7 @@ fn run_loaded_daemon(
                     "armed on {} ({} Hz, {} channel(s))",
                     capture.device_name, capture.sample_rate, capture.channels
                 );
-                let session = detector.session();
+                let session = detector.live_session();
                 collect_armed_detections(
                     &capture.device_name,
                     capture.sample_rate,
@@ -3355,17 +3450,21 @@ where
     S: Read + Write,
     A: FnMut() -> Result<Option<S>>,
 {
-    let details = daemon_details(
+    let mut details = daemon_details(
         detector.backend_kind(),
         detector.effective_runtime(),
         detector.fallback_used(),
         detector.load_time(),
         audio,
     );
+    attach_engine_groups(&mut details, detector);
     poll_control_connections(accept, state, &details)
 }
 
 trait DetectorControl {
+    fn engine_groups(&self) -> Vec<crate::engine::GroupStatus> {
+        Vec::new()
+    }
     fn backend_kind(&self) -> &str;
     fn effective_runtime(&self) -> Runtime;
     fn fallback_used(&self) -> bool;
@@ -3375,6 +3474,9 @@ trait DetectorControl {
 }
 
 impl DetectorControl for Detector {
+    fn engine_groups(&self) -> Vec<crate::engine::GroupStatus> {
+        self.engine_statuses()
+    }
     fn backend_kind(&self) -> &str {
         self.backend_kind
     }

@@ -112,25 +112,80 @@ Omawake restores the prior config and explicitly restarts the prior daemon if
 the updated daemon fails to start. A custom `--config` never restarts a unit
 that points at another file.
 
-For names or coined words that the ASR verifier spells inconsistently, add
-only the exact transcript variants you have observed. They map to the same
-action without enabling general fuzzy matching:
+For names or coined words that the verifier spells inconsistently, use
+**Teach a wake word** in `omawake setup`, or run:
 
 ```bash
-omawake test --seconds 5 --show-transcripts
-omawake wake-word add --id jarvis --phrase "Hey Jarvis" \
-  --alias "Hey jar viss" -- notify-send "Jarvis heard"
-omawake wake-word add-alias jarvis "Hey jar viz"
-omawake wake-word remove-alias jarvis "Hey jar viz"
+omawake word onboard jarvis
+# Import examples without opening the microphone:
+omawake word onboard jarvis --audio example-1.wav --audio example-2.wav --json
 ```
 
-Say the phrase during the bounded diagnostic capture, then copy the reported
-`verifier transcript` from stderr into an alias. The flag is explicit because
-raw transcripts may contain nearby speech; it cannot be combined with JSON.
-Aliases remain whole-phrase, normalized exact matches, so an unrelated phrase
-that merely sounds similar is not accepted. The optional whisper.cpp provider
-also supplies enabled phrases and aliases as its decoder prompt. The default
-Moonshine and OpenVINO providers currently use aliases after transcription.
+The guided flow first offers **Whisper spellings**, **Trainable KWS**, or
+**Trainable KWS with Omaspeak assistance**, without an `--engine` flag.
+The Whisper path records examples, shows each observed spelling, and lets you
+approve exact aliases with arrow keys and Enter. Nothing changes until Apply;
+no wake-word actions run during onboarding. Recordings are discarded unless you
+explicitly choose to keep them. Existing `add-alias` and `remove-alias` commands
+remain available for manual editing.
+
+An experimental frozen-encoder head can handle phrases that transcription does
+not represent reliably. Transcript words and trained words can run together;
+compatible heads share an encoder. Applying a trained head preserves aliases and
+pins its model profile, so changing the default backend does not erase it.
+Choose **Trainable KWS — learn from my voice** at the start, then select
+the training device and the device where the finished detector will run
+(CPU, or experimental Intel iGPU/NPU). Configured OpenVINO model assets are reused
+and the deployment profile is created automatically. You can also switch to
+training after reviewing spellings. Onboarding reuses any examples already collected, collects at least
+10 wake-phrase and 10 other-speech recordings,
+and prepares separate training, calibration, and held-out examples automatically.
+You review validation results before Apply; no hand-written dataset is needed.
+The first implementation uses the direct
+OpenVINO Whisper encoder; **CPU has a functional file-based proof**. A small
+[CPU/iGPU/NPU parity check](docs/validation/ENROLLMENT-ACCELERATOR-PROOF.md) also
+passes; broader background-speech accuracy testing is still pending.
+Optional **Omaspeak-assisted training** adds pronunciation-reviewed synthetic
+examples while keeping calibration and validation human-only. If Omaspeak is
+missing, onboarding offers an explicit user-local release installation. Resume a
+retained session with `word onboard --dataset manifest.json` to reuse training
+clips and collect fresh evaluation recordings. To add more human examples, run
+`omawake word onboard WORD` and choose **Add positive and negative examples**;
+saved datasets are discovered automatically. Training and deployment can use
+different devices without manually creating named profiles:
+
+```bash
+omawake word train jarvis --reuse-recordings --training-device cpu --run-device npu --apply
+```
+
+Training features are extracted on the training device; the small classifier is
+fitted on CPU. Calibration and held-out validation run on the deployment device
+before activation. A failed destination check preserves the current detector.
+See [wake-word enrollment](docs/architecture/WAKE-WORD-ENROLLMENT.md) for commands,
+recording retention, profiles, retraining, and the limits of local validation.
+
+For trained words, inspect or override the detection threshold and opt in to
+local audio history when diagnosing false activations:
+
+```bash
+omawake word threshold jarvis              # show calibrated/effective threshold
+omawake word threshold jarvis 0.8          # example override; tune to your recordings
+omawake word threshold jarvis auto         # restore the calibrated threshold
+omawake word history jarvis enable --max-events 100
+omawake word history jarvis list
+omawake word history jarvis play EVENT_ID
+omawake word history jarvis label EVENT_ID false-positive
+omawake word onboard jarvis                # offers reviewed clips during retraining
+omawake word history jarvis disable        # stop capture; preserve existing clips
+omawake word history jarvis clear          # delete captured clips and labels
+```
+
+History is **off by default**. It saves only live trained detections, locally,
+with scores and the triggering speech clip. Oldest events expire at the limit,
+including labeled events. Higher thresholds reduce activations but can miss
+real wake phrases; scores are not calibrated probabilities. Labels do not
+silently change the active model: guided retraining uses them as training
+examples, collects fresh evaluation clips, and requires validation before Apply.
 
 Use `evaluate` for reproducible accuracy and false-activation measurements over
 a labeled WAV corpus:

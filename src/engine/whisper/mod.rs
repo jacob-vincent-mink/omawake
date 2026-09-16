@@ -1217,6 +1217,8 @@ mod tests {
     #[test]
     fn transcript_conversion_uses_whole_phrase_matcher() {
         let matcher = PhraseMatcher::compile(&[WakeWord {
+            engine: None,
+            enrollment: None,
             id: "computer".into(),
             phrase: "hey computer".into(),
             aliases: Vec::new(),
@@ -1268,6 +1270,8 @@ mod tests {
         config.model.verifier = verifier.file_name().unwrap().to_string_lossy().into_owned();
         config.model.vad = vad.file_name().unwrap().to_string_lossy().into_owned();
         config.wake_words = vec![WakeWord {
+            engine: None,
+            enrollment: None,
             id: "greeting".into(),
             phrase: "hello oma".into(),
             aliases: vec!["hello oh ma".into()],

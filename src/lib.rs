@@ -4,6 +4,7 @@ pub mod backend;
 pub mod catalog;
 pub mod config;
 pub mod engine;
+pub mod enrollment;
 pub mod evaluation;
 pub mod hardware;
 pub mod keyword;
