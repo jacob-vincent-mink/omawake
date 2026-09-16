@@ -1332,6 +1332,73 @@ raise AssertionError(data.decode(errors='replace'))
     }
 }
 
+#[test]
+fn saved_training_dataset_is_discoverable_and_cancellable_without_a_path_flag() {
+    let root = sandbox();
+    let library = build_fake_whisper(&root, None);
+    let (config, wave) = write_fake_whisper_config(&root, library);
+    let before = fs::read(&config).unwrap();
+    let session = root.join("data/omawake/enrollments/computer/saved-session");
+    fs::create_dir_all(&session).unwrap();
+    let split = serde_json::json!([
+        {"audio":wave,"positive":true},{"audio":wave,"positive":true},
+        {"audio":wave,"positive":false},{"audio":wave,"positive":false}
+    ]);
+    let manifest = session.join("manifest.json");
+    fs::write(
+        &manifest,
+        serde_json::to_vec(
+            &serde_json::json!({"training":split,"calibration":split,"validation":split}),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let saved_before = fs::read(&manifest).unwrap();
+    for mode in ["extend", "fresh", "resume"] {
+        let output = Command::new("/usr/bin/python3").arg("-c").arg(r#"
+import os,pty,select,sys,time,signal
+pid,fd=pty.fork()
+if pid==0:
+ os.execv(sys.argv[1],[sys.argv[1],'word','onboard','computer'])
+data=b'';stage=0;deadline=time.monotonic()+12
+while time.monotonic()<deadline:
+ ready,_,_=select.select([fd],[],[],0.05)
+ if ready:
+  try: data+=os.read(fd,65536)
+  except OSError: pass
+  if stage==0 and b'Add positive and negative examples' in data:
+   os.write(fd,b'\x1b[B\r' if sys.argv[2]=='fresh' else b'\r');stage=1;data=b''
+  if stage==1 and (b'Recognition method' if sys.argv[2]=='fresh' else b'Choose saved dataset') in data:
+   os.write(fd,b'\r' if sys.argv[2]=='resume' else b'\x1b');stage=2
+ done,status=os.waitpid(pid,os.WNOHANG)
+ if done:
+  assert stage==2,data.decode(errors='replace')
+  assert os.waitstatus_to_exitcode(status)!=0
+  assert b'configuration unchanged' in data,data.decode(errors='replace')
+  sys.exit(0)
+os.kill(pid,signal.SIGTERM);os.waitpid(pid,0)
+raise AssertionError(data.decode(errors='replace'))
+"#)
+            .arg(env!("CARGO_BIN_EXE_omawake"))
+            .arg(mode)
+            .env("XDG_CONFIG_HOME", root.join("config"))
+            .env("XDG_DATA_HOME", root.join("data"))
+            .env("XDG_CACHE_HOME", root.join("cache"))
+            .env("XDG_STATE_HOME", root.join("state"))
+            .env("XDG_RUNTIME_DIR", root.join("run"))
+            .env("TERM", "xterm-256color")
+            .output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(fs::read(&config).unwrap(), before);
+        assert_eq!(fs::read(&manifest).unwrap(), saved_before);
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[cfg(unix)]
 #[test]
 fn daemon_recovers_a_pinned_microphone_and_keeps_controls_responsive() {

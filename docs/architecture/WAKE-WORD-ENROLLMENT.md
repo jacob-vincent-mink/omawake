@@ -16,8 +16,9 @@ omawake word onboard agent
 Microphone onboarding first offers **Whisper spellings**, **Trainable KWS — learn
 from my voice**, or **Trainable KWS with Omaspeak assistance**. No `--engine` flag
 or specially named profile is needed. Training recommends a configured OpenVINO
-CPU profile and checks the encoder before recording. Other profiles are shown
-as unavailable for training; missing setup is reported before capture.
+CPU profile and checks the encoder before recording. OpenVINO iGPU/NPU profiles
+are selectable but labeled experimental: this encoder/head path has only a
+small file-based parity check on those devices. Missing setup is reported before capture.
 
 The Whisper flow records several examples, shows the transcripts, and asks
 which exact spellings to accept. Arrow keys and Enter select each choice; Esc
@@ -178,7 +179,17 @@ leaves the active configuration unchanged and preserves explicit checkpoints.
 omawake word onboard --dataset /path/to/manifest.json
 ```
 
-Choose or create the intended word, then choose whether to add Omaspeak examples.
+For an existing word, simply run `omawake word onboard WORD`. If labeled datasets
+were saved, **Add positive and negative examples** offers a session picker; no
+manifest path is required. Choose **Add my positive and negative examples** to
+append four new positives and four new negatives to the training split, with
+eight additional fresh human clips reserved for calibration and validation.
+The original session stays intact, and the expanded dataset is retained in a new
+session before fitting. Repeat later to add another batch (128 training clips
+maximum). The active detector changes only after validation and Apply.
+
+With an explicit manifest, choose or create the intended word, then choose
+whether to add human examples, Omaspeak examples, or only refresh evaluation.
 The training split is reused without editing the source session. Since previous
 validation results have already been inspected, onboarding collects **eight new
 human clips**: four wake-phrase and four other-speech recordings, divided evenly
@@ -268,6 +279,20 @@ PCM buffer before the caller waits for results. Detection and daemon JSON report
 each group's runtime separately. A failed group is an explicit error, never an
 empty success that silently disables its words.
 
-The feature branch has a real CPU file-based proof. GPU/NPU placement and
-accuracy qualification for this new encoder/head pipeline remain separate work;
+The feature branch has a real CPU file-based proof and a small
+[CPU/iGPU/NPU parity check](../validation/ENROLLMENT-ACCELERATOR-PROOF.md). Broader
+accuracy qualification for this new encoder/head pipeline remains separate work;
 the existing transcription-provider proofs do not establish trained-head parity.
+
+### Managed enrollment profiles and runtime inference
+
+Applying a trained word creates an `enrolled-WORD-HASH` profile that preserves
+its backend and model settings. Engine pickers label these **Managed enrollment
+profile: WORD**. They are configuration snapshots, not extra model downloads or
+services. Changing the default profile does not change an enrolled word's model.
+
+Live trained detection uses VAD, Whisper's frozen encoder, and the trained phrase
+classifier. It does not run Whisper's text decoder or transcribe the utterance.
+Other words configured for transcript matching still use their own transcription
+path. Accelerator compatibility and classifier accuracy must be checked for this
+encoder pipeline separately from the regular Whisper transcription backend.

@@ -134,19 +134,23 @@ not represent reliably. Transcript words and trained words can run together;
 compatible heads share an encoder. Applying a trained head preserves aliases and
 pins its model profile, so changing the default backend does not erase it.
 Choose **Trainable KWS — learn from my voice** at the start, then select a
-configured OpenVINO CPU profile. You can also switch to training after reviewing
+configured OpenVINO profile (CPU validated; iGPU/NPU experimental). You can also
+switch to training after reviewing
 spellings. Onboarding reuses any examples already collected, collects at least
 10 wake-phrase and 10 other-speech recordings,
 and prepares separate training, calibration, and held-out examples automatically.
 You review validation results before Apply; no hand-written dataset is needed.
 The first implementation uses the direct
-OpenVINO Whisper encoder; **CPU has a functional file-based proof**. Accelerator
-qualification and broader background-speech accuracy testing are still pending.
+OpenVINO Whisper encoder; **CPU has a functional file-based proof**. A small
+[CPU/iGPU/NPU parity check](docs/validation/ENROLLMENT-ACCELERATOR-PROOF.md) also
+passes; broader background-speech accuracy testing is still pending.
 Optional **Omaspeak-assisted training** adds pronunciation-reviewed synthetic
 examples while keeping calibration and validation human-only. If Omaspeak is
 missing, onboarding offers an explicit user-local release installation. Resume a
 retained session with `word onboard --dataset manifest.json` to reuse training
-clips and collect fresh evaluation recordings.
+clips and collect fresh evaluation recordings. To add more human examples, run
+`omawake word onboard WORD` and choose **Add positive and negative examples**;
+saved datasets are discovered automatically.
 See [wake-word enrollment](docs/architecture/WAKE-WORD-ENROLLMENT.md) for commands,
 recording retention, profiles, retraining, and the limits of local validation.
 
