@@ -78,6 +78,6 @@ Current evidence: [defaults and gates](MODEL-DEFAULTS.md),
 GB10 CUDA processed 5,557 negative clips with no activations and no fallback;
 this does not replace real-room qualification or a matched performance gate.
 
-Initial lifecycle audit: `Command::Pause`/`Resume` update a single daemon boolean.
-Owned pause leases must preserve manual pause semantics and support independent
-owners before cross-app playback integration can meet W10.
+The [playback ownership implementation](PLAYBACK-OWNERSHIP.md) adds connection-owned
+holds independent of manual pause, with acknowledgement after capture release.
+Real-room playback validation and the rest of S06 remain open.

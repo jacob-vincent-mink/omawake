@@ -1,3 +1,5 @@
+mod pause_ownership;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
@@ -3050,7 +3052,20 @@ fn run_loaded_daemon(
         "loaded wake-word model in {} ms",
         detector.load_time.as_millis()
     );
-    let mut poll_paused = || poll_control(detector, "paused", None, || accept_control(&listener));
+    let control = std::cell::RefCell::new(pause_ownership::OwnedControl::default());
+    let poll = |state, audio| {
+        let details = daemon_details(
+            detector.backend_kind,
+            detector.effective_runtime,
+            detector.fallback_used,
+            detector.load_time,
+            audio,
+        );
+        control
+            .borrow_mut()
+            .poll(state, &details, || accept_control(&listener))
+    };
+    let mut poll_paused = || poll("paused", None);
     let mut armed_cycle = || {
         let capture = Capture::start(&config.audio.device, config.daemon.queue_capacity)?;
         eprintln!(
@@ -3062,7 +3077,7 @@ fn run_loaded_daemon(
             &capture.device_name,
             capture.sample_rate,
             capture.channels,
-            |audio| poll_control(detector, "armed", Some(audio), || accept_control(&listener)),
+            |audio| poll("armed", Some(audio)),
             |timeout| capture.receiver().recv_timeout(timeout),
             |sample_rate, samples| session.accept(sample_rate, samples),
             || shutdown_requested.load(Ordering::Relaxed),
@@ -3157,7 +3172,9 @@ where
         let audio = json!({"device":device_name,"sample_rate":sample_rate,"channels":channels});
         if let Some(command) = poll(audio)? {
             match command {
-                Command::Pause | Command::Shutdown => return Ok((triggered, Some(command))),
+                Command::Pause | Command::HoldPause | Command::Shutdown => {
+                    return Ok((triggered, Some(command)));
+                }
                 Command::Resume | Command::Status => continue,
             }
         }
@@ -3173,7 +3190,7 @@ where
 
 fn apply_daemon_command(command: Command, paused: &mut bool, shutdown: &mut bool) {
     match command {
-        Command::Pause => *paused = true,
+        Command::Pause | Command::HoldPause => *paused = true,
         Command::Resume => *paused = false,
         Command::Shutdown => *shutdown = true,
         Command::Status => {}
@@ -3274,26 +3291,6 @@ where
     Ok(listener)
 }
 
-fn poll_control<S, A>(
-    detector: &impl DetectorControl,
-    state: &str,
-    audio: Option<serde_json::Value>,
-    accept: A,
-) -> Result<Option<Command>>
-where
-    S: Read + Write,
-    A: FnMut() -> Result<Option<S>>,
-{
-    let details = daemon_details(
-        detector.backend_kind(),
-        detector.effective_runtime(),
-        detector.fallback_used(),
-        detector.load_time(),
-        audio,
-    );
-    poll_control_connections(accept, state, &details)
-}
-
 trait DetectorControl {
     fn backend_kind(&self) -> &str;
     fn effective_runtime(&self) -> Runtime;
@@ -3365,77 +3362,6 @@ where
         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(None),
         Err(error) => Err(error.into()),
     }
-}
-
-fn poll_control_connections<S, A>(
-    mut accept: A,
-    state: &str,
-    details: &Value,
-) -> Result<Option<Command>>
-where
-    S: Read + Write,
-    A: FnMut() -> Result<Option<S>>,
-{
-    loop {
-        let Some(mut stream) = accept()? else {
-            return Ok(None);
-        };
-        let command = handle_control_stream(&mut stream, state, details);
-        if command.is_some() {
-            return Ok(command);
-        }
-    }
-}
-
-fn handle_control_stream(
-    stream: &mut (impl Read + Write),
-    state: &str,
-    details: &Value,
-) -> Option<Command> {
-    let (response, command) = control_response(read_request(&mut *stream), state, details);
-    write_response(stream, &response);
-    command
-}
-
-fn control_response(
-    request: Result<Request>,
-    state: &str,
-    details: &Value,
-) -> (Response, Option<Command>) {
-    let request = match request {
-        Ok(request) => request,
-        Err(error) => {
-            return (Response::error("unknown", "invalid_request", error), None);
-        }
-    };
-    if request.protocol != 1 {
-        return (
-            Response::error(
-                request.id,
-                "protocol_mismatch",
-                format!("unsupported protocol version {}", request.protocol),
-            ),
-            None,
-        );
-    }
-    let next_state = match &request.command {
-        Command::Pause => "paused",
-        Command::Resume => "armed",
-        Command::Shutdown => "stopping",
-        Command::Status => state,
-    };
-    let command = (!matches!(&request.command, Command::Status)).then_some(request.command);
-    (
-        Response {
-            protocol: 1,
-            id: request.id,
-            result: ResultPayload::State {
-                state: next_state.into(),
-                details: details.clone(),
-            },
-        },
-        command,
-    )
 }
 
 fn read_request(reader: impl Read) -> Result<Request> {
