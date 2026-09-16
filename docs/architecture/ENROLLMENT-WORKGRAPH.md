@@ -29,3 +29,11 @@ trains, then asks for Apply after showing validation. Cancellation and failures
 preserve existing config and remove temporary recordings. The dataset/reuse CLI
 remains available for repeatable file-based evaluation. No automatic global
 backend change reinterprets already enrolled words.
+
+Omaspeak assistance is optional and discovered at onboarding time. Missing
+installations have an explicit checksum-pinned release installation flow; model
+setup remains in Omaspeak. Pronunciation approval gates generated voices, and
+synthetic provenance is restricted to the training split. Retained sessions can
+resume via `word onboard --dataset`, reusing training clips while collecting
+fresh human calibration/validation. Augmentation has a pre-generation checkpoint
+and an explicit human-only fallback after synthesis errors.

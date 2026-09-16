@@ -14,6 +14,9 @@ pub(super) struct OnboardArgs {
     /// Import a WAV example instead of opening the microphone (repeatable).
     #[arg(long = "audio")]
     pub audio: Vec<PathBuf>,
+    /// Resume a labeled session; preserve training and record fresh human calibration/validation.
+    #[arg(long, conflicts_with_all = ["audio", "json", "apply"])]
+    pub dataset: Option<PathBuf>,
     #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u16).range(1..=64))]
     pub samples: u16,
     #[arg(long, default_value_t = 3, value_parser = clap::value_parser!(u64).range(1..=15))]
@@ -118,6 +121,34 @@ pub(super) fn run(
     };
     validate_wake_words(&config.wake_words)?;
     let mut selected = select_engine(&mut config, index, args.engine.as_deref(), interactive)?;
+    if let Some(dataset_path) = args.dataset {
+        anyhow::ensure!(
+            interactive,
+            "resuming enrollment needs an interactive terminal for fresh validation recordings"
+        );
+        let dataset = crate::enrollment::artifact::Dataset::load(&dataset_path)?;
+        let choice = select("Resume enrollment", "Keep the saved training examples. Collect four fresh wake-phrase and four fresh other-speech clips for calibration and validation.", &[
+            MenuItem::available("Use saved training examples", "Train without synthetic augmentation"),
+            MenuItem::available("Add Omaspeak examples", "Install Omaspeak if missing; review pronunciations before generation"),
+        ], 0)?.context("onboarding cancelled; configuration unchanged")?;
+        let assistance = choice == 1 && assisted::prepare()?;
+        return train_guided(
+            config,
+            index,
+            path,
+            paths,
+            original,
+            selected,
+            SampleSet::create(paths)?,
+            args.seconds,
+            args.keep_recordings,
+            &Cancellation::new()?,
+            &NativeTrainingInteraction {
+                assistance,
+                resume: Some(dataset),
+            },
+        );
+    }
     // A sample is observed through exactly one chosen profile. Engine routing
     // must not let another word's transcriber contribute an alias here.
     selected.wake_words = vec![config.wake_words[index].clone()];
@@ -179,6 +210,17 @@ pub(super) fn run(
                 "Train this wake phrase",
                 "Experimental: collect 10 wake-phrase and 10 other-speech examples; review before activation",
             ),
+            if assisted::executable("omaspeak").is_some() {
+                MenuItem::available(
+                    "Train with Omaspeak examples",
+                    "Optional: approved synthetic voices supplement human training clips",
+                )
+            } else {
+                MenuItem::available(
+                    "Install Omaspeak for assisted training",
+                    "Optional installation; human-only training remains available",
+                )
+            },
         ];
         let mode = select(
             "Recognition method",
@@ -187,7 +229,8 @@ pub(super) fn run(
             0,
         )?
         .context("onboarding cancelled; configuration unchanged")?;
-        if mode == 1 {
+        if mode == 1 || mode == 2 {
+            let assistance = mode == 2 && assisted::prepare()?;
             drop(detector);
             return train_guided(
                 config,
@@ -200,7 +243,10 @@ pub(super) fn run(
                 args.seconds,
                 args.keep_recordings,
                 &cancellation,
-                &NativeTrainingInteraction,
+                &NativeTrainingInteraction {
+                    assistance,
+                    resume: None,
+                },
             );
         }
     }
@@ -242,6 +288,22 @@ pub(super) fn run(
 }
 
 trait TrainingInteraction {
+    fn augment(
+        &self,
+        _dataset: &mut crate::enrollment::artifact::Dataset,
+        _phrase: &str,
+        _paths: &AppPaths,
+        _cancel: &Cancellation,
+        _validate: &mut dyn FnMut(&[f32]) -> Result<()>,
+    ) -> Result<SampleSet> {
+        bail!("synthetic assistance unavailable")
+    }
+    fn resume(&self) -> Option<crate::enrollment::artifact::Dataset> {
+        None
+    }
+    fn assistance(&self) -> bool {
+        false
+    }
     fn confirm(&self, title: &str, help: &str, accept: &str, cancel: &str) -> Result<()>;
     fn record(&self, config: &Config, seconds: u64, cancel: &Cancellation) -> Result<Vec<f32>>;
     fn retention(&self, requested: bool) -> Result<bool>;
@@ -252,8 +314,27 @@ trait TrainingInteraction {
         cancel: Arc<AtomicBool>,
     ) -> Result<Box<dyn crate::engine::embedding_worker::EmbeddingSession>>;
 }
-struct NativeTrainingInteraction;
+struct NativeTrainingInteraction {
+    assistance: bool,
+    resume: Option<crate::enrollment::artifact::Dataset>,
+}
 impl TrainingInteraction for NativeTrainingInteraction {
+    fn augment(
+        &self,
+        dataset: &mut crate::enrollment::artifact::Dataset,
+        phrase: &str,
+        paths: &AppPaths,
+        cancel: &Cancellation,
+        validate: &mut dyn FnMut(&[f32]) -> Result<()>,
+    ) -> Result<SampleSet> {
+        assisted::augment(dataset, phrase, paths, cancel, validate)
+    }
+    fn resume(&self) -> Option<crate::enrollment::artifact::Dataset> {
+        self.resume.clone()
+    }
+    fn assistance(&self) -> bool {
+        self.assistance
+    }
     fn confirm(&self, title: &str, help: &str, accept: &str, cancel: &str) -> Result<()> {
         confirm(title, help, accept, cancel, 0)
     }
@@ -295,8 +376,30 @@ fn train_guided(
         &selected, paths, Arc::clone(&cancellation.flag),
     ).context("initialize training encoder; select a configured OpenVINO Whisper base.en profile for trained onboarding")?;
     let phrase = &config.wake_words[index].phrase;
-    let total = positives.files.len().max(10);
-    ui.confirm(
+    let mut negatives = SampleSet::create(paths)?;
+    let mut dataset: Dataset = if let Some(mut saved) = ui.resume() {
+        ui.confirm("Fresh evaluation recordings", "The old held-out clips have already been examined. Keep training examples, but record four new wake-phrase and four new other-speech clips. Two of each calibrate; two of each remain held out.", "Record fresh examples", "Cancel")?;
+        for (positive, samples) in [(true, &mut positives), (false, &mut negatives)] {
+            collect_speech(
+                samples,
+                phrase,
+                4,
+                seconds,
+                positive,
+                cancellation,
+                |title, help| ui.confirm(title, help, "Record", "Cancel"),
+                || {
+                    let audio = ui.record(&selected, seconds, cancellation)?;
+                    training::single_utterance(worker.as_mut(), &audio)?;
+                    Ok(audio)
+                },
+            )?;
+        }
+        replace_evaluation(&mut saved, &positives.files, &negatives.files)?;
+        saved
+    } else {
+        let total = positives.files.len().max(10);
+        ui.confirm(
         "Collect training examples",
         &format!(
             "Phrase: {phrase:?}\nReuse {} wake-phrase recording(s), then collect {} more and {total} other-speech recordings.\nOther speech must NOT contain the wake phrase. Include similar-sounding phrases and everyday speech.\nSeparate recordings are reserved for calibration and validation. No actions will run.",
@@ -306,45 +409,69 @@ fn train_guided(
         "Continue",
         "Cancel",
     )?;
-    check_recordings(
-        &mut positives,
-        phrase,
-        cancellation,
-        |title, help| ui.confirm(title, help, "Record again", "Cancel"),
-        || ui.record(&selected, seconds, cancellation),
-        |audio| training::single_utterance(worker.as_mut(), audio).map(|_| ()),
-    )?;
-    let remaining = (total - positives.files.len()) as u16;
-    collect_recordings(
-        &mut positives,
-        phrase,
-        remaining,
-        seconds,
-        cancellation,
-        |title, help| ui.confirm(title, help, "Record", "Cancel"),
-        || {
-            let audio = ui.record(&selected, seconds, cancellation)?;
-            training::single_utterance(worker.as_mut(), &audio)?;
-            Ok(audio)
-        },
-    )?;
-    let mut negatives = SampleSet::create(paths)?;
-    collect_speech(
-        &mut negatives,
-        phrase,
-        total as u16,
-        seconds,
-        false,
-        cancellation,
-        |title, help| ui.confirm(title, help, "Record", "Cancel"),
-        || {
-            let audio = ui.record(&selected, seconds, cancellation)?;
-            training::single_utterance(worker.as_mut(), &audio)?;
-            Ok(audio)
-        },
-    )?;
+        check_recordings(
+            &mut positives,
+            phrase,
+            cancellation,
+            |title, help| ui.confirm(title, help, "Record again", "Cancel"),
+            || ui.record(&selected, seconds, cancellation),
+            |audio| training::single_utterance(worker.as_mut(), audio).map(|_| ()),
+        )?;
+        let remaining = (total - positives.files.len()) as u16;
+        collect_recordings(
+            &mut positives,
+            phrase,
+            remaining,
+            seconds,
+            cancellation,
+            |title, help| ui.confirm(title, help, "Record", "Cancel"),
+            || {
+                let audio = ui.record(&selected, seconds, cancellation)?;
+                training::single_utterance(worker.as_mut(), &audio)?;
+                Ok(audio)
+            },
+        )?;
+        collect_speech(
+            &mut negatives,
+            phrase,
+            total as u16,
+            seconds,
+            false,
+            cancellation,
+            |title, help| ui.confirm(title, help, "Record", "Cancel"),
+            || {
+                let audio = ui.record(&selected, seconds, cancellation)?;
+                training::single_utterance(worker.as_mut(), &audio)?;
+                Ok(audio)
+            },
+        )?;
+        split_recordings(&positives.files, &negatives.files)?
+    };
     drop(worker);
-    let dataset: Dataset = split_recordings(&positives.files, &negatives.files)?;
+    let keep = ui.retention(keep_recordings)?;
+    let _synthetic = if ui.assistance() {
+        if keep {
+            let checkpoint =
+                training::retain_dataset(paths, &config.wake_words[index].id, &dataset)?;
+            eprintln!(
+                "Enrollment checkpoint before synthesis: {}",
+                checkpoint.join("manifest.json").display()
+            );
+        }
+        let mut worker = ui.load(&selected, paths, Arc::clone(&cancellation.flag))?;
+        match ui.augment(&mut dataset, phrase, paths, cancellation, &mut |audio| {
+            training::single_utterance(worker.as_mut(), audio).map(|_| ())
+        }) {
+            Ok(samples) => Some(samples),
+            Err(error) => {
+                cancellation.check()?;
+                ui.confirm("Omaspeak assistance did not complete", &format!("{error:#}\nContinue with the original human dataset? Explicitly saved recordings remain available."), "Use human recordings", "Cancel")?;
+                None
+            }
+        }
+    } else {
+        None
+    };
     // The manifest lives alongside the owned temporary samples and is removed
     // with them, including on cancellation and native/training errors.
     let manifest = positives.files[0]
@@ -358,7 +485,6 @@ fn train_guided(
         .open(&manifest)?;
     serde_json::to_writer(&mut file, &dataset)?;
     drop(file);
-    let keep = ui.retention(keep_recordings)?;
     let id = config.wake_words[index].id.clone();
     let action = config.wake_words[index].command.clone();
     let phrase = phrase.clone();
@@ -395,6 +521,35 @@ fn train_guided(
         },
     );
     result.context("trained onboarding did not complete; existing configuration unchanged. Review the error before collecting a fresh dataset")
+}
+
+fn replace_evaluation(
+    dataset: &mut crate::enrollment::artifact::Dataset,
+    positives: &[PathBuf],
+    negatives: &[PathBuf],
+) -> Result<()> {
+    use crate::enrollment::artifact::LabeledRecording;
+    anyhow::ensure!(
+        positives.len() == 4 && negatives.len() == 4,
+        "resumed enrollment needs four new recordings of each class"
+    );
+    dataset.calibration.clear();
+    dataset.validation.clear();
+    for (files, positive) in [(positives, true), (negatives, false)] {
+        for (index, audio) in files.iter().enumerate() {
+            let split = if index < 2 {
+                &mut dataset.calibration
+            } else {
+                &mut dataset.validation
+            };
+            split.push(LabeledRecording {
+                audio: audio.clone(),
+                positive,
+                generated: None,
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Reused transcript examples need the same speech-boundary check as new clips.
@@ -453,6 +608,7 @@ fn split_recordings(
             splits[split].push(LabeledRecording {
                 audio: audio.clone(),
                 positive,
+                generated: None,
             });
         }
     }
@@ -597,6 +753,7 @@ pub(super) fn guided(config: Config, path: &Path, paths: &AppPaths) -> Result<()
             phrase: None,
             engine: None,
             audio: Vec::new(),
+            dataset: None,
             samples: 5,
             seconds: 3,
             keep_recordings: false,
@@ -611,7 +768,7 @@ pub(super) fn guided(config: Config, path: &Path, paths: &AppPaths) -> Result<()
     )
 }
 
-fn text_input(label: &str) -> Result<String> {
+pub(super) fn text_input(label: &str) -> Result<String> {
     eprintln!("{label} (blank cancels):");
     let mut input = String::new();
     std::io::stdin().lock().take(4097).read_line(&mut input)?;
@@ -699,6 +856,9 @@ mod tests {
     use super::*;
     use std::cell::{Cell, RefCell};
     struct TestInteraction {
+        assistance: bool,
+        generation_succeeds: bool,
+        resume: Option<crate::enrollment::artifact::Dataset>,
         recordings: Cell<usize>,
         screens: RefCell<Vec<String>>,
         cancel_at: Option<&'static str>,
@@ -707,6 +867,41 @@ mod tests {
         invalid_negatives: bool,
     }
     impl TrainingInteraction for TestInteraction {
+        fn assistance(&self) -> bool {
+            self.assistance
+        }
+        fn augment(
+            &self,
+            dataset: &mut crate::enrollment::artifact::Dataset,
+            _: &str,
+            paths: &AppPaths,
+            _: &Cancellation,
+            validate: &mut dyn FnMut(&[f32]) -> Result<()>,
+        ) -> Result<SampleSet> {
+            anyhow::ensure!(self.generation_succeeds, "test synthesis failed");
+            let mut samples = SampleSet::create(paths)?;
+            for positive in [true, false] {
+                let audio = vec![if positive { 0.23 } else { -0.23 }; 4000];
+                validate(&audio)?;
+                samples.push(&audio)?;
+                dataset
+                    .training
+                    .push(crate::enrollment::artifact::LabeledRecording {
+                        audio: samples.files.last().unwrap().clone(),
+                        positive,
+                        generated: Some(crate::enrollment::artifact::GeneratedRecording {
+                            generator: "omaspeak".into(),
+                            voice: "test".into(),
+                            text: "test".into(),
+                            speed: 1.0,
+                        }),
+                    });
+            }
+            Ok(samples)
+        }
+        fn resume(&self) -> Option<crate::enrollment::artifact::Dataset> {
+            self.resume.clone()
+        }
         fn confirm(&self, title: &str, help: &str, _: &str, _: &str) -> Result<()> {
             self.screens.borrow_mut().push(format!("{title} {help}"));
             anyhow::ensure!(self.cancel_at != Some(title), "cancelled by user");
@@ -715,7 +910,7 @@ mod tests {
         fn record(&self, _: &Config, _: u64, _: &Cancellation) -> Result<Vec<f32>> {
             let n = self.recordings.get();
             self.recordings.set(n + 1);
-            let positive = n < 5 || self.invalid_negatives;
+            let positive = n < if self.resume.is_some() { 4 } else { 5 } || self.invalid_negatives;
             Ok(vec![
                 (0.11 + n as f32 * 0.001)
                     * if positive { 1.0 } else { -1.0 };
@@ -739,6 +934,9 @@ mod tests {
     }
     fn test_interaction() -> TestInteraction {
         TestInteraction {
+            assistance: false,
+            generation_succeeds: false,
+            resume: None,
             recordings: Cell::new(0),
             screens: RefCell::new(Vec::new()),
             cancel_at: None,
@@ -760,6 +958,126 @@ mod tests {
             samples.push(&vec![0.10 + i as f32 * 0.001; 4000]).unwrap();
         }
         (root, paths, config, samples)
+    }
+    #[test]
+    fn assistance_checkpoints_humans_and_can_fall_back_without_losing_recordings() {
+        for succeeds in [false, true] {
+            let (root, paths, config, samples) = training_fixture();
+            let file = root.join("config.toml");
+            let mut ui = test_interaction();
+            ui.assistance = true;
+            ui.generation_succeeds = succeeds;
+            ui.keep = true;
+            train_guided(
+                config.clone(),
+                0,
+                &file,
+                &paths,
+                config_snapshot(&file).unwrap(),
+                config,
+                samples,
+                3,
+                false,
+                &Cancellation::new().unwrap(),
+                &ui,
+            )
+            .unwrap();
+            let sessions = enrollment::recordings(&paths, "computer").unwrap();
+            assert_eq!(sessions.len(), 2);
+            let datasets: Vec<_> = sessions
+                .iter()
+                .map(|s| {
+                    crate::enrollment::artifact::Dataset::load(&s.directory.join("manifest.json"))
+                        .unwrap()
+                })
+                .collect();
+            assert!(datasets.iter().all(|d| {
+                d.validation
+                    .iter()
+                    .chain(&d.calibration)
+                    .all(|r| r.generated.is_none())
+            }));
+            assert!(datasets.iter().any(|d| d.training.len() == 12));
+            assert!(
+                datasets
+                    .iter()
+                    .any(|d| d.training.len() == if succeeds { 14 } else { 12 })
+            );
+            assert_eq!(ui.recordings.get(), 15);
+            assert_eq!(
+                ui.screens
+                    .borrow()
+                    .iter()
+                    .any(|s| s.contains("assistance did not complete")),
+                !succeeds
+            );
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+    #[test]
+    fn resumed_dataset_preserves_training_and_collects_fresh_human_evaluation() {
+        let (root, paths, config, mut positives) = training_fixture();
+        for i in 5..10 {
+            positives
+                .push(&vec![0.10 + i as f32 * 0.001; 4000])
+                .unwrap();
+        }
+        let mut negatives = SampleSet::create(&paths).unwrap();
+        for i in 0..10 {
+            negatives
+                .push(&vec![-0.13 - i as f32 * 0.001; 4000])
+                .unwrap();
+        }
+        let dataset = split_recordings(&positives.files, &negatives.files).unwrap();
+        let old_validation: BTreeSet<_> =
+            dataset.validation.iter().map(|r| r.audio.clone()).collect();
+        let source_fingerprints: Vec<_> = dataset
+            .training
+            .iter()
+            .map(|r| fs::read(&r.audio).unwrap())
+            .collect();
+        let mut ui = test_interaction();
+        ui.resume = Some(dataset.clone());
+        ui.keep = true;
+        let file = root.join("config.toml");
+        train_guided(
+            config.clone(),
+            0,
+            &file,
+            &paths,
+            config_snapshot(&file).unwrap(),
+            config,
+            SampleSet::create(&paths).unwrap(),
+            3,
+            false,
+            &Cancellation::new().unwrap(),
+            &ui,
+        )
+        .unwrap();
+        assert_eq!(ui.recordings.get(), 8);
+        assert!(old_validation.iter().all(|p| p.is_file()));
+        assert_eq!(
+            dataset
+                .training
+                .iter()
+                .map(|r| fs::read(&r.audio).unwrap())
+                .collect::<Vec<_>>(),
+            source_fingerprints
+        );
+        let sessions = enrollment::recordings(&paths, "computer").unwrap();
+        assert_eq!(sessions.len(), 1);
+        let saved = crate::enrollment::artifact::Dataset::load(
+            &sessions[0].directory.join("manifest.json"),
+        )
+        .unwrap();
+        assert_eq!(saved.training.len(), 12);
+        assert_eq!(saved.calibration.len(), 4);
+        assert_eq!(saved.validation.len(), 4);
+        assert!(saved.validation.iter().all(|r| r.generated.is_none()));
+        assert!(replace_evaluation(&mut saved.clone(), &[], &[]).is_err());
+        drop(positives);
+        drop(negatives);
+        fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn guided_training_reuses_samples_and_applies_only_after_review() {

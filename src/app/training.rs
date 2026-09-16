@@ -284,6 +284,22 @@ pub(super) fn single_utterance(
         .embedding)
 }
 
+/// Durable human checkpoint before optional external augmentation begins.
+pub(super) fn retain_dataset(paths: &AppPaths, id: &str, dataset: &Dataset) -> Result<PathBuf> {
+    let mut owned = SampleSet::create(paths)?;
+    let mut manifest = dataset.clone();
+    for item in manifest
+        .training
+        .iter_mut()
+        .chain(&mut manifest.calibration)
+        .chain(&mut manifest.validation)
+    {
+        owned.import(&item.audio)?;
+        item.audio = PathBuf::from(format!("sample-{:03}.wav", owned.files.len()));
+    }
+    owned.retain(paths, id, &manifest)
+}
+
 fn dataset_path(args: &TrainArgs, paths: &AppPaths) -> Result<PathBuf> {
     if let Some(path) = &args.dataset {
         return Ok(path.clone());
@@ -330,6 +346,7 @@ mod tests {
                 split.push(LabeledRecording {
                     audio: samples.files.last().unwrap().clone(),
                     positive,
+                    generated: None,
                 });
             }
             splits.push(split);

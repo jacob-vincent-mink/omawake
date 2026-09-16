@@ -1187,6 +1187,78 @@ fn onboarding_new_word_with_file_input_preserves_other_words() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn resumed_onboarding_can_cancel_and_rejects_incompatible_encoder_before_recording() {
+    for cancel in [true, false] {
+        let root = sandbox();
+        let library = build_fake_whisper(&root, None);
+        let (config, wave) = write_fake_whisper_config(&root, library);
+        let before = fs::read(&config).unwrap();
+        let manifest = root.join("resume.json");
+        let split = serde_json::json!([
+            {"audio":wave,"positive":true},{"audio":wave,"positive":true},
+            {"audio":wave,"positive":false},{"audio":wave,"positive":false}
+        ]);
+        fs::write(
+            &manifest,
+            serde_json::to_vec(
+                &serde_json::json!({"training":split,"calibration":split,"validation":split}),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let output = Command::new("/usr/bin/python3")
+            .arg("-c")
+            .arg(
+                r#"
+import os,pty,select,sys,time,signal
+binary,manifest,cancel=sys.argv[1:]
+pid,fd=pty.fork()
+if pid==0:
+ os.execv(binary,[binary,'word','onboard','computer','--engine','default','--dataset',manifest])
+data=b'';answered=False;deadline=time.monotonic()+12
+while time.monotonic()<deadline:
+ ready,_,_=select.select([fd],[],[],0.05)
+ if ready:
+  try: chunk=os.read(fd,65536)
+  except OSError: chunk=b''
+  data+=chunk
+  if not answered and b'Resume enrollment' in data:
+   os.write(fd,b'\x1b' if cancel=='yes' else b'\r');answered=True
+ done,status=os.waitpid(pid,os.WNOHANG)
+ if done:
+  assert answered,data.decode(errors='replace')
+  assert os.waitstatus_to_exitcode(status)!=0,data.decode(errors='replace')
+  expected=b'configuration unchanged' if cancel=='yes' else b'initialize training encoder'
+  assert expected in data,data.decode(errors='replace')
+  assert b'Record fresh examples' not in data
+  sys.exit(0)
+os.kill(pid,signal.SIGTERM);os.waitpid(pid,0)
+raise AssertionError(data.decode(errors='replace'))
+"#,
+            )
+            .arg(env!("CARGO_BIN_EXE_omawake"))
+            .arg(&manifest)
+            .arg(if cancel { "yes" } else { "no" })
+            .env("XDG_CONFIG_HOME", root.join("config"))
+            .env("XDG_DATA_HOME", root.join("data"))
+            .env("XDG_CACHE_HOME", root.join("cache"))
+            .env("XDG_STATE_HOME", root.join("state"))
+            .env("XDG_RUNTIME_DIR", root.join("run"))
+            .env("TERM", "xterm-256color")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(fs::read(config).unwrap(), before);
+        assert!(!root.join("data/omawake/heads").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn daemon_recovers_a_pinned_microphone_and_keeps_controls_responsive() {

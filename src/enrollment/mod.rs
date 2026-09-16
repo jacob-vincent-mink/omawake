@@ -56,6 +56,9 @@ pub struct SampleSet {
 }
 
 impl SampleSet {
+    pub(crate) fn directory(&self) -> &Path {
+        &self.directory
+    }
     pub fn create(paths: &AppPaths) -> Result<Self> {
         let parent = paths.cache_dir.join("onboarding");
         fs::create_dir_all(&parent)?;

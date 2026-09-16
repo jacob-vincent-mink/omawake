@@ -109,3 +109,25 @@ failures and model-load failure after the complete dataset has been saved.
 Explicit retention also survives final activation cancellation. The regression
 suite passed 295 tests with 90.34% line coverage; Clippy and the release build
 passed. Tests use injected microphone audio; the real check uses file audio.
+
+## Optional Omaspeak assistance
+
+Real Omaspeak file-output calls were checked with M1 at speed 0.9 and F1 at 1.1,
+using `say --no-play --out ... --voice ... --speed ... -- TEXT`. Both produced
+44.1 kHz WAVs without playback. The F1 check used an isolated runtime directory
+and CPU config, producing 1.271 seconds of audio. Evidence is in
+`/tmp/omaspeak-assisted-native-n0yq7543`. These checks establish interface
+compatibility, not correct pronunciation or improved wake-word accuracy;
+pronunciation approval remains the user's explicit playback/review step.
+
+Tests cover opt-in installation and decline, checksum rejection, keeping native
+libraries and licenses with the executable, silent synthesis, voice approval,
+synthetic provenance, rejecting synthetic calibration/validation, failure
+fallback with saved checkpoints, and resuming with fresh human evaluation data.
+No test installs into the real home directory, records the microphone, or plays
+sound. PTY checks cover resume cancellation and incompatible-encoder rejection
+before recording.
+
+The completed assisted-enrollment suite passed 304 tests (281 library, 23 CLI)
+with 90.07% line coverage against the unchanged 90.01% gate. Formatting, Clippy
+with warnings denied, and the release build passed.

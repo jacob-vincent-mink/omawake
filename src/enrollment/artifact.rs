@@ -114,6 +114,17 @@ pub struct Dataset {
 pub struct LabeledRecording {
     pub audio: PathBuf,
     pub positive: bool,
+    /// Synthetic provenance is retained; these clips are never validation evidence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generated: Option<GeneratedRecording>,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GeneratedRecording {
+    pub generator: String,
+    pub voice: String,
+    pub text: String,
+    pub speed: f32,
 }
 impl Dataset {
     pub fn load(path: &Path) -> Result<Self> {
@@ -128,6 +139,14 @@ impl Dataset {
         );
         let mut dataset: Self =
             serde_json::from_slice(&bytes).context("parse training dataset manifest")?;
+        ensure!(
+            dataset
+                .calibration
+                .iter()
+                .chain(&dataset.validation)
+                .all(|r| r.generated.is_none()),
+            "synthetic recordings may only appear in training, never calibration or validation"
+        );
         let base = path.parent().unwrap_or(Path::new("."));
         for split in [
             &mut dataset.training,

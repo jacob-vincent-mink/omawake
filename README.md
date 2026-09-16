@@ -138,6 +138,11 @@ You review validation results before Apply; no hand-written dataset is needed.
 The first implementation uses the direct
 OpenVINO Whisper encoder; **CPU has a functional file-based proof**. Accelerator
 qualification and broader background-speech accuracy testing are still pending.
+Optional **Omaspeak-assisted training** adds pronunciation-reviewed synthetic
+examples while keeping calibration and validation human-only. If Omaspeak is
+missing, onboarding offers an explicit user-local release installation. Resume a
+retained session with `word onboard --dataset manifest.json` to reuse training
+clips and collect fresh evaluation recordings.
 See [wake-word enrollment](docs/architecture/WAKE-WORD-ENROLLMENT.md) for commands,
 recording retention, profiles, retraining, and the limits of local validation.
 

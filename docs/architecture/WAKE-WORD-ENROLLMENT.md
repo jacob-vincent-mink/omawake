@@ -127,6 +127,54 @@ On successful activation, **Keep recordings locally** retains the dataset for
 manifest are removed. No dataset editing, audio playback, or wake action is
 needed during guided onboarding.
 
+### Optional Omaspeak-assisted examples
+
+After reviewing transcript spellings, choose **Train with Omaspeak examples**.
+If Omaspeak is missing, the menu offers **Install Omaspeak for assisted training**
+instead. Installation is optional: continue with human recordings, or explicitly
+download the checksum-pinned Omaspeak 0.0.1 release to `~/.local/opt` with a launcher
+in `~/.local/bin`. The archive's native library and licenses remain bundled. The
+installer requires `curl`, `tar`, and `cp`; it never enables a service or silently
+installs a model. If synthesis needs configuration, it opens Omaspeak's own setup.
+
+The assisted flow asks for a TTS pronunciation spelling, two confusable negative
+phrases, and an ordinary negative sentence. It selects up to three voices from
+the configured model. You must explicitly play and approve each voice's
+pronunciation before using it. Incorrect voices can be skipped; no approval is
+inferred from an automatic transcript. Generation otherwise uses
+`omaspeak say --no-play --out ...` and is silent.
+
+Each approved voice supplies three positives at 0.9×, 1.0×, and 1.1× speed, and
+three negatives at normal speed. Generated clips must pass the live segmentation
+check. Synthetic examples are added **only to training**; their generator,
+voice, text, and speed are retained in the dataset. Calibration and validation
+remain human recordings, and the loader rejects synthetic provenance in either
+of those splits. The existing acceptance checks are unchanged. Synthetic audio
+is an experimental supplement, not a guarantee of improved accuracy.
+
+Temperature is not exposed by the current Omaspeak synthesis interface, so this
+flow does not pretend to set it. Supertonic's native seed setting is a different
+control; this integration does not change the user's TTS configuration.
+
+With recording retention selected, Omawake saves a pre-augmentation checkpoint before
+starting optional synthesis, then saves the combined dataset before fitting.
+If assistance fails, the user can continue with human-only training. Cancelling
+leaves the active configuration unchanged and preserves explicit checkpoints.
+
+### Resume a retained dataset
+
+```sh
+omawake word onboard --engine training-cpu --dataset /path/to/manifest.json
+```
+
+Choose or create the intended word, then choose whether to add Omaspeak examples.
+The training split is reused without editing the source session. Since previous
+validation results have already been inspected, onboarding collects **eight new
+human clips**: four wake-phrase and four other-speech recordings, divided evenly
+between fresh calibration and fresh validation. This avoids declaring success
+merely by tuning to previously examined held-out clips. Existing training
+provenance remains attached to every synthetic example.
+
 ### File-based training
 
 For scripted experiments, prepare a JSON dataset with three independent splits. Each split needs at least

@@ -1,4 +1,5 @@
 use crate::setup::wizard::MenuItem;
+mod assisted;
 mod onboarding;
 mod training;
 
