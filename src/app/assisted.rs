@@ -265,7 +265,7 @@ fn augment_with(
     cancel: &Cancellation,
     validate: &mut dyn FnMut(&[f32]) -> Result<()>,
     mut input: impl FnMut(&str) -> Result<String>,
-    mut approve: impl FnMut(&Voice, &Path, &Path, &Cancellation) -> Result<bool>,
+    mut approve: impl FnMut(&Voice, &str, &Path, &Path, &Cancellation) -> Result<PronunciationReview>,
 ) -> Result<SampleSet> {
     let mut generated = SampleSet::create(paths)?;
     let scratch = generated.directory().to_owned();
@@ -311,39 +311,63 @@ fn augment_with(
         cancel.check()?;
         let voice = &inventory[position];
         let preview = scratch.join("pronunciation.wav");
-        loop {
-            match synthesize(binary, voice, &text, 1.0, &preview, &scratch, cancel) {
-                Ok(()) => break,
-                Err(error) => {
-                    cancel.check()?;
-                    if choose(
-                        "Omaspeak needs setup",
-                        &format!("{error:#}"),
-                        &[
-                            MenuItem::available(
-                                "Open Omaspeak setup",
-                                "Configure its local model/runtime, then retry this preview",
-                            ),
-                            MenuItem::available(
-                                "Cancel assistance",
-                                "Keep the saved human dataset",
-                            ),
-                        ],
-                    )? != 0
-                    {
-                        return Err(error);
+        let mut voice_text = text.clone();
+        let approved = loop {
+            loop {
+                match synthesize(binary, voice, &voice_text, 1.0, &preview, &scratch, cancel) {
+                    Ok(()) => break,
+                    Err(error) => {
+                        cancel.check()?;
+                        if choose(
+                            "Omaspeak needs setup",
+                            &format!("{error:#}"),
+                            &[
+                                MenuItem::available(
+                                    "Open Omaspeak setup",
+                                    "Configure its local model/runtime, then retry this preview",
+                                ),
+                                MenuItem::available(
+                                    "Cancel assistance",
+                                    "Keep the saved human dataset",
+                                ),
+                            ],
+                        )? != 0
+                        {
+                            return Err(error);
+                        }
+                        anyhow::ensure!(
+                            ProcessCommand::new(binary).arg("setup").status()?.success(),
+                            "Omaspeak setup failed"
+                        );
                     }
-                    anyhow::ensure!(
-                        ProcessCommand::new(binary).arg("setup").status()?.success(),
-                        "Omaspeak setup failed"
-                    );
                 }
             }
-        }
-        if !approve(voice, &preview, &scratch, cancel)? {
+            match approve(voice, &voice_text, &preview, &scratch, cancel)? {
+                PronunciationReview::Approve => break true,
+                PronunciationReview::Skip => break false,
+                PronunciationReview::Edit => {
+                    loop {
+                        let replacement = input(&format!(
+                            "Pronunciation for voice {} (current: {:?}; other voices keep their own spelling)",
+                            voice.name, voice_text
+                        ))?;
+                        match validate_texts(phrase, &replacement, &negatives) {
+                            Ok(()) => {
+                                voice_text = replacement;
+                                break;
+                            }
+                            Err(error) => eprintln!("Spelling not changed: {error:#}"),
+                        }
+                    }
+                    // Regeneration returns to a fresh review: prior playback never
+                    // authorizes an edited pronunciation.
+                }
+            }
+        };
+        if !approved {
             continue;
         }
-        for (positive, utterance, speed) in plan(&text, &negatives) {
+        for (positive, utterance, speed) in plan(&voice_text, &negatives) {
             cancel.check()?;
             eprintln!(
                 "Generating {} example with {} at {:.1}×…",
@@ -466,14 +490,22 @@ fn synthesize(
     Ok(())
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum PronunciationReview {
+    Approve,
+    Skip,
+    Edit,
+}
+
 fn review_pronunciation(
     voice: &Voice,
+    text: &str,
     preview: &Path,
     scratch: &Path,
     cancel: &Cancellation,
-) -> Result<bool> {
+) -> Result<PronunciationReview> {
     let player = executable("pw-play").or_else(|| executable("aplay"));
-    review_with(voice, player.is_some(), choose, || {
+    review_with(voice, text, player.is_some(), choose, || {
         let mut command = ProcessCommand::new(player.as_ref().context("no audio player")?);
         command.arg(preview);
         run(&mut command, scratch, cancel, Duration::from_secs(45))?;
@@ -482,10 +514,11 @@ fn review_pronunciation(
 }
 fn review_with(
     voice: &Voice,
+    text: &str,
     has_player: bool,
     mut ask: impl FnMut(&str, &str, &[MenuItem]) -> Result<usize>,
     mut play: impl FnMut() -> Result<()>,
-) -> Result<bool> {
+) -> Result<PronunciationReview> {
     let mut heard = false;
     loop {
         let play_item = if has_player {
@@ -509,11 +542,17 @@ fn review_with(
         };
         match ask(
             &format!("Review voice {}", voice.name),
-            "Only explicitly played previews make sound; generation itself is silent.",
+            &format!(
+                "Pronunciation text: {text:?}\nOnly explicitly played previews make sound; generation itself is silent."
+            ),
             &[
                 play_item,
                 approve,
                 MenuItem::available("Skip voice", "Do not use examples from this voice"),
+                MenuItem::available(
+                    "Edit pronunciation",
+                    "Change this voice's spelling and regenerate its preview",
+                ),
             ],
         )? {
             0 => {
@@ -521,8 +560,9 @@ fn review_with(
                 play()?;
                 heard = true;
             }
-            1 if heard => return Ok(true),
-            2 => return Ok(false),
+            1 if heard => return Ok(PronunciationReview::Approve),
+            2 => return Ok(PronunciationReview::Skip),
+            3 => return Ok(PronunciationReview::Edit),
             _ => bail!("pronunciation approval requires playback"),
         }
     }
@@ -735,6 +775,7 @@ mod tests {
         assert!(
             review_with(
                 &voice,
+                "original",
                 true,
                 |_, _, items| {
                     let n = stage.get();
@@ -748,11 +789,13 @@ mod tests {
                 }
             )
             .unwrap()
+                == PronunciationReview::Approve
         );
         assert!(played.get());
         assert!(
-            !review_with(
+            review_with(
                 &voice,
+                "original",
                 false,
                 |_, _, items| {
                     assert!(!items[0].enabled);
@@ -761,10 +804,12 @@ mod tests {
                 || panic!("no playback")
             )
             .unwrap()
+                == PronunciationReview::Skip
         );
         assert!(
             review_with(
                 &voice,
+                "original",
                 true,
                 |_, _, _| Ok(1),
                 || panic!("approval cannot bypass playback")
@@ -774,6 +819,7 @@ mod tests {
         assert!(
             review_with(
                 &voice,
+                "original",
                 true,
                 |_, _, _| Ok(0),
                 || anyhow::bail!("player failed")
@@ -846,7 +892,7 @@ else:
             &Cancellation::new().unwrap(),
             &mut |_| Ok(()),
             input(),
-            |_, _, _, _| Ok(true),
+            |_, _, _, _, _| Ok(PronunciationReview::Approve),
         )
         .unwrap();
         assert_eq!(dataset.training.len(), 22);
@@ -893,6 +939,142 @@ else:
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
+    fn edited_spellings_are_regenerated_and_applied_only_to_the_selected_voice() {
+        let (root, paths, source, mut dataset, fake) = fixture();
+        let mut inputs = [
+            "Hey unusual",
+            "Hello there",
+            "Are you",
+            "Close the door",
+            "Are you",
+            "Hay un yoo shul",
+            "Hey un yoo shul",
+        ]
+        .into_iter();
+        let mut reviewed = Vec::new();
+        let mut edits = 0;
+        let generated = augment_with(
+            &fake,
+            &mut dataset,
+            "Hey unusual",
+            &paths,
+            &Cancellation::new().unwrap(),
+            &mut |_| Ok(()),
+            |_| Ok(inputs.next().unwrap().to_owned()),
+            |voice, text, preview, _, _| {
+                assert!(preview.is_file());
+                reviewed.push((voice.id, text.to_owned()));
+                if voice.id == 7 && edits < 2 {
+                    edits += 1;
+                    Ok(PronunciationReview::Edit)
+                } else {
+                    Ok(PronunciationReview::Approve)
+                }
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            &reviewed[..3],
+            &[
+                (7, "Hey unusual".into()),
+                (7, "Hay un yoo shul".into()),
+                (7, "Hey un yoo shul".into())
+            ]
+        );
+        assert!(reviewed[3..].iter().all(|(_, text)| text == "Hey unusual"));
+        for row in dataset.training.iter().filter(|row| row.positive) {
+            if let Some(origin) = &row.generated {
+                assert_eq!(
+                    origin.text,
+                    if origin.voice == "M1" {
+                        "Hey un yoo shul"
+                    } else {
+                        "Hey unusual"
+                    }
+                );
+            }
+        }
+        let checkpoint = training::retain_dataset(&paths, "unusual", &dataset).unwrap();
+        let retained = Dataset::load(&checkpoint.join("manifest.json")).unwrap();
+        assert!(retained.training.iter().any(|r| {
+            r.generated
+                .as_ref()
+                .is_some_and(|g| g.voice == "M1" && g.text == "Hey un yoo shul")
+        }));
+        let log = fs::read_to_string(root.join("argv.jsonl")).unwrap();
+        assert!(log.contains("Hay un yoo shul"));
+        assert!(log.contains("Hey un yoo shul"));
+        drop(generated);
+        drop(source);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn edited_previews_require_new_playback_and_edit_cancellation_keeps_human_data() {
+        let voice = Voice {
+            id: 7,
+            name: "M1".into(),
+        };
+        let mut choices = [0, 3].into_iter();
+        assert_eq!(
+            review_with(
+                &voice,
+                "old spelling",
+                true,
+                |_, help, items| {
+                    assert!(help.contains("old spelling"));
+                    assert_eq!(items[3].label, "Edit pronunciation");
+                    Ok(choices.next().unwrap())
+                },
+                || Ok(())
+            )
+            .unwrap(),
+            PronunciationReview::Edit
+        );
+        assert!(
+            review_with(
+                &voice,
+                "new spelling",
+                true,
+                |_, _, items| {
+                    assert!(!items[1].enabled);
+                    Ok(1)
+                },
+                || panic!("not played")
+            )
+            .is_err()
+        );
+        let (root, paths, source, mut dataset, fake) = fixture();
+        let before = serde_json::to_vec(&dataset).unwrap();
+        let mut first = input();
+        let mut count = 0;
+        let result = augment_with(
+            &fake,
+            &mut dataset,
+            "Hey unusual",
+            &paths,
+            &Cancellation::new().unwrap(),
+            &mut |_| Ok(()),
+            |label| {
+                count += 1;
+                if count > 4 {
+                    anyhow::bail!("onboarding cancelled");
+                }
+                first(label)
+            },
+            |_, _, _, _, _| Ok(PronunciationReview::Edit),
+        );
+        assert!(result.is_err());
+        assert_eq!(serde_json::to_vec(&dataset).unwrap(), before);
+        assert_eq!(
+            fs::read_dir(paths.cache_dir.join("onboarding"))
+                .unwrap()
+                .count(),
+            1
+        );
+        drop(source);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
     fn rejected_voices_and_split_generated_clips_do_not_mutate_human_dataset() {
         for reject_voice in [false, true] {
             let (root, paths, source, mut dataset, fake) = fixture();
@@ -906,7 +1088,11 @@ else:
                     &Cancellation::new().unwrap(),
                     &mut |_| anyhow::bail!("two segments"),
                     input(),
-                    |_, _, _, _| Ok(!reject_voice)
+                    |_, _, _, _, _| Ok(if reject_voice {
+                        PronunciationReview::Skip
+                    } else {
+                        PronunciationReview::Approve
+                    })
                 )
                 .is_err()
             );

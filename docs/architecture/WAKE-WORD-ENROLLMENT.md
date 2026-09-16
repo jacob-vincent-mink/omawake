@@ -140,7 +140,11 @@ installs a model. If synthesis needs configuration, it opens Omaspeak's own setu
 The assisted flow asks for a TTS pronunciation spelling, two confusable negative
 phrases, and an ordinary negative sentence. It selects up to three voices from
 the configured model. You must explicitly play and approve each voice's
-pronunciation before using it. Incorrect voices can be skipped; no approval is
+pronunciation before using it. **Edit pronunciation** lets you change the spelling
+for that voice, regenerate, and listen again as often as needed. Approval resets
+after each edit; other voices retain their own spelling. The accepted per-voice
+text is used for all its positive examples and saved in their provenance.
+Incorrect voices can be skipped; no approval is
 inferred from an automatic transcript. Generation otherwise uses
 `omaspeak say --no-play --out ...` and is silent.
 
