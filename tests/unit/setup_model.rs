@@ -55,6 +55,8 @@ fn fixture_spec(first: &'static [u8], second: &'static [u8]) -> &'static ModelSp
     Box::leak(Box::new(ModelSpec {
         id: "tiny",
         backend: "audiocpp",
+        name: "Test",
+        asr_family: "moonshine_asr",
         family: "test",
         description: "test model",
         license: "MIT",

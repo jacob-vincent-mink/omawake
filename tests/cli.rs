@@ -881,3 +881,44 @@ fn systemd_lifecycle_uses_user_manager_and_propagates_failures() {
     );
     assert!(!root.join("config/systemd/user/omawake.service").exists());
 }
+
+#[test]
+fn whisper_runtime_probe_checks_the_abi_without_loading_models() {
+    for version in [None, Some("1.9.3-dev")] {
+        let root = sandbox();
+        let library = build_fake_whisper(&root, version);
+        let (config_path, _) = write_fake_whisper_config(&root, library);
+        let mut config = Config::load(&config_path).unwrap();
+        config.model.directory = root.join("missing-models").display().to_string();
+        config.save(&config_path).unwrap();
+        let output = run(
+            &root,
+            &[
+                "setup",
+                "runtime",
+                "--runtime",
+                "default",
+                "--device",
+                "cpu",
+            ],
+        );
+        if version.is_none() {
+            assert!(output.status.success(), "{}", stderr(&output));
+            let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(report["candidate"]["kind"], "whispercpp");
+            assert_eq!(report["probe"]["loadable"], true);
+            assert_eq!(report["probe"]["ready"], false);
+        } else {
+            assert!(!output.status.success());
+            assert!(
+                stderr(&output).contains("unsupported libwhisper ABI"),
+                "{}",
+                stderr(&output)
+            );
+        }
+        assert_eq!(
+            Config::load(&config_path).unwrap().model.name,
+            "fake-whisper"
+        );
+    }
+}

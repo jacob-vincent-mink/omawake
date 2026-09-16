@@ -115,6 +115,25 @@ static void close_provider(struct oma_whisper * provider) {
     free(provider);
 }
 
+int oma_whisper_probe(const char * library_path, char * error, size_t error_capacity) {
+    void * library = dlopen(library_path, RTLD_NOW | RTLD_LOCAL);
+    if (library == NULL) {
+        set_error(error, error_capacity, dlerror());
+        return -1;
+    }
+    struct oma_whisper_api api = {0};
+    int status = resolve_api(&api, library, error, error_capacity);
+    if (status == 0) {
+        const char * version = api.version();
+        if (version == NULL || strcmp(version, OMA_WHISPER_ABI_VERSION) != 0) {
+            set_error(error, error_capacity, "unsupported libwhisper ABI; expected " OMA_WHISPER_ABI_VERSION);
+            status = -1;
+        }
+    }
+    dlclose(library);
+    return status;
+}
+
 int oma_whisper_open(
         const char * library_path,
         const char * verifier_path,

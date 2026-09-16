@@ -50,6 +50,8 @@ enum TopCommand {
     },
     #[command(name = "__native-json", hide = true)]
     NativeJson { request: String, response: PathBuf },
+    #[command(name = "__whisper-probe", hide = true)]
+    WhisperProbe { library: PathBuf, response: PathBuf },
     #[command(name = "__whisper-worker", hide = true)]
     WhisperWorker {
         library: PathBuf,
@@ -235,8 +237,9 @@ enum SetupCommand {
     /// Install and configure a model plus the desktop launcher. Does not install a service;
     /// run `omawake setup systemd` to install one explicitly.
     All {
-        #[arg(long, default_value = crate::catalog::DEFAULT_MODEL_ID)]
-        model: String,
+        /// Catalog model; defaults to the selected backend's compatible profile.
+        #[arg(long)]
+        model: Option<String>,
         #[arg(long, value_name = "DIRECTORY")]
         source_dir: Option<PathBuf>,
         #[arg(long, value_enum, default_value_t)]
@@ -563,6 +566,12 @@ where
             )?;
             return Ok(());
         }
+        TopCommand::WhisperProbe { library, response } => {
+            let result = crate::engine::whisper::probe_library(&library)
+                .map_err(|error| format!("{error:#}"));
+            crate::native_worker::write_json(&response, &paths.runtime_dir, &result)?;
+            return Ok(());
+        }
         TopCommand::NativeJson { request, response } => {
             let request = serde_json::from_str(&request)?;
             let config = Config::load(&config_path)?;
@@ -674,6 +683,7 @@ where
         | TopCommand::AudioCppWorker { .. }
         | TopCommand::OpenVinoGenAiWorker { .. }
         | TopCommand::OpenVinoRuntimeWorker { .. }
+        | TopCommand::WhisperProbe { .. }
         | TopCommand::WhisperWorker { .. }
         | TopCommand::Setup { .. } => unreachable!(),
         TopCommand::Config { command } => config_mutation(command, config, &config_path, &paths),
@@ -923,13 +933,14 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
                 )?;
                 return Ok(());
             }
-            let default_id = crate::catalog::DEFAULT_MODEL_ID;
             let selected = match download {
                 Some(id) => Some(id),
                 None if !list && !json && setup_is_interactive() => {
                     return guided_model(config_path, paths);
                 }
                 None => {
+                    let current = app_setup::load_config(config_path)?;
+                    let default_id = crate::catalog::setup_model(&current)?.id;
                     print_models(paths);
                     println!(
                         "Download the default with `omawake setup model --download {default_id}` or use exact offline assets with `--source-dir /path/to/assets`."
@@ -991,7 +1002,11 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
             source_dir,
             progress_format,
         } => {
-            let spec = model_spec(&model)?;
+            let current = app_setup::load_config(config_path)?;
+            let spec = match model.as_deref() {
+                Some(id) => model_spec(id)?,
+                None => crate::catalog::setup_model(&current)?,
+            };
             let service_was_active = app_setup::systemd::is_active();
             install_everything(
                 spec,
@@ -1280,8 +1295,10 @@ pub(crate) fn setup_provider_availability(
             runtime,
             device: device.into(),
         };
+        let mut audio_current = current.clone();
+        audio_current.backend.kind = "audiocpp".into();
         let Ok(candidate) =
-            runtime_selection_candidate(current, config_path, &selection, None, None)
+            runtime_selection_candidate(&audio_current, config_path, &selection, None, None)
         else {
             return false;
         };
@@ -1666,7 +1683,7 @@ where
             } else {
                 format!("{detail} · select to provide an exact local asset directory")
             };
-            wizard::MenuItem::available(format!("{status}  {}", model.id), detail)
+            wizard::MenuItem::available(format!("{status}  {}", model.name), detail)
         })
         .collect();
     let preferred = crate::catalog::models()
@@ -1722,19 +1739,16 @@ fn runtime_selection_candidate(
 ) -> Result<Config> {
     let mut config = current.clone();
     let backend_kind = match selection.runtime {
+        Runtime::Default if current.backend.kind == "whispercpp" => "whispercpp",
         Runtime::Default | Runtime::Cuda | Runtime::Vulkan | Runtime::Hip => "audiocpp",
         Runtime::Openvino => "openvino-genai",
     };
-    if crate::catalog::model(&config.model.name).is_none_or(|model| model.backend != backend_kind) {
-        let model_id = match selection.runtime {
-            Runtime::Default | Runtime::Cuda | Runtime::Vulkan | Runtime::Hip => {
-                crate::catalog::DEFAULT_MODEL_ID
-            }
-            Runtime::Openvino => crate::catalog::OPENVINO_MODEL_ID,
-        };
-        crate::catalog::model(model_id)
-            .context("runtime has no compatible catalog model")?
-            .activate(&mut config);
+    let default =
+        crate::catalog::default_model(backend_kind, selection.runtime, &selection.device)?;
+    if crate::catalog::model(&config.model.name).is_none_or(|model| {
+        !model.compatible_with(backend_kind, selection.runtime, &selection.device)
+    }) {
+        default.activate(&mut config);
     }
     if config.backend.kind != backend_kind || config.backend.runtime != selection.runtime {
         config.backend.library.clear();
@@ -1761,10 +1775,11 @@ fn runtime_selection_candidate(
     };
     config.backend.options.remove("audiocpp.asr_family");
     if backend_kind == "audiocpp" {
+        let family = crate::catalog::setup_model(&config)?.asr_family;
         config
             .backend
             .options
-            .insert("audiocpp.asr_family".into(), "moonshine_asr".into());
+            .insert("audiocpp.asr_family".into(), family.into());
     }
     config.backend.validate_shape()?;
     if let Some(directory) = runtime_directory {
@@ -1898,6 +1913,7 @@ fn configure_runtime_directory(config: &mut Config, directory: &Path) -> Result<
         })
     };
     let provider = match config.backend.runtime {
+        Runtime::Default if config.backend.kind == "whispercpp" => find(&["libwhisper.so"])?,
         Runtime::Default | Runtime::Cuda | Runtime::Vulkan | Runtime::Hip => {
             find(&["libaudiocpp.so.0.1.0", "libaudiocpp.so.0", "libaudiocpp.so"])?
         }
@@ -1921,7 +1937,7 @@ fn configure_runtime_directory(config: &mut Config, directory: &Path) -> Result<
     let selected_parents = std::iter::once(
         provider
             .parent()
-            .context("audio.cpp provider library has no parent")?
+            .context("provider library has no parent")?
             .to_owned(),
     )
     .chain(candidates.into_iter().filter(|candidate| {

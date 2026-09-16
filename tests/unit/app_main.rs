@@ -3320,7 +3320,7 @@ fn setup_dispatch_covers_checks_catalog_and_safe_failure_paths() {
     assert!(
         setup(
             Some(SetupCommand::All {
-                model,
+                model: Some(model),
                 source_dir: Some(paths.data_dir.join("missing-model-assets")),
                 progress_format: ProgressFormat::Json,
             }),
@@ -3954,5 +3954,54 @@ fn stale_socket_connection_errors_cover_kernel_variants() {
     }
     assert!(!indicates_stale_socket(
         std::io::ErrorKind::PermissionDenied
+    ));
+}
+
+#[test]
+fn runtime_selection_keeps_explicit_whisper_backend_and_discovers_its_library() {
+    let paths = test_paths("whisper-runtime-default");
+    let runtime = paths.data_dir.join("whisper-runtime");
+    fs::create_dir_all(&runtime).unwrap();
+    fs::write(runtime.join("libwhisper.so.1"), b"discovery fixture").unwrap();
+    let mut config = Config::default();
+    config.backend.kind = "whispercpp".into();
+    let candidate = runtime_selection_candidate(
+        &config,
+        &paths.config_file,
+        &RuntimeSelection {
+            runtime: Runtime::Default,
+            device: "cpu".into(),
+        },
+        None,
+        Some(&runtime),
+    )
+    .unwrap();
+    assert_eq!(candidate.backend.kind, "whispercpp");
+    assert_eq!(candidate.model.name, crate::catalog::WHISPER_MODEL_ID);
+    assert_eq!(candidate.backend.library, runtime.join("libwhisper.so.1"));
+    let next = runtime_selection_candidate(
+        &candidate,
+        &paths.config_file,
+        &RuntimeSelection {
+            runtime: Runtime::Cuda,
+            device: "gpu".into(),
+        },
+        None,
+        None,
+    )
+    .unwrap();
+    assert_eq!(next.backend.kind, "audiocpp");
+    assert_eq!(next.model.name, crate::catalog::DEFAULT_MODEL_ID);
+    assert!(next.backend.library.as_os_str().is_empty());
+}
+
+#[test]
+fn setup_all_leaves_model_unspecified_until_backend_resolution() {
+    let cli = Cli::try_parse_from(["omawake", "setup", "all"]).unwrap();
+    assert!(matches!(
+        cli.command,
+        TopCommand::Setup {
+            command: Some(SetupCommand::All { model: None, .. })
+        }
     ));
 }

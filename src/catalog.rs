@@ -3,6 +3,8 @@ use serde::Serialize;
 use crate::backend::Runtime;
 use crate::config::Config;
 
+pub const WHISPER_MODEL_ID: &str = "whisper-base.en-ggml-silero-v6.2.0";
+
 pub const DEFAULT_MODEL_ID: &str = "moonshine-streaming-tiny-q8_0-silero-v6.2.1";
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -37,6 +39,11 @@ pub struct LicenseNotice {
 pub struct ModelSpec {
     pub id: &'static str,
     pub backend: &'static str,
+    #[serde(skip)] // Presentation is not part of the schema-1 install identity.
+    pub name: &'static str,
+    /// Native provider family, distinct from the complete profile description.
+    #[serde(skip)] // Derived from the pinned profile; preserve existing manifests.
+    pub asr_family: &'static str,
     pub family: &'static str,
     pub description: &'static str,
     pub license: &'static str,
@@ -277,10 +284,47 @@ const OPENVINO_NOTICES: &[LicenseNotice] = &[
     },
 ];
 
+const WHISPER_REVISION: &str = "5359861c739e955e79d9a303bcbc70fb988958b1";
+const WHISPER_VAD_REVISION: &str = "9ffd54a1e1ee413ddf265af9913beaf518d1639b";
+const WHISPER_ASSETS: &[ModelAsset] = &[
+    ModelAsset {
+        role: "wake phrase verifier",
+        path: "ggml-base.en.bin",
+        url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.en.bin",
+        size: 147_964_211,
+        sha256: "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002",
+        source_url: "https://huggingface.co/openai/whisper-base.en",
+        source_revision: OPENAI_WHISPER_REVISION,
+        license: "Apache-2.0",
+    },
+    ModelAsset {
+        role: "voice activity detector",
+        path: "ggml-silero-v6.2.0.bin",
+        url: "https://huggingface.co/ggml-org/whisper-vad/resolve/9ffd54a1e1ee413ddf265af9913beaf518d1639b/ggml-silero-v6.2.0.bin",
+        size: 885_098,
+        sha256: "2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987",
+        source_url: "https://huggingface.co/ggml-org/whisper-vad",
+        source_revision: WHISPER_VAD_REVISION,
+        license: "MIT",
+    },
+];
+
+const WHISPER_NOTICES: &[LicenseNotice] = &[
+    OPENVINO_NOTICES[0],
+    LicenseNotice {
+        path: "LICENSES/Silero-VAD-MIT.txt",
+        license: "MIT",
+        copyright: "Copyright (c) 2020-present Silero Team",
+        source_url: "https://huggingface.co/ggml-org/whisper-vad/blob/9ffd54a1e1ee413ddf265af9913beaf518d1639b/README.md",
+    },
+];
+
 const MODELS: &[ModelSpec] = &[
     ModelSpec {
         id: DEFAULT_MODEL_ID,
         backend: "audiocpp",
+        name: "Moonshine Streaming Tiny",
+        asr_family: "moonshine_asr",
         family: "silero-vad+moonshine-asr",
         description: "Silero VAD 6.2.1 with Moonshine Streaming Tiny Q8_0 phrase verification",
         license: "MIT",
@@ -303,6 +347,8 @@ const MODELS: &[ModelSpec] = &[
     ModelSpec {
         id: OPENVINO_MODEL_ID,
         backend: "openvino-genai",
+        name: "Whisper Base.en · OpenVINO",
+        asr_family: "whisper",
         family: "silero-vad+whisper-base.en-int8",
         description: "English Silero VAD 6.2.1 with OpenVINO Whisper Base.en INT8 verification",
         license: "Apache-2.0",
@@ -322,6 +368,30 @@ const MODELS: &[ModelSpec] = &[
         assets: OPENVINO_ASSETS,
         notices: OPENVINO_NOTICES,
     },
+    ModelSpec {
+        id: WHISPER_MODEL_ID,
+        backend: "whispercpp",
+        name: "Whisper Base.en · whisper.cpp",
+        asr_family: "whisper",
+        family: "silero-vad+whisper-base.en-ggml",
+        description: "English Whisper Base.en with Silero VAD 6.2.0 through whisper.cpp 1.9.3 (CPU)",
+        license: "Apache-2.0 AND MIT",
+        license_status: "verified-origin-and-conversion",
+        license_url: "https://huggingface.co/openai/whisper-base.en/blob/911407f4214e0e1d82085af863093ec0b66f9cd6/README.md",
+        source_url: "https://huggingface.co/openai/whisper-base.en",
+        source_revision: OPENAI_WHISPER_REVISION,
+        languages: &["en"],
+        multilingual: false,
+        converted_source_url: "https://huggingface.co/ggerganov/whisper.cpp",
+        converted_source_revision: WHISPER_REVISION,
+        downloadable: true,
+        verifier: "ggml-base.en.bin",
+        vad: "ggml-silero-v6.2.0.bin",
+        sample_rate: 16_000,
+        probe_audio: None,
+        assets: WHISPER_ASSETS,
+        notices: WHISPER_NOTICES,
+    },
 ];
 
 pub fn backends() -> &'static [BackendSpec] {
@@ -336,21 +406,71 @@ pub fn model(id: &str) -> Option<&'static ModelSpec> {
     MODELS.iter().find(|item| item.id == id)
 }
 
+/// Resolve the maintained default for a backend/runtime/device combination.
+/// Compatibility is a format/adapter contract, not proof of device availability.
+pub fn default_model(
+    backend: &str,
+    runtime: Runtime,
+    device: &str,
+) -> anyhow::Result<&'static ModelSpec> {
+    let id = match backend {
+        "audiocpp" => DEFAULT_MODEL_ID,
+        "openvino-genai" => OPENVINO_MODEL_ID,
+        "whispercpp" => WHISPER_MODEL_ID,
+        _ => anyhow::bail!("no catalog default for backend {backend:?}"),
+    };
+    let spec = model(id).expect("catalog default exists");
+    anyhow::ensure!(
+        spec.compatible_with(backend, runtime, device),
+        "backend {backend:?} has no compatible default for {runtime:?} / {device}"
+    );
+    Ok(spec)
+}
+
+/// Keep a selected compatible catalog model; otherwise use the backend default.
+pub fn setup_model(config: &Config) -> anyhow::Result<&'static ModelSpec> {
+    if let Some(spec) = model(&config.model.name)
+        && spec.compatible_with(
+            &config.backend.kind,
+            config.backend.runtime,
+            &config.backend.device,
+        )
+    {
+        return Ok(spec);
+    }
+    default_model(
+        &config.backend.kind,
+        config.backend.runtime,
+        &config.backend.device,
+    )
+}
+
 impl ModelSpec {
+    pub fn compatible_with(self, backend: &str, runtime: Runtime, device: &str) -> bool {
+        if self.backend != backend || crate::backend::canonical_device(runtime, device).is_err() {
+            return false;
+        }
+        match backend {
+            "audiocpp" => matches!(
+                runtime,
+                Runtime::Default | Runtime::Cuda | Runtime::Vulkan | Runtime::Hip
+            ),
+            "openvino-genai" => runtime == Runtime::Openvino,
+            "whispercpp" => runtime == Runtime::Default,
+            _ => false,
+        }
+    }
+
     pub fn total_size(self) -> u64 {
         self.assets.iter().map(|asset| asset.size).sum()
     }
 
     pub fn activate(self, config: &mut Config) {
-        let runtime_is_compatible = match self.backend {
-            "audiocpp" => matches!(
-                config.backend.runtime,
-                Runtime::Default | Runtime::Cuda | Runtime::Vulkan | Runtime::Hip
-            ),
-            "openvino-genai" => config.backend.runtime == Runtime::Openvino,
-            _ => false,
-        };
-        let preserve_provider = config.backend.kind == self.backend && runtime_is_compatible;
+        let preserve_provider = self.compatible_with(
+            &config.backend.kind,
+            config.backend.runtime,
+            &config.backend.device,
+        );
         if !preserve_provider {
             config.backend.library.clear();
             config.backend.library_dirs.clear();
@@ -369,7 +489,7 @@ impl ModelSpec {
             config
                 .backend
                 .options
-                .insert("audiocpp.asr_family".into(), "moonshine_asr".into());
+                .insert("audiocpp.asr_family".into(), self.asr_family.into());
         }
         config.model.name = self.id.into();
         config.model.directory.clear();
