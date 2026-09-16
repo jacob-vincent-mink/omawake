@@ -57,8 +57,9 @@ those inputs, without declaring the first release fully qualified.
   playback/TV/music recordings with labels and provenance.
 - A controlled measurement window and readable energy counters for attributed
   resource/power comparisons. Shared-host GPU telemetry is not application power.
-- A selected language and suitable independent evaluation/listening data before
-  promoting the first non-English profile. No blanket multilingual claim.
+- Spanish is selected by the maintainer for the first non-English profile in
+  both apps. Independent Spanish wake recordings and listening evaluation remain
+  required before promotion. No blanket multilingual claim.
 
 ## Omawake acceptance status
 
@@ -67,7 +68,7 @@ those inputs, without declaring the first release fully qualified.
 | W01 | Partial | Versioned real speech, generated adverse/near-match and 10.739-hour negative evidence; real-room, controlled regression and continuous idle power remain open |
 | W02/W03 | Implemented | Complete pinned whisper.cpp default and backend resolver; migration/default tests and file-only proof |
 | W04 | Implemented | Friendly compatible rows, disabled explanations, compatible preselection, narrow-terminal navigation and family discovery; CLI catalog stays stable |
-| W05 | Implemented; final audit pending | Locking, cancellation, disk preflight, hash verification and rollback tests; map cache/probe failures to acceptance before closure |
+| W05 | Implemented; acceptance mapped | [Installer audit](INSTALLER-PROTECTIONS.md) maps fresh setup, failed cache/probe, corruption, cancellation, lock and disk-budget checks; documented limits remain |
 | W06 | Partial | CPU, Vulkan, Intel GPU/NPU and GB10 CUDA evidence exists; evidence depth differs by pair, HIP pending, no blanket hardware promotion |
 | W07–W11/W22 | Next core work | Joint lifecycle first, then measured variants, maintenance and qualified language; filters/resume conditional on scale |
 
