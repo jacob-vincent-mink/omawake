@@ -161,7 +161,32 @@ pub(super) fn run_reviewed(
         }
         cancellation.check()?;
         let mut head = Head::train(&contract, &examples[0], &examples[1])?;
-        head.validate_held_out(&examples[2])?;
+        head.validate_held_out(&examples[2]).with_context(|| {
+            let scores = examples[2]
+                .iter()
+                .zip(&prepared.validation)
+                .map(|(sample, recording)| {
+                    let score = head.score(&contract, &sample.values).unwrap_or(f32::NAN);
+                    format!(
+                        "{}: expected {}, score {:.4}, threshold {:.4}",
+                        recording
+                            .audio
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy(),
+                        if sample.positive {
+                            "wake phrase"
+                        } else {
+                            "other speech"
+                        },
+                        score,
+                        head.threshold
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
+            format!("Held-out clip scores: {scores}")
+        })?;
         cancellation.check()?;
         let mut artifact_path = None;
         if args.apply {
@@ -234,7 +259,7 @@ pub(super) fn run_reviewed(
     })();
     result.map_err(|error| match retained {
         Some(directory) => error.context(format!("Training did not complete; kept your labeled recordings at {} as requested. Configuration activation did not complete", directory.join("manifest.json").display())),
-        None => error.context("Training did not complete; recordings were not retained. Choose Keep recordings locally to preserve the dataset before inference"),
+        None => error.context("Training did not complete; additional recording copies were not retained. Supplied input files are unchanged. Choose Keep recordings locally to save a new dataset copy before inference"),
     })
 }
 
@@ -496,6 +521,14 @@ mod tests {
             let error = run_with(options, config.clone(), &file, &paths, load).unwrap_err();
             let diagnostic = format!("{error:#}");
             assert!(diagnostic.contains("missed 2/2"), "{diagnostic}");
+            assert!(
+                diagnostic.contains("sample-009.wav: expected other speech, score"),
+                "{diagnostic}"
+            );
+            assert!(
+                diagnostic.contains("sample-011.wav: expected wake phrase, score"),
+                "{diagnostic}"
+            );
             assert!(diagnostic.contains("activated on 2/2"), "{diagnostic}");
             assert_eq!(config_snapshot(&file).unwrap(), before);
             assert!(!paths.data_dir.join("heads").exists());
