@@ -1,0 +1,27 @@
+{
+  "host": "promaxgb10-d666",
+  "architecture": "aarch64",
+  "platform": "Linux-6.17.0-1032-nvidia-aarch64-with-glibc2.39",
+  "python": "3.12.3",
+  "scope": "file-only, isolated XDG paths; SGLang resident; no installed config/services changed",
+  "commits": {
+    "omawake": "50b3b3390788ba7af2b1f6c0e4f1e9016721fff7",
+    "omaspeak": "b787e8dee3a718e9a3a7e5df29c3ff57e0578c26"
+  },
+  "sha256": {
+    "/tmp/oma-model-qualification-F1DZcy/omawake/target/release/omawake": "8f57e71b14127c1997d1440d85510bf0f4ec6280ecfbdda2ce53f022541db85f",
+    "/tmp/oma-model-qualification-F1DZcy/omaspeak/target/release/omaspeak": "bf73a0312c5e74c7fdc47cea17b7983daab60d718e82bd8c4356ae0e2354191f",
+    "/tmp/omawake-rc3-cuda-final/audiocpp-build/bin/libaudiocpp.so.0.1.0": "bc604fe7c870ab4bf785fb56bf08d2dd8b127b8298c5a260a2eb63dd7ba0ae71",
+    "/tmp/omaspeak-cuda-proof.mMSyuK/audio.cpp-build/bin/libaudiocpp.so.0.1.0": "7e0f52a37bafda9f83302eebd279252c89a16a1c863dba85ada716829fa75638",
+    "/tmp/omawake-rc3-cuda-final/data/omawake/models/moonshine-streaming-tiny-q8_0-silero-v6.2.1/moonshine-streaming-tiny-q8_0.gguf": "e9a342a07327f4e1745874f137f45350697e91699a91e4eb2ac60c223718f8c3",
+    "/tmp/omawake-rc3-cuda-final/data/omawake/models/moonshine-streaming-tiny-q8_0-silero-v6.2.1/silero_vad_16k.safetensors": "c59271c284ae9c8335d795d60e0bfdb71aaaceec578d9bd9ffc1b8153c319ea1",
+    "/tmp/omaspeak-rc3-cuda-final/data/omaspeak/models/supertonic-3-gguf/supertonic-3-orig.gguf": "af814486a0bc9513fb36afabd9b1155ad14fb2c36a107ac6ffe62ea9adafb662"
+  },
+  "gpu": "NVIDIA GB10, 580.173.02, [N/A]",
+  "provider_commit": "e9ff20042ec85af960a720368c6927cda19ad65f",
+  "os": "Ubuntu 24.04.5 LTS",
+  "cuda_toolkit": "13.0.88",
+  "cuda_architecture": "121a-real",
+  "provider_cuda_graphs": true,
+  "hip": "pending: maintainer has no HIP hardware"
+}

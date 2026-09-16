@@ -84,3 +84,7 @@ record the new file-only evidence and qualification limits.
 [Broader qualification evidence](../benchmarks/results/2026-09-16-qualification/RESULTS.md)
 records release-build comparisons, generated adverse/near-match corpora, Intel
 GPU/NPU checks and remaining promotion gates.
+
+[GB10 CUDA qualification](../benchmarks/results/2026-09-16-cuda/RESULTS.md)
+records current-code ARM64/CUDA corpus checks, placement and resource evidence.
+HIP remains pending because the maintainer has no test hardware.
