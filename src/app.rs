@@ -89,6 +89,9 @@ enum TopCommand {
         cache_directory: PathBuf,
         device: String,
         vad_threads: u16,
+        /// Language code for multilingual verifiers; empty follows the model default.
+        #[arg(default_value_t = String::new())]
+        language: String,
     },
     #[command(name = "__openvino-runtime-worker", hide = true)]
     OpenVinoRuntimeWorker {
@@ -407,9 +410,17 @@ where
         cache_directory,
         device,
         vad_threads,
+        language,
     } = &cli.command
     {
+        let model_name = model_directory
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default()
+            .to_owned();
         return openvino_genai_worker(crate::engine::openvino_genai::ProviderSpec {
+            profile: crate::engine::openvino_genai::verifier_profile_for_name(&model_name),
+            language: language.clone(),
             genai_library: genai_library.clone(),
             core_library: core_library.clone(),
             audiocpp_library: audiocpp_library.clone(),
@@ -811,6 +822,7 @@ fn set_config(config: &mut Config, key: &str, value: &str) -> Result<()> {
         "model.verifier" => config.model.verifier = value.into(),
         "model.vad" => config.model.vad = value.into(),
         "model.sample_rate" => config.model.sample_rate = value.parse()?,
+        "model.language" => config.model.language = value.trim().to_owned(),
         "audio.device" => {
             crate::audio_devices::validate(value, "input")?;
             config.audio.device = value.into();
@@ -838,6 +850,7 @@ fn unset_config(config: &mut Config, key: &str) -> Result<()> {
         "model.verifier" => config.model.verifier = defaults.model.verifier,
         "model.vad" => config.model.vad = defaults.model.vad,
         "model.sample_rate" => config.model.sample_rate = defaults.model.sample_rate,
+        "model.language" => config.model.language = defaults.model.language,
         "audio.device" => config.audio.device = defaults.audio.device,
         "daemon.cooldown_milliseconds" => {
             config.daemon.cooldown_milliseconds = defaults.daemon.cooldown_milliseconds
@@ -2759,6 +2772,7 @@ where
         enabled_keyword_ids: enabled_keywords.iter().cloned().collect(),
         model_name: config.model.name.clone(),
         model_directory: config.model_directory(paths).display().to_string(),
+        model_language: config.model.language.clone(),
         application_version: env!("CARGO_PKG_VERSION").into(),
     };
     let report = evaluation::evaluate_with(&prepared, context, load, detect, identity)?;
@@ -3235,6 +3249,8 @@ fn run_loaded_daemon(
             detector.fallback_used(),
             detector.load_time(),
             audio,
+            &config.model.name,
+            &config.model.language,
         );
         attach_engine_groups(&mut details, detector);
         control
@@ -3557,12 +3573,18 @@ fn daemon_details(
     fallback_used: bool,
     load_time: Duration,
     audio: Option<Value>,
+    model_name: &str,
+    model_language: &str,
 ) -> Value {
     json!({
         "backend": {
             "kind": backend_kind,
             "effective_runtime": effective_runtime,
             "fallback_used": fallback_used,
+        },
+        "model": {
+            "name": model_name,
+            "language": model_language,
         },
         "model_load_milliseconds": load_time.as_millis() as u64,
         "audio": audio,
@@ -3726,7 +3748,7 @@ fn request_id() -> String {
 fn stopped_status(config: &Config, paths: &AppPaths) -> serde_json::Value {
     json!({"status_version":1,"app":"omawake","daemon":{"running":false,"state":"stopped"},
         "backend":{"kind":config.backend.kind,"requested":{"runtime":config.backend.runtime,"device":config.backend.device},"effective":null,"supported_capabilities":supported_capabilities(),"fallback_policy":config.backend.fallback,"fallback_used":false,"placement_verified":false,"evidence":[]},
-        "model":{"family":"silero-vad+moonshine-asr","path":config.model_directory(paths),"loaded":false},"last_error":null,"details":{"audio":crate::audio_devices::status(&config.audio.device,None,None)}})
+        "model":{"name":config.model.name,"language":config.model.language,"path":config.model_directory(paths),"loaded":false},"last_error":null,"details":{"audio":crate::audio_devices::status(&config.audio.device,None,None)}})
 }
 
 fn schema(config: &Config, config_path: &Path, paths: &AppPaths) -> serde_json::Value {
@@ -3773,6 +3795,7 @@ fn schema(config: &Config, config_path: &Path, paths: &AppPaths) -> serde_json::
             {"key":"model.verifier","type":"string","section":"Model","label":"Verifier model","description":"Phrase verifier filename inside the model directory","value":config.model.verifier,"file_value":null,"supported":true,"restart_required":true},
             {"key":"model.vad","type":"string","section":"Model","label":"VAD model","description":"Silero VAD filename inside the model directory","value":config.model.vad,"file_value":null,"supported":true,"restart_required":true},
             {"key":"model.sample_rate","type":"integer","section":"Model","label":"Sample rate","description":"Native model sample rate in hertz","value":config.model.sample_rate,"file_value":null,"supported":true,"restart_required":true,"min":1},
+            {"key":"model.language","type":"enum","section":"Model","label":"Language","description":"Verifier language; empty follows the model default (Spanish `es` is the qualified non-English profile)","value":config.model.language,"file_value":null,"supported":true,"restart_required":true,"choices":["","es"]},
             {"key":"audio.device","type":"enum","choices":audio_choices,"discovery_error":audio_inventory["error"],"section":"Audio","label":"Input device","description":"System default, PipeWire node, or legacy CPAL input name","choices_command":["audio-devices","--detailed","--json"],"value":config.audio.device,"file_value":null,"supported":true,"restart_required":true},
             {"key":"daemon.cooldown_milliseconds","type":"integer","section":"Daemon","label":"Cooldown","description":"Delay after launching an action before reopening capture","value":config.daemon.cooldown_milliseconds,"file_value":null,"supported":true,"restart_required":true,"min":0},
             {"key":"daemon.queue_capacity","type":"integer","section":"Daemon","label":"Capture queue","description":"Bounded live-audio queue capacity","value":config.daemon.queue_capacity,"file_value":null,"supported":true,"restart_required":true,"min":1}],

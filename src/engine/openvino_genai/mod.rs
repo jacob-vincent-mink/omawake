@@ -40,16 +40,46 @@ const WORKER_STOP_TIMEOUT: Duration = Duration::from_secs(2);
 const AUDIOCPP_ABI_0_1_0: u32 = 1 << 8;
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct VerifierProfile {
+    pub catalog_id: &'static str,
     pub id: &'static str,
     pub languages: &'static [&'static str],
+    /// Language tokens the pinned model itself accepts for model.language.
+    pub model_languages: &'static [&'static str],
     pub multilingual: bool,
 }
 
 pub(crate) const WHISPER_BASE_EN_PROFILE: VerifierProfile = VerifierProfile {
+    catalog_id: crate::catalog::OPENVINO_MODEL_ID,
     id: "whisper-base.en-int8-ov",
     languages: &["en"],
+    model_languages: &[],
     multilingual: false,
 };
+
+/// Whisper Base (multilingual) INT8 OpenVINO profile. `languages` stays the
+/// curated qualification claim (W09: Spanish only); `model_languages` is the
+/// full language set the pinned model itself supports and accepts for
+/// `model.language` without asserting any additional qualification.
+pub(crate) const WHISPER_BASE_MULTI_PROFILE: VerifierProfile = VerifierProfile {
+    catalog_id: crate::catalog::OPENVINO_MULTILINGUAL_MODEL_ID,
+    id: "whisper-base-int8-ov",
+    languages: &["es"],
+    model_languages: WHISPER_MODEL_LANGUAGES,
+    multilingual: true,
+};
+
+/// Language tokens supported by the pinned multilingual Whisper model, taken
+/// from its pinned `generation_config.json` (`lang_to_id`). Listing them here
+/// validates configuration input only; it is not a qualification claim.
+pub(crate) const WHISPER_MODEL_LANGUAGES: &[&str] = &[
+    "af", "am", "ar", "as", "az", "ba", "be", "bg", "bn", "bo", "br", "bs", "ca", "cs", "cy", "da",
+    "de", "el", "en", "es", "et", "eu", "fa", "fi", "fo", "fr", "gl", "gu", "haw", "ha", "he",
+    "hi", "hr", "ht", "hu", "hy", "id", "is", "it", "ja", "jw", "ka", "kk", "km", "kn", "ko", "la",
+    "lb", "ln", "lo", "lt", "lv", "mg", "mi", "mk", "ml", "mn", "mr", "ms", "mt", "my", "ne", "nl",
+    "nn", "no", "oc", "pa", "pl", "ps", "pt", "ro", "ru", "sa", "sd", "si", "sk", "sl", "sn", "so",
+    "sq", "sr", "su", "sv", "sw", "ta", "te", "tg", "th", "tk", "tl", "tr", "tt", "uk", "ur", "uz",
+    "vi", "yi", "yo", "zh",
+];
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub(crate) struct RuntimeEvidence {
@@ -68,6 +98,8 @@ pub(crate) struct RuntimeEvidence {
 /// Exact external runtime and model selected by setup.
 #[derive(Clone, Debug)]
 pub(crate) struct ProviderSpec {
+    pub profile: VerifierProfile,
+    pub language: String,
     pub genai_library: PathBuf,
     pub core_library: PathBuf,
     pub audiocpp_library: PathBuf,
@@ -88,6 +120,8 @@ impl ProviderSpec {
         if config.model.sample_rate != 16_000 {
             bail!("OpenVINO GenAI Whisper requires model.sample_rate = 16000");
         }
+        let profile = verifier_profile(config);
+        let language = validate_language(config, &profile)?;
         let device = canonical_device(&config.backend.device)?.to_owned();
         let base = paths.config_file.parent().unwrap_or(Path::new("."));
         let mut library_dirs = Vec::new();
@@ -176,6 +210,8 @@ impl ProviderSpec {
         };
         let cache_directory = super::openvino_cache_directory(config, paths)?;
         Ok(Self {
+            profile,
+            language,
             genai_library,
             core_library,
             audiocpp_library,
@@ -190,7 +226,11 @@ impl ProviderSpec {
     }
 
     pub(crate) fn validate(self) -> Result<Self> {
-        self.validate_with(verify_vad, verify_model_manifest)
+        let profile = self.profile;
+        self.validate_with(
+            |path| verify_vad_with(profile, path),
+            |directory| verify_model_manifest(profile.catalog_id, directory),
+        )
     }
 
     fn validate_with(
@@ -305,9 +345,10 @@ fn secure_directory(path: &Path, label: &str) -> Result<()> {
         .with_context(|| format!("secure {label} {}", path.display()))
 }
 
-fn verify_model_manifest(directory: &Path) -> Result<()> {
-    let spec = crate::catalog::model(crate::catalog::OPENVINO_MODEL_ID)
-        .context("OpenVINO Whisper profile is missing from the Omawake catalog")?;
+fn verify_model_manifest(catalog_id: &str, directory: &Path) -> Result<()> {
+    let spec = crate::catalog::model(catalog_id).with_context(|| {
+        format!("OpenVINO Whisper profile {catalog_id} is missing from the Omawake catalog")
+    })?;
     for expected in spec.assets {
         verify_file(
             &directory.join(expected.path),
@@ -319,8 +360,8 @@ fn verify_model_manifest(directory: &Path) -> Result<()> {
     Ok(())
 }
 
-fn verify_vad(path: &Path) -> Result<()> {
-    let asset = crate::catalog::model(crate::catalog::OPENVINO_MODEL_ID)
+fn verify_vad_with(profile: VerifierProfile, path: &Path) -> Result<()> {
+    let asset = crate::catalog::model(profile.catalog_id)
         .and_then(|spec| {
             spec.assets
                 .iter()
@@ -331,6 +372,56 @@ fn verify_vad(path: &Path) -> Result<()> {
         bail!("Silero VAD must use the pinned {} artifact", asset.path);
     }
     verify_file(path, asset.size, asset.sha256, "Silero VAD")
+}
+
+/// Select the curated verifier profile from the configured catalog model.
+/// Unknown names fall back to the English profile; the per-file pinned
+/// manifest verification then rejects any model directory that does not
+/// carry the English artifacts, so the fallback cannot activate another
+/// model.
+fn verifier_profile(config: &Config) -> VerifierProfile {
+    verifier_profile_for_name(&config.model.name)
+}
+
+/// Profile for a catalog model id; unknown ids fall back to the English
+/// profile and the pinned per-file manifest verification then rejects any
+/// directory that does not carry the English artifacts.
+pub(crate) fn verifier_profile_for_name(model_name: &str) -> VerifierProfile {
+    if model_name == WHISPER_BASE_MULTI_PROFILE.catalog_id {
+        WHISPER_BASE_MULTI_PROFILE
+    } else {
+        WHISPER_BASE_EN_PROFILE
+    }
+}
+
+/// Validate `model.language` against the selected verifier profile.
+#[cfg(test)]
+pub(crate) fn validate_language_for_test(
+    config: &Config,
+    profile: &VerifierProfile,
+) -> Result<String> {
+    validate_language(config, profile)
+}
+
+fn validate_language(config: &Config, profile: &VerifierProfile) -> Result<String> {
+    let language = config.model.language.trim().to_owned();
+    if language.is_empty() {
+        return Ok(String::new());
+    }
+    if !profile.multilingual {
+        bail!(
+            "model.language {:?} requires the multilingual verifier {}",
+            language,
+            WHISPER_BASE_MULTI_PROFILE.catalog_id
+        );
+    }
+    if !profile.model_languages.contains(&language.as_str()) {
+        bail!(
+            "model.language {:?} is not a language token of the pinned multilingual Whisper model",
+            language
+        );
+    }
+    Ok(language)
 }
 
 fn verify_file(path: &Path, expected_bytes: u64, expected_sha256: &str, label: &str) -> Result<()> {
@@ -596,6 +687,7 @@ impl WorkerProcess {
             .arg(&spec.cache_directory)
             .arg(&spec.device)
             .arg(spec.vad_threads.to_string())
+            .arg(&spec.language)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::from(log));
@@ -1079,6 +1171,11 @@ struct GenAiApi {
     ) -> Status,
     result_string: unsafe extern "C" fn(*const c_void, *mut c_char, *mut usize) -> Status,
     result_free: unsafe extern "C" fn(*mut c_void),
+    whisper_config_create_from_json:
+        unsafe extern "C" fn(*const c_char, *mut *mut c_void) -> Status,
+    whisper_config_set_language: unsafe extern "C" fn(*mut c_void, *const c_char) -> Status,
+    whisper_config_validate: unsafe extern "C" fn(*const c_void) -> Status,
+    whisper_config_free: unsafe extern "C" fn(*mut c_void),
 }
 
 impl GenAiApi {
@@ -1093,6 +1190,24 @@ impl GenAiApi {
                 symbol(&library, b"ov_genai_whisper_decoded_results_get_string\0")?
             },
             result_free: unsafe { symbol(&library, b"ov_genai_whisper_decoded_results_free\0")? },
+            whisper_config_create_from_json: unsafe {
+                symbol(
+                    &library,
+                    b"ov_genai_whisper_generation_config_create_from_json\0",
+                )?
+            },
+            whisper_config_set_language: unsafe {
+                symbol(
+                    &library,
+                    b"ov_genai_whisper_generation_config_set_language\0",
+                )?
+            },
+            whisper_config_validate: unsafe {
+                symbol(&library, b"ov_genai_whisper_generation_config_validate\0")?
+            },
+            whisper_config_free: unsafe {
+                symbol(&library, b"ov_genai_whisper_generation_config_free\0")?
+            },
             _library: library,
         })
     }
@@ -1383,6 +1498,74 @@ struct OpenVinoProvider {
     pipeline: *mut c_void,
     vad: AudioCppVad,
     evidence: PlacementEvidence,
+    model_directory: PathBuf,
+}
+
+impl OpenVinoProvider {
+    /// Build the optional generation config that pins the configured
+    /// language for every generate call; `None` follows the model default
+    /// (auto-detection).
+    fn language_config(&self) -> Result<Option<GenAiConfigGuard<'_>>> {
+        if self.evidence.language.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(GenAiConfigGuard {
+            api: &self.genai,
+            config: create_language_config(
+                &self.core,
+                &self.genai,
+                &self.model_directory,
+                &self.evidence.language,
+            )?,
+        }))
+    }
+}
+
+/// Build a validated generation config carrying the explicit language.
+///
+/// The pinned model's `generation_config.json` provides `lang_to_id` and
+/// `is_multilingual` (the JSON constructor ignores `language`, so the value
+/// cannot be delivered through a file); `set_language` then receives the
+/// wrapped Whisper token (`"<|es|>"`) because the pinned runtime's
+/// `validate()` looks the language up verbatim in `lang_to_id` — plain
+/// two-letter codes are only normalized in runtime builds that include
+/// openvinotoolkit/openvino.genai#4258.
+fn create_language_config(
+    core: &CoreApi,
+    api: &GenAiApi,
+    model_directory: &Path,
+    language: &str,
+) -> Result<*mut c_void> {
+    let pinned_config = model_directory.join("generation_config.json");
+    let path = CString::new(pinned_config.as_os_str().as_encoded_bytes())
+        .context("pinned generation config path contains a NUL byte")?;
+    let mut config: *mut c_void = std::ptr::null_mut();
+    core.check("create OpenVINO Whisper generation config", unsafe {
+        (api.whisper_config_create_from_json)(path.as_ptr(), &mut config)
+    })?;
+    if config.is_null() {
+        bail!("OpenVINO GenAI returned a null Whisper generation config");
+    }
+    let token = format!("<|{language}|>");
+    let token_c = CString::new(token.as_str()).context("language token contains a NUL byte")?;
+    core.check("set OpenVINO Whisper generation language", unsafe {
+        (api.whisper_config_set_language)(config, token_c.as_ptr())
+    })?;
+    core.check("validate OpenVINO Whisper generation config", unsafe {
+        (api.whisper_config_validate)(config)
+    })?;
+    Ok(config)
+}
+
+struct GenAiConfigGuard<'a> {
+    api: &'a GenAiApi,
+    config: *mut c_void,
+}
+
+impl Drop for GenAiConfigGuard<'_> {
+    fn drop(&mut self) {
+        unsafe { (self.api.whisper_config_free)(self.config) };
+    }
 }
 
 impl OpenVinoProvider {
@@ -1446,12 +1629,14 @@ impl OpenVinoProvider {
             }
         };
         let evidence = PlacementEvidence {
-            profile_id: WHISPER_BASE_EN_PROFILE.id.into(),
-            languages: WHISPER_BASE_EN_PROFILE
+            profile_id: spec.profile.id.into(),
+            languages: spec
+                .profile
                 .languages
                 .iter()
                 .map(|value| (*value).into())
                 .collect(),
+            language: spec.language.clone(),
             multilingual: WHISPER_BASE_EN_PROFILE.multilingual,
             runtime_build: device.runtime_build,
             runtime_description: device.runtime_description,
@@ -1474,6 +1659,7 @@ impl OpenVinoProvider {
             pipeline,
             vad,
             evidence,
+            model_directory: spec.model_directory.clone(),
         })
     }
 
@@ -1482,12 +1668,16 @@ impl OpenVinoProvider {
             bail!("OpenVINO Whisper utterance must contain 1 to 480000 samples");
         }
         let mut results = std::ptr::null_mut();
+        let config = self.language_config()?;
+        let config_pointer = config
+            .as_ref()
+            .map_or(std::ptr::null(), |guard| guard.config.cast_const());
         self.core.check("run OpenVINO GenAI Whisper", unsafe {
             (self.genai.generate)(
                 self.pipeline,
                 samples.as_ptr(),
                 samples.len(),
-                std::ptr::null(),
+                config_pointer,
                 &mut results,
             )
         })?;
@@ -1883,6 +2073,14 @@ mod tests {
     memcpy(out, transcript, sizeof(transcript)); *size = sizeof(transcript); return 0;
     }
     void ov_genai_whisper_decoded_results_free(void *results) { free(results); }
+    int ov_genai_whisper_generation_config_create_from_json(const char *path, void **config) {
+        (void)path; *config = malloc(16); return FAKE_MODE == 14 ? 5 : 0;
+    }
+    int ov_genai_whisper_generation_config_set_language(void *config, const char *language) {
+        (void)config; (void)language; return 0;
+    }
+    int ov_genai_whisper_generation_config_validate(void *config) { (void)config; return 0; }
+    void ov_genai_whisper_generation_config_free(void *config) { free(config); }
     "#;
 
     fn fake_openvino_library() -> &'static Path {
@@ -1952,6 +2150,8 @@ mod tests {
         (
             root.clone(),
             ProviderSpec {
+                profile: WHISPER_BASE_EN_PROFILE,
+                language: String::new(),
                 genai_library: fake_openvino_library().to_path_buf(),
                 core_library: fake_openvino_library().to_path_buf(),
                 audiocpp_library: super::super::audiocpp::tests::fake_library().to_path_buf(),
@@ -2034,7 +2234,7 @@ mod tests {
         let root = temporary("manifest");
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
-        let error = verify_model_manifest(&root).unwrap_err();
+        let error = verify_model_manifest(WHISPER_BASE_EN_PROFILE.catalog_id, &root).unwrap_err();
         assert!(error.to_string().contains("config.json"));
         fs::remove_dir_all(root).unwrap();
     }
@@ -2225,6 +2425,46 @@ mod tests {
             assert!(provider.vad.activity(&vec![0.0; FRAME_SAMPLES]).is_err());
             fs::remove_dir_all(root).unwrap();
         }
+    }
+
+    #[test]
+    fn language_config_requires_the_pinned_generation_metadata_and_validates() {
+        let (root, mut spec) = fake_spec("language-missing-metadata", "CPU");
+        spec.language = "es".into();
+        let provider = OpenVinoProvider::open(&spec).unwrap();
+        assert_eq!(provider.evidence.language, "es");
+        // A failing create_from_json surfaces as a controlled error.
+        spec.genai_library = fake_openvino_variant(14).to_path_buf();
+        let failing = OpenVinoProvider::open(&spec).unwrap();
+        let error = failing
+            .transcribe(&vec![0.0_f32; 1600])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("create OpenVINO Whisper generation config"),
+            "{error}"
+        );
+        // With the pinned metadata present, the config is created from the
+        // model's generation_config.json, the wrapped language token is set,
+        // the config validates, and no file is ever written.
+        fs::write(
+            spec.model_directory.join("generation_config.json"),
+            r#"{"task": "transcribe", "lang_to_id": {"<|es|>": 17451, "<|en|>": 50259}}"#,
+        )
+        .unwrap();
+        spec.genai_library = fake_openvino_library().to_path_buf();
+        let provider = OpenVinoProvider::open(&spec).unwrap();
+        assert_eq!(provider.evidence.language, "es");
+        let transcript = provider.transcribe(&vec![0.0_f32; 1600]).unwrap();
+        assert_eq!(transcript.trim(), "hello oma");
+        assert!(
+            !spec
+                .cache_directory
+                .join("generation_config.es.json")
+                .exists(),
+            "no derived config file should be written"
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

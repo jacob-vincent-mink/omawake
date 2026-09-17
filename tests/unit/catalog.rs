@@ -7,7 +7,7 @@ fn catalog_pins_a_complete_originally_sourced_profile() {
     let spec = model(DEFAULT_MODEL_ID).unwrap();
     assert_eq!(backends().len(), 3);
     assert!(backends().iter().all(|backend| backend.built));
-    assert_eq!(models().len(), 3);
+    assert_eq!(models().len(), 4);
     assert_eq!(spec.backend, "audiocpp");
     assert_eq!(spec.license, "MIT");
     assert_eq!(spec.license_status, "verified");
@@ -180,4 +180,32 @@ fn whisper_activation_preserves_its_provider_and_defaults_follow_the_backend() {
     let before = serde_json::to_value(model(DEFAULT_MODEL_ID).unwrap()).unwrap();
     assert!(before.get("name").is_none());
     assert!(before.get("asr_family").is_none());
+}
+
+#[test]
+fn multilingual_openvino_profile_is_pinned_and_claims_only_spanish() {
+    let spec = model(OPENVINO_MULTILINGUAL_MODEL_ID).unwrap();
+    assert_eq!(spec.backend, "openvino-genai");
+    assert!(spec.multilingual);
+    assert_eq!(spec.languages, &["es"]);
+    assert!(spec.source_url.contains("openai/whisper-base"));
+    assert!(
+        spec.converted_source_url
+            .contains("OpenVINO/whisper-base-int8-ov")
+    );
+    assert_eq!(spec.assets.len(), 12);
+    assert!(
+        spec.assets
+            .iter()
+            .all(|asset| !asset.url.contains("base.en"))
+    );
+    let encoder = spec
+        .assets
+        .iter()
+        .find(|a| a.path == "openvino_encoder_model.bin")
+        .unwrap();
+    assert_eq!(encoder.size, 23_097_456);
+    // Spanish is the only curated language claim; other tokens are accepted
+    // by the engine but are not qualified.
+    assert!(!spec.languages.contains(&"fr"));
 }

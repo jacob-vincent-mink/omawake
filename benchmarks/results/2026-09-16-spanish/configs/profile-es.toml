@@ -1,0 +1,32 @@
+[backend]
+kind = "openvino-genai"
+runtime = "openvino"
+device = "cpu"
+threads = 2
+fallback = "error"
+device_id = 0
+library = ""
+library_dirs = ["/home/jacob/.local/opt/openvino_genai_ubuntu24_2026.3.1.0_x86_64/runtime/lib/intel64"]
+
+[backend.options]
+
+[model]
+name = "whisper-base-int8-ov-silero-v6.2.1"
+directory = ""
+verifier = "."
+vad = "silero_vad_16k.safetensors"
+sample_rate = 16000
+language = "es"
+
+[audio]
+device = "default"
+
+[daemon]
+cooldown_milliseconds = 1500
+queue_capacity = 8
+
+[[wake_words]]
+id = "enciende-luz"
+phrase = "enciende la luz"
+enabled = true
+command = ["true"]

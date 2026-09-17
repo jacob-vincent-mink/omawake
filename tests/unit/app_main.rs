@@ -972,6 +972,7 @@ fn hidden_native_worker_dispatch_forwards_exact_provider_arguments() {
         Cli {
             config: None,
             command: TopCommand::OpenVinoGenAiWorker {
+                language: String::new(),
                 genai_library: path("genai"),
                 core_library: path("core"),
                 audiocpp_library: path("audio"),
@@ -2038,6 +2039,8 @@ fn metadata_helpers_return_stable_shapes() {
         true,
         Duration::from_millis(12),
         Some(json!({"device":"test"})),
+        "fake-model",
+        "es",
     );
     assert_eq!(details["backend"]["kind"], "fake");
     assert_eq!(details["model_load_milliseconds"], 12);
