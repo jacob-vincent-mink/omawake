@@ -14,7 +14,8 @@ as a separately selected, pinned profile.
 | Converted source | `OpenVINO/whisper-base-int8-ov@0606293f…` |
 | Original source | `openai/whisper-base` (Apache-2.0) |
 | VAD | Silero VAD 6.2.1 (pinned `silero_vad_16k.safetensors`) |
-| Qualified languages | `es` only |
+| Supported languages | every token the pinned model itself supports (99 Whisper language tokens) |
+| Validated wake corpus | Spanish (`es` — full wake-corpus evidence; other languages work through the same plumbing without per-language wake validation) |
 
 Install and select:
 
@@ -32,8 +33,8 @@ omawake wake-word add --id enciende-luz --phrase "enciende la luz" -- <command>
 - `model.language` accepts a token from the pinned model's own
   `generation_config.json` language set (99 Whisper languages). Accepting a
   token validates configuration only — it is not a qualification claim.
-- `languages` in the catalog profile, status and evidence stays the curated
-  qualification claim: `es`. The English-only profile rejects any language.
+- The catalog profile, status and evidence expose the model-supported
+  language set. The English-only profile rejects any language.
 - The explicit language reaches inference: the engine builds a generation
   config from the pinned model's `generation_config.json`, sets the wrapped
   Whisper token (`"<|es|>"`) via the C API's `set_language`, validates it,
