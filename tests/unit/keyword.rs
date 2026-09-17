@@ -2,6 +2,8 @@ use super::*;
 
 fn word(id: &str, phrase: &str, enabled: bool, command: &[&str]) -> WakeWord {
     WakeWord {
+        engine: None,
+        enrollment: None,
         id: id.into(),
         phrase: phrase.into(),
         aliases: Vec::new(),

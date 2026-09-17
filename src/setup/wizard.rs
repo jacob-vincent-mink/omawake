@@ -15,10 +15,12 @@ use crate::backend::Runtime;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SetupMode {
+    Onboard,
     Full,
     Runtime,
     Model,
     Check,
+    Audio,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -392,7 +394,7 @@ fn choose_setup_mode_with(prompter: &mut impl Prompter) -> Result<Option<SetupMo
         .map(setup_mode))
 }
 
-fn setup_mode_items() -> [MenuItem; 4] {
+fn setup_mode_items() -> [MenuItem; 6] {
     [
         MenuItem::available(
             "Full setup",
@@ -407,6 +409,14 @@ fn setup_mode_items() -> [MenuItem; 4] {
             "Check",
             "Verify configuration, model, launcher, and optional service status.",
         ),
+        MenuItem::available(
+            "Audio",
+            "Select or test the microphone without loading a model.",
+        ),
+        MenuItem::available(
+            "Teach a wake word",
+            "Record examples and review alternate transcript spellings.",
+        ),
     ]
 }
 
@@ -416,6 +426,8 @@ fn setup_mode(index: usize) -> SetupMode {
         SetupMode::Runtime,
         SetupMode::Model,
         SetupMode::Check,
+        SetupMode::Audio,
+        SetupMode::Onboard,
     ][index]
 }
 

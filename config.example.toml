@@ -20,7 +20,10 @@ vad = "silero_vad_16k.safetensors"
 sample_rate = 16000
 
 [audio]
+# System default or pipewire:<node.name> from audio-devices --detailed --json.
+# A pinned device never falls back to another route.
 device = "default"
+# Existing CPAL input names are also supported.
 
 [daemon]
 cooldown_milliseconds = 1500

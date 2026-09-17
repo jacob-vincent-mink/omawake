@@ -57,8 +57,9 @@ those inputs, without declaring the first release fully qualified.
   playback/TV/music recordings with labels and provenance.
 - A controlled measurement window and readable energy counters for attributed
   resource/power comparisons. Shared-host GPU telemetry is not application power.
-- A selected language and suitable independent evaluation/listening data before
-  promoting the first non-English profile. No blanket multilingual claim.
+- Spanish is selected by the maintainer for the first non-English profile in
+  both apps. Independent Spanish wake recordings and listening evaluation remain
+  required before promotion. No blanket multilingual claim.
 
 ## Omawake acceptance status
 
@@ -67,10 +68,12 @@ those inputs, without declaring the first release fully qualified.
 | W01 | Partial | Versioned real speech, generated adverse/near-match and 10.739-hour negative evidence; real-room, controlled regression and continuous idle power remain open |
 | W02/W03 | Implemented | Complete pinned whisper.cpp default and backend resolver; migration/default tests and file-only proof |
 | W04 | Implemented | Friendly compatible rows, disabled explanations, compatible preselection, narrow-terminal navigation and family discovery; CLI catalog stays stable |
-| W05 | Implemented; final audit pending | Locking, cancellation, disk preflight, hash verification and rollback tests; map cache/probe failures to acceptance before closure |
+| W05 | Implemented; final audit closed (2026-09-16) | [Installer audit](INSTALLER-PROTECTIONS.md) maps fresh setup, failed cache/probe, corruption, cancellation, lock and disk-budget checks to acceptance; `setup check` surfaces every cache/probe failure as a remediation row (tested) and install failures restore state |
 | W06 | Partial | CPU, Vulkan, Intel GPU/NPU and GB10 CUDA evidence exists; evidence depth differs by pair, HIP pending, no blanket hardware promotion |
-| W07 | Implemented | [Pinned URL health check](CATALOG-MAINTENANCE.md) (`setup model --check-urls [--url-prefix]`), offline import diagnostics with expected/actual values, provenance manifests and atomic install already in place; 17/17 pinned URLs verified healthy |
-| W08–W10 | Next core work | Measured ASR variants, qualified language, and playback ownership; filters/resume conditional on scale |
+| W07 | Implemented | [Pinned URL health check](CATALOG-MAINTENANCE.md) and import diagnostics (stacked PR) |
+| W08 | Done — both larger variants deferred (stop-promote, 2026-09-16) | [Moonshine Small/Medium vs Tiny](../benchmarks/results/2026-09-16-moonshine-variants/RESULTS.md) on identical corpora: identical false activations (10 per variant over 10.739 h, 0/h for `light-up`), identical clean behavior, only degraded-`forever` recall differs; 3–5× CPU and 2.5–3.5× memory cost → neither earns its footprint; pinned opt-in profiles retained for the W14 trigger (stacked PR) |
+| W09 | Implemented, smoke-scale evidence | [Spanish wake profile](LANGUAGE-PROFILE.md): multilingual Whisper Base INT8 with `model.language` genuinely reaching inference (forced-Spanish transcription of an English clip) and status; 3/3 positives, 0 false activations / 0.32 h (stacked PR); real-room and human listening remain open |
+| W10 | Implemented | Playback pause/resume ownership with Omaspeak (PR #5) |
 | W11/W22 | Deferred — scale not warranted (recorded 2026-09-16) | Pinned omawake catalog remains 3 curated model bundles and the largest single artifact is ~148 MB (whisper.cpp ggml-base.en); search/filter controls and transfer-resume stay out until an actual catalog or download-scale need appears. Any future resume work must preserve immutable pins and complete-file hashing with interruption tests |
 
 Current evidence: [defaults and gates](MODEL-DEFAULTS.md),
@@ -80,6 +83,6 @@ Current evidence: [defaults and gates](MODEL-DEFAULTS.md),
 GB10 CUDA processed 5,557 negative clips with no activations and no fallback;
 this does not replace real-room qualification or a matched performance gate.
 
-Initial lifecycle audit: `Command::Pause`/`Resume` update a single daemon boolean.
-Owned pause leases must preserve manual pause semantics and support independent
-owners before cross-app playback integration can meet W10.
+The [playback ownership implementation](PLAYBACK-OWNERSHIP.md) adds connection-owned
+holds independent of manual pause, with acknowledgement after capture release.
+Real-room playback validation and the rest of S06 remain open.
