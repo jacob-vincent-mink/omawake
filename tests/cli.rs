@@ -923,6 +923,69 @@ fn whisper_runtime_probe_checks_the_abi_without_loading_models() {
     }
 }
 
+#[test]
+fn catalog_url_checks_report_sizes_from_a_local_stub_without_touching_pins() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let expected = omawake::catalog::models()
+        .iter()
+        .map(|spec| spec.assets.len())
+        .sum::<usize>();
+    let server = std::thread::spawn(move || {
+        for stream in listener.incoming().take(expected) {
+            let Ok(mut stream) = stream else { break };
+            // Read only the request head; ureq keeps the connection open after
+            // a HEAD request, so waiting for EOF would stall until timeouts.
+            let mut request = Vec::new();
+            let mut byte = [0_u8; 1];
+            while !request.ends_with(b"\r\n\r\n") {
+                if !matches!(stream.read(&mut byte), Ok(1)) {
+                    break;
+                }
+                request.push(byte[0]);
+            }
+            // Every stubbed asset advertises a wrong size, so every row must
+            // report a size mismatch and the command must exit nonzero.
+            let body = "HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\n";
+            let _ = stream.write_all(body.as_bytes());
+        }
+    });
+    let root = sandbox();
+    let output = run(
+        &root,
+        &[
+            "setup",
+            "model",
+            "--check-urls",
+            "--json",
+            "--url-prefix",
+            &format!("http://127.0.0.1:{port}"),
+        ],
+    );
+    assert!(!output.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let rows = report.as_array().unwrap();
+    assert!(!rows.is_empty());
+    assert!(rows.iter().all(|row| row["status"] == "size-mismatch"));
+    assert!(rows.iter().all(|row| {
+        row["url"]
+            .as_str()
+            .unwrap()
+            .starts_with(&format!("http://127.0.0.1:{port}/"))
+    }));
+    assert!(
+        rows.iter()
+            .all(|row| !row["url"].as_str().unwrap().contains("huggingface.co"))
+    );
+    // Nothing was written: no models or downloads directories were created.
+    assert!(!root.join("data/models").exists());
+    assert!(!root.join("data/downloads").exists());
+    server.join().unwrap();
+}
+
 #[cfg(unix)]
 #[test]
 fn onboarding_previews_spelling_variants_and_applies_only_reviewed_aliases() {

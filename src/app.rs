@@ -299,6 +299,13 @@ enum SetupCommand {
         set: Option<String>,
         #[arg(long, value_name = "MODEL", conflicts_with_all = ["download", "set"])]
         verify: Option<String>,
+        /// HEAD every pinned catalog URL and compare the reported size, without
+        /// downloading or changing user pins; exits nonzero on any failure.
+        #[arg(long, conflicts_with_all = ["download", "set", "verify", "source_dir", "no_activate"])]
+        check_urls: bool,
+        /// Replace the origin of pinned URLs for mirror or stub testing.
+        #[arg(long, value_name = "PREFIX", requires = "check_urls")]
+        url_prefix: Option<String>,
         #[arg(long, value_name = "DIRECTORY", requires = "download")]
         source_dir: Option<PathBuf>,
         #[arg(long, requires = "download")]
@@ -1010,10 +1017,21 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
             download,
             set,
             verify,
+            check_urls,
+            url_prefix,
             source_dir,
             no_activate,
             progress_format,
         } => {
+            if check_urls {
+                let checks = app_setup::model::check_urls(url_prefix.as_deref());
+                app_setup::model::print_url_checks(&checks, json);
+                let failed = checks.iter().filter(|check| check.status != "ok").count();
+                if failed > 0 {
+                    bail!("{failed} of {} pinned catalog URLs failed", checks.len());
+                }
+                return Ok(());
+            }
             if list || json {
                 if json {
                     println!(

@@ -1,0 +1,104 @@
+[
+  {
+    "model": "moonshine-streaming-tiny-q8_0-silero-v6.2.1",
+    "asset": "moonshine-streaming-tiny-q8_0.gguf",
+    "url": "https://huggingface.co/audio-cpp/audio.cpp-gguf/resolve/6d5436fc85f7a20c2e9f4e472b7f3a532f686444/Moonshine-Streaming-GGUF/moonshine-streaming-tiny-q8_0.gguf",
+    "status": "ok"
+  },
+  {
+    "model": "moonshine-streaming-tiny-q8_0-silero-v6.2.1",
+    "asset": "silero_vad_16k.safetensors",
+    "url": "https://raw.githubusercontent.com/snakers4/silero-vad/7e30209a3e901f9842f81b225f3e93d8199902b1/src/silero_vad/data/silero_vad_16k.safetensors",
+    "status": "ok"
+  },
+  {
+    "model": "whisper-base.en-int8-ov-silero-v6.2.1",
+    "asset": "config.json",
+    "url": "https://huggingface.co/OpenVINO/whisper-base.en-int8-ov/resolve/3b292a83752fbfcad0bd6384bcf71d0b1fc4fe74/config.json",
+    "status": "ok"
+  },
+  {
+    "model": "whisper-base.en-int8-ov-silero-v6.2.1",
+    "asset": "generation_config.json",
+    "url": "https://huggingface.co/OpenVINO/whisper-base.en-int8-ov/resolve/3b292a83752fbfcad0bd6384bcf71d0b1fc4fe74/generation_config.json",
+    "status": "ok"
+  },
+  {
+    "model": "whisper-base.en-int8-ov-silero-v6.2.1",
+    "asset": "openvino_decoder_model.bin",
+    "url": "https://huggingface.co/OpenVINO/whisper-base.en-int8-ov/resolve/3b292a83752fbfcad0bd6384bcf71d0b1fc4fe74/openvino_decoder_model.bin",
+    "status": "ok"
+  },
+  {
+    "model": "whisper-base.en-int8-ov-silero-v6.2.1",
+    "asset": "openvino_decoder_model.xml",
+    "url": "https://huggingface.co/OpenVINO/whisper-base.en-int8-ov/resolve/3b292a83752fbfcad0bd6384bcf71d0b1fc4fe74/openvino_decoder_model.xml",
+    "status": "ok"
+  },
+  {
+    "model": "whisper-base.en-int8-ov-silero-v6.2.1",
+    "asset": "openvino_detokenizer.bin",
+    "url": "https://huggingface.co/OpenVINO/whisper-base.en-int8-ov/resolve/3b292a83752fbfcad0bd6384bcf71d0b1fc4fe74/openvino_detokenizer.bin",
+    "status": "ok"
+  },
+  {
+    "model": "whisper-base.en-int8-ov-silero-v6.2.1",
+    "asset": "openvino_detokenizer.xml",
+    "url": "https://huggingface.co/OpenVINO/whisper-base.en-int8-ov/resolve/3b292a83752fbfcad0bd6384bcf71d0b1fc4fe74/openvino_detokenizer.xml",
+    "status": "ok"
+  },
+  {
+    "model": "whisper-base.en-int8-ov-silero-v6.2.1",
+    "asset": "openvino_encoder_model.bin",
+    "url": "https://huggingface.co/OpenVINO/whisper-base.en-int8-ov/resolve/3b292a83752fbfcad0bd6384bcf71d0b1fc4fe74/openvino_encoder_model.bin",
+    "status": "ok"
+  },
+  {
+    "model": "whisper-base.en-int8-ov-silero-v6.2.1",
+    "asset": "openvino_encoder_model.xml",
+    "url": "https://huggingface.co/OpenVINO/whisper-base.en-int8-ov/resolve/3b292a83752fbfcad0bd6384bcf71d0b1fc4fe74/openvino_encoder_model.xml",
+    "status": "ok"
+  },
+  {
+    "model": "whisper-base.en-int8-ov-silero-v6.2.1",
+    "asset": "openvino_tokenizer.bin",
+    "url": "https://huggingface.co/OpenVINO/whisper-base.en-int8-ov/resolve/3b292a83752fbfcad0bd6384bcf71d0b1fc4fe74/openvino_tokenizer.bin",
+    "status": "ok"
+  },
+  {
+    "model": "whisper-base.en-int8-ov-silero-v6.2.1",
+    "asset": "openvino_tokenizer.xml",
+    "url": "https://huggingface.co/OpenVINO/whisper-base.en-int8-ov/resolve/3b292a83752fbfcad0bd6384bcf71d0b1fc4fe74/openvino_tokenizer.xml",
+    "status": "ok"
+  },
+  {
+    "model": "whisper-base.en-int8-ov-silero-v6.2.1",
+    "asset": "preprocessor_config.json",
+    "url": "https://huggingface.co/OpenVINO/whisper-base.en-int8-ov/resolve/3b292a83752fbfcad0bd6384bcf71d0b1fc4fe74/preprocessor_config.json",
+    "status": "ok"
+  },
+  {
+    "model": "whisper-base.en-int8-ov-silero-v6.2.1",
+    "asset": "tokenizer.json",
+    "url": "https://huggingface.co/OpenVINO/whisper-base.en-int8-ov/resolve/3b292a83752fbfcad0bd6384bcf71d0b1fc4fe74/tokenizer.json",
+    "status": "ok"
+  },
+  {
+    "model": "whisper-base.en-int8-ov-silero-v6.2.1",
+    "asset": "silero_vad_16k.safetensors",
+    "url": "https://raw.githubusercontent.com/snakers4/silero-vad/7e30209a3e901f9842f81b225f3e93d8199902b1/src/silero_vad/data/silero_vad_16k.safetensors",
+    "status": "ok"
+  },
+  {
+    "model": "whisper-base.en-ggml-silero-v6.2.0",
+    "asset": "ggml-base.en.bin",
+    "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.en.bin",
+    "status": "ok"
+  },
+  {
+    "model": "whisper-base.en-ggml-silero-v6.2.0",
+    "asset": "ggml-silero-v6.2.0.bin",
+    "url": "https://huggingface.co/ggml-org/whisper-vad/resolve/9ffd54a1e1ee413ddf265af9913beaf518d1639b/ggml-silero-v6.2.0.bin",
+    "status": "ok"
+  }
+]
