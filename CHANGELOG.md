@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.2-rc.1 - 2026-09-17
+
+- Reconciled the model-support roadmap: W02-W05 setup/activation/cache gates
+  audited and closed, W10 playback ownership landed, and the tracker records
+  every promote/defer/stop verdict.
+- Added pinned catalog URL health checks (`setup model --check-urls`) and
+  sharper offline-import diagnostics with expected/observed values.
+- Qualified the first non-English wake profile: Spanish via the multilingual
+  Whisper Base INT8 OpenVINO profile with `model.language` reaching inference
+  and status (smoke-scale evidence; real-room and listening gates stay open).
+- Benchmarked Moonshine Small/Medium against Tiny on identical corpora;
+  neither earns its footprint, so both stay deferred behind pinned opt-in
+  profiles (`backend.options.audiocpp.asr_variant`).
+- Daemon pauses are connection-owned: HoldPause owners, nested/manual pause
+  interactions and crashes cannot leak state or retrigger wake actions.
+
 ## 0.0.2 - 2026-09-15
 
 - Added exact per-wake-word transcript aliases for uncommon names and repeatable
