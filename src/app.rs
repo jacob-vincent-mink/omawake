@@ -3751,6 +3751,16 @@ fn stopped_status(config: &Config, paths: &AppPaths) -> serde_json::Value {
         "model":{"name":config.model.name,"language":config.model.language,"path":config.model_directory(paths),"loaded":false},"last_error":null,"details":{"audio":crate::audio_devices::status(&config.audio.device,None,None)}})
 }
 
+/// Language choices for the verifier-language schema key: every token the
+/// pinned multilingual Whisper model supports, plus the model default.
+fn language_schema_choices() -> Vec<serde_json::Value> {
+    let mut choices = vec![serde_json::Value::String(String::new())];
+    for token in crate::engine::openvino_genai::WHISPER_MODEL_LANGUAGES {
+        choices.push(serde_json::Value::String((*token).into()));
+    }
+    choices
+}
+
 fn schema(config: &Config, config_path: &Path, paths: &AppPaths) -> serde_json::Value {
     let audio_inventory = crate::audio::device_inventory(&config.audio.device);
     let audio_choices = crate::audio_devices::schema_choices(&audio_inventory);
@@ -3795,7 +3805,7 @@ fn schema(config: &Config, config_path: &Path, paths: &AppPaths) -> serde_json::
             {"key":"model.verifier","type":"string","section":"Model","label":"Verifier model","description":"Phrase verifier filename inside the model directory","value":config.model.verifier,"file_value":null,"supported":true,"restart_required":true},
             {"key":"model.vad","type":"string","section":"Model","label":"VAD model","description":"Silero VAD filename inside the model directory","value":config.model.vad,"file_value":null,"supported":true,"restart_required":true},
             {"key":"model.sample_rate","type":"integer","section":"Model","label":"Sample rate","description":"Native model sample rate in hertz","value":config.model.sample_rate,"file_value":null,"supported":true,"restart_required":true,"min":1},
-            {"key":"model.language","type":"enum","section":"Model","label":"Language","description":"Verifier language; empty follows the model default (Spanish `es` is the qualified non-English profile)","value":config.model.language,"file_value":null,"supported":true,"restart_required":true,"choices":["","es"]},
+            {"key":"model.language","type":"enum","section":"Model","label":"Language","description":"Verifier language for the multilingual Whisper profile; empty follows the model default. Accepts every language token the pinned model supports","value":config.model.language,"file_value":null,"supported":true,"restart_required":true,"choices":language_schema_choices(),},
             {"key":"audio.device","type":"enum","choices":audio_choices,"discovery_error":audio_inventory["error"],"section":"Audio","label":"Input device","description":"System default, PipeWire node, or legacy CPAL input name","choices_command":["audio-devices","--detailed","--json"],"value":config.audio.device,"file_value":null,"supported":true,"restart_required":true},
             {"key":"daemon.cooldown_milliseconds","type":"integer","section":"Daemon","label":"Cooldown","description":"Delay after launching an action before reopening capture","value":config.daemon.cooldown_milliseconds,"file_value":null,"supported":true,"restart_required":true,"min":0},
             {"key":"daemon.queue_capacity","type":"integer","section":"Daemon","label":"Capture queue","description":"Bounded live-audio queue capacity","value":config.daemon.queue_capacity,"file_value":null,"supported":true,"restart_required":true,"min":1}],

@@ -183,11 +183,18 @@ fn whisper_activation_preserves_its_provider_and_defaults_follow_the_backend() {
 }
 
 #[test]
-fn multilingual_openvino_profile_is_pinned_and_claims_only_spanish() {
+fn multilingual_openvino_profile_exposes_the_model_language_set() {
     let spec = model(OPENVINO_MULTILINGUAL_MODEL_ID).unwrap();
     assert_eq!(spec.backend, "openvino-genai");
     assert!(spec.multilingual);
-    assert_eq!(spec.languages, &["es"]);
+    // The profile exposes every language the pinned model itself supports:
+    // Omaspeak only exposes the capability, the model makes the promise.
+    assert_eq!(
+        spec.languages,
+        crate::engine::openvino_genai::WHISPER_MODEL_LANGUAGES
+    );
+    assert_eq!(spec.languages.len(), 99);
+    assert!(spec.languages.contains(&"fr"));
     assert!(spec.source_url.contains("openai/whisper-base"));
     assert!(
         spec.converted_source_url
@@ -205,7 +212,4 @@ fn multilingual_openvino_profile_is_pinned_and_claims_only_spanish() {
         .find(|a| a.path == "openvino_encoder_model.bin")
         .unwrap();
     assert_eq!(encoder.size, 23_097_456);
-    // Spanish is the only curated language claim; other tokens are accepted
-    // by the engine but are not qualified.
-    assert!(!spec.languages.contains(&"fr"));
 }

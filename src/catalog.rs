@@ -520,7 +520,7 @@ const MODELS: &[ModelSpec] = &[
         license_url: "https://github.com/openai/whisper/blob/main/LICENSE",
         source_url: "https://huggingface.co/openai/whisper-base",
         source_revision: OPENVINO_WHISPER_MULTI_REVISION,
-        languages: &["es"],
+        languages: crate::engine::openvino_genai::WHISPER_MODEL_LANGUAGES,
         multilingual: true,
         converted_source_url: "https://huggingface.co/OpenVINO/whisper-base-int8-ov",
         converted_source_revision: OPENVINO_WHISPER_MULTI_REVISION,
