@@ -4,6 +4,7 @@ pub mod backend;
 pub mod catalog;
 pub mod config;
 pub mod engine;
+pub mod enrollment;
 pub mod evaluation;
 pub mod hardware;
 pub mod keyword;
@@ -17,3 +18,5 @@ pub mod setup;
 
 #[cfg(test)]
 mod test_support;
+
+pub mod audio_devices;

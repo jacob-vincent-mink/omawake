@@ -25,6 +25,9 @@ pub fn validate_wake_words(wake_words: &[WakeWord]) -> Result<()> {
 }
 
 fn validate_entry(wake_word: &WakeWord) -> Result<()> {
+    if let Some(binding) = &wake_word.enrollment {
+        binding.validate()?;
+    }
     let valid_id = !wake_word.id.is_empty()
         && wake_word
             .id

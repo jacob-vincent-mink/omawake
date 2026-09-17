@@ -1,3 +1,9 @@
+use crate::setup::wizard::MenuItem;
+mod assisted;
+mod feedback;
+mod onboarding;
+mod training;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
@@ -43,6 +49,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum TopCommand {
+    #[command(name = "__embedding-worker", hide = true)]
+    EmbeddingWorker { socket: PathBuf },
     #[command(name = "__model-cache-prepare", hide = true)]
     ModelCachePrepare {
         candidate: String,
@@ -139,6 +147,9 @@ enum TopCommand {
     AudioDevices {
         #[arg(long)]
         json: bool,
+        /// Return structured device records for settings and scripts.
+        #[arg(long)]
+        detailed: bool,
     },
     /// Run the foreground wake-phrase daemon.
     Daemon,
@@ -198,6 +209,25 @@ enum ConfigCommand {
 
 #[derive(Subcommand)]
 enum WakeWordCommand {
+    /// Get/set the trained detector threshold; use auto to restore calibration.
+    Threshold {
+        id: String,
+        value: Option<String>,
+    },
+    /// Opt-in live detection clips, review labels, and bounded local retention.
+    History(feedback::HistoryArgs),
+    /// Train an experimental phrase head using independent labeled recordings.
+    Train(training::TrainArgs),
+    /// Guided setup for Whisper spellings or experimental trainable KWS.
+    Onboard(onboarding::OnboardArgs),
+    /// List retained local enrollment recordings, or delete one session.
+    Recordings {
+        id: String,
+        #[arg(long)]
+        remove: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
     List {
         #[arg(long)]
         json: bool,
@@ -230,6 +260,17 @@ enum WakeWordCommand {
 
 #[derive(Subcommand)]
 enum SetupCommand {
+    /// Select or test the audio device without loading an inference model.
+    Audio {
+        #[arg(long)]
+        device: Option<String>,
+        /// Save the choice and restart an already-active service.
+        #[arg(long)]
+        apply: bool,
+        /// Run a short microphone level check or speaker test sound.
+        #[arg(long)]
+        test: bool,
+    },
     Check {
         #[arg(long)]
         json: bool,
@@ -310,6 +351,9 @@ pub fn entry() -> ExitCode {
 }
 
 fn run_entry(cli: Cli) -> Result<()> {
+    if let TopCommand::EmbeddingWorker { socket } = &cli.command {
+        return crate::engine::embedding_worker::main(socket);
+    }
     let paths = AppPaths::discover();
     run_entry_with_workers(
         cli,
@@ -622,7 +666,17 @@ where
         TopCommand::Test { .. } => bail!("test requires --audio FILE or --seconds N"),
         TopCommand::Daemon => run_daemon(&config, &paths),
         TopCommand::Status { json: as_json } => match send_request(&paths, Command::Status) {
-            Ok(response) => print_response(response, as_json),
+            Ok(mut response) => {
+                if let ResultPayload::State { details, .. } = &mut response.result {
+                    details["audio"]["saved"] = json!(config.audio.device);
+                    details["audio"]["restart_required"] = json!(
+                        details["audio"]["requested"]
+                            .as_str()
+                            .is_some_and(|active| active != config.audio.device)
+                    );
+                }
+                print_response(response, as_json)
+            }
             Err(_) => {
                 let stopped = stopped_status(&config, &paths);
                 if as_json {
@@ -636,7 +690,19 @@ where
         TopCommand::Pause => print_response(send_request(&paths, Command::Pause)?, false),
         TopCommand::Resume => print_response(send_request(&paths, Command::Resume)?, false),
         TopCommand::Stop => print_response(send_request(&paths, Command::Shutdown)?, false),
-        TopCommand::AudioDevices { json: as_json } => {
+        TopCommand::AudioDevices {
+            json: as_json,
+            detailed,
+        } => {
+            if detailed {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&crate::audio::device_inventory(
+                        &config.audio.device
+                    ))?
+                );
+                return Ok(());
+            }
             let devices = list_devices()?;
             if as_json {
                 println!("{}", serde_json::to_string_pretty(&devices)?);
@@ -680,6 +746,7 @@ where
         }
         TopCommand::ModelCachePrepare { .. }
         | TopCommand::NativeJson { .. }
+        | TopCommand::EmbeddingWorker { .. }
         | TopCommand::AudioCppWorker { .. }
         | TopCommand::OpenVinoGenAiWorker { .. }
         | TopCommand::OpenVinoRuntimeWorker { .. }
@@ -735,7 +802,10 @@ fn set_config(config: &mut Config, key: &str, value: &str) -> Result<()> {
         "model.verifier" => config.model.verifier = value.into(),
         "model.vad" => config.model.vad = value.into(),
         "model.sample_rate" => config.model.sample_rate = value.parse()?,
-        "audio.device" => config.audio.device = value.into(),
+        "audio.device" => {
+            crate::audio_devices::validate(value, "input")?;
+            config.audio.device = value.into();
+        }
         "daemon.cooldown_milliseconds" => config.daemon.cooldown_milliseconds = value.parse()?,
         "daemon.queue_capacity" => config.daemon.queue_capacity = value.parse()?,
         _ => bail!("unknown or unsupported config key {key}"),
@@ -776,6 +846,35 @@ fn wake_word_command(
     paths: &AppPaths,
 ) -> Result<()> {
     let message = match command {
+        WakeWordCommand::Threshold { id, value } => {
+            return feedback::threshold(id, value, config, path, paths);
+        }
+        WakeWordCommand::History(args) => return feedback::run(args, config, path, paths),
+        WakeWordCommand::Train(args) => return training::run(args, config, path, paths),
+        WakeWordCommand::Onboard(args) => return onboarding::run(args, config, path, paths),
+        WakeWordCommand::Recordings {
+            id,
+            remove,
+            json: as_json,
+        } => {
+            if let Some(session) = remove {
+                crate::enrollment::remove_recordings(paths, &id, &session)?;
+            }
+            let sessions = crate::enrollment::recordings(paths, &id)?;
+            if as_json {
+                println!("{}", serde_json::to_string_pretty(&sessions)?);
+            } else {
+                for session in sessions {
+                    println!(
+                        "{}\t{} clip(s)\t{}",
+                        session.session,
+                        session.clips,
+                        session.directory.display()
+                    );
+                }
+            }
+            return Ok(());
+        }
         WakeWordCommand::List { json: as_json } => {
             if as_json {
                 println!("{}", serde_json::to_string_pretty(&config.wake_words)?);
@@ -799,6 +898,8 @@ fn wake_word_command(
         } => {
             let message = format!("added wake word: {id}");
             config.wake_words.push(WakeWord {
+                engine: None,
+                enrollment: None,
                 id,
                 phrase,
                 aliases,
@@ -864,6 +965,11 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
         );
     }
     match command.unwrap_or(SetupCommand::Check { json: false }) {
+        SetupCommand::Audio {
+            device,
+            apply,
+            test,
+        } => setup_audio(config_path, paths, device, apply, test),
         SetupCommand::Check { json } => app_setup::print_checks(config_path, paths, json),
         SetupCommand::Runtime {
             json,
@@ -1149,6 +1255,9 @@ trait GuidedPrompts {
     ) -> Result<crate::runtime_inventory::Probe> {
         crate::runtime_inventory::apply_with(candidate, path, false, native_runtime_probe)
     }
+    fn audio_device(&mut self, current: &str) -> Result<Option<String>> {
+        Ok(Some(current.into()))
+    }
     fn setup_mode(&mut self) -> Result<Option<SetupMode>>;
     fn runtime(&mut self, current: &Config) -> Result<Option<RuntimeSelection>>;
     fn runtime_library_dir(&mut self, _candidate: &Config) -> Result<Option<PathBuf>> {
@@ -1185,6 +1294,9 @@ struct TerminalGuidedPrompts {
 }
 
 impl GuidedPrompts for TerminalGuidedPrompts {
+    fn audio_device(&mut self, current: &str) -> Result<Option<String>> {
+        choose_audio_device(current)
+    }
     fn setup_mode(&mut self) -> Result<Option<SetupMode>> {
         wizard::choose_setup_mode()
     }
@@ -1348,6 +1460,10 @@ fn guided_setup_with(
     prompts: &mut impl GuidedPrompts,
 ) -> Result<()> {
     match prompts.setup_mode()? {
+        Some(SetupMode::Audio) => setup_audio(config_path, paths, None, false, false),
+        Some(SetupMode::Onboard) => {
+            onboarding::guided(Config::load(config_path)?, config_path, paths)
+        }
         Some(SetupMode::Full) => guided_all_with(config_path, paths, prompts),
         Some(SetupMode::Runtime) => guided_runtime_with(config_path, paths, prompts),
         Some(SetupMode::Model) => guided_model_with(config_path, paths, prompts),
@@ -1608,6 +1724,12 @@ where
         println!("Setup cancelled; no changes were made.");
         return Ok(());
     }
+    let Some(audio_device) = prompts.audio_device(&candidate.audio.device)? else {
+        println!("Setup cancelled.");
+        return Ok(());
+    };
+    candidate.audio.device = audio_device;
+    println!("Input device: {}", candidate.audio.device);
     let service_was_active = service_is_active(paths);
     if !prompts.confirm(&selection, spec.id, service_was_active)? {
         println!("Setup cancelled.");
@@ -2566,13 +2688,15 @@ fn parse_fallback(value: &str) -> Result<Fallback> {
 }
 
 fn evaluation_report(config: &Config, paths: &AppPaths, manifest_path: &Path) -> Result<Value> {
-    evaluation_report_with(
+    let groups = std::cell::RefCell::new(Vec::new());
+    let mut report = evaluation_report_with(
         config,
         paths,
         manifest_path,
         || Detector::load(config, paths),
         |detector, path| detector.detect_file(path),
         |detector| {
+            groups.replace(detector.engine_statuses());
             let (placement_verified, placement_evidence) =
                 backend_placement(detector.backend_kind, detector.effective_runtime);
             Ok(RuntimeIdentity {
@@ -2585,7 +2709,9 @@ fn evaluation_report(config: &Config, paths: &AppPaths, manifest_path: &Path) ->
                 placement_evidence: placement_evidence.into(),
             })
         },
-    )
+    )?;
+    attach_group_values(&mut report, groups.into_inner());
+    Ok(report)
 }
 
 fn evaluation_report_with<D, L, F, I>(
@@ -2690,7 +2816,7 @@ fn benchmark_report(
             .flat_map(|file| file.iterations.iter())
             .map(|iteration| (iteration.elapsed_milliseconds, iteration.real_time_factor)),
     );
-    Ok(json!({
+    let mut report = json!({
         "schema_version": 1,
         "benchmark": "omawake-file-detection",
         "model_load_milliseconds": milliseconds(detector.load_time()),
@@ -2707,7 +2833,9 @@ fn benchmark_report(
         },
         "files": files,
         "summary": summary,
-    }))
+    });
+    attach_engine_groups(&mut report, detector);
+    Ok(report)
 }
 
 fn runtime_placement(runtime: Runtime) -> (bool, &'static str) {
@@ -2734,6 +2862,11 @@ fn runtime_placement(runtime: Runtime) -> (bool, &'static str) {
 
 fn backend_placement(kind: &str, runtime: Runtime) -> (bool, &'static str) {
     match (kind, runtime) {
+        ("multi-engine", _) => (false, "placement belongs to individual engine groups"),
+        ("trained-whisper-encoder", Runtime::Openvino) => (
+            true,
+            "OpenVINO frozen encoder execution device verified; Silero VAD runs on CPU",
+        ),
         ("audiocpp", Runtime::Default) => (
             true,
             "audio.cpp created explicit CPU Silero and ASR sessions",
@@ -2895,9 +3028,13 @@ where
                 sample_rate,
                 samples,
             }) => detections.extend(accept(sample_rate, &samples)?),
-            Ok(AudioEvent::Error(error)) => bail!("audio capture failed: {error}"),
+            Ok(AudioEvent::Error(error)) => {
+                return Err(CaptureFailure(format!("audio capture failed: {error}")).into());
+            }
             Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => bail!("audio capture disconnected"),
+            Err(RecvTimeoutError::Disconnected) => {
+                return Err(CaptureFailure("audio capture disconnected".into()).into());
+            }
         }
     }
     detections.extend(finish()?);
@@ -2936,7 +3073,7 @@ fn detection_report(
     execute: bool,
 ) -> Result<Value> {
     let actions = collect_detection_actions(&detections, execute, |id| detector.run(id))?;
-    Ok(detections_report(
+    let mut report = detections_report(
         detections,
         actions,
         detector.load_time(),
@@ -2944,7 +3081,27 @@ fn detection_report(
         detector.backend_kind(),
         detector.effective_runtime(),
         detector.fallback_used(),
-    ))
+    );
+    attach_engine_groups(&mut report, detector);
+    Ok(report)
+}
+
+fn attach_engine_groups(report: &mut Value, detector: &impl DetectorControl) {
+    attach_group_values(report, detector.engine_groups());
+}
+fn attach_group_values(report: &mut Value, groups: Vec<crate::engine::GroupStatus>) {
+    if !groups.is_empty() {
+        report["backend"]["groups"] = json!(groups);
+        // A mixed detector has no single effective runtime.
+        report["backend"]["effective_runtime"] = json!("mixed");
+        if report["backend"].get("requested_device").is_some() {
+            report["backend"]["requested_device"] = json!("per-engine");
+            report["backend"]["requested_runtime"] = json!("mixed");
+            report["backend"]["placement_verified"] = json!(false);
+            report["backend"]["placement_evidence"] =
+                json!("placement belongs to individual engine groups");
+        }
+    }
 }
 
 fn collect_detection_actions<F>(
@@ -3050,22 +3207,67 @@ fn run_loaded_daemon(
         "loaded wake-word model in {} ms",
         detector.load_time.as_millis()
     );
-    let mut poll_paused = || poll_control(detector, "paused", None, || accept_control(&listener));
+    let requested = &config.audio.device;
+    let mut poll_paused = || {
+        poll_control(
+            detector,
+            "paused",
+            Some(crate::audio_devices::status(requested, None, None)),
+            || accept_control(&listener),
+        )
+    };
     let mut armed_cycle = || {
-        let capture = Capture::start(&config.audio.device, config.daemon.queue_capacity)?;
-        eprintln!(
-            "armed on {} ({} Hz, {} channel(s))",
-            capture.device_name, capture.sample_rate, capture.channels
-        );
-        let session = detector.session();
-        collect_armed_detections(
-            &capture.device_name,
-            capture.sample_rate,
-            capture.channels,
-            |audio| poll_control(detector, "armed", Some(audio), || accept_control(&listener)),
-            |timeout| capture.receiver().recv_timeout(timeout),
-            |sample_rate, samples| session.accept(sample_rate, samples),
-            || shutdown_requested.load(Ordering::Relaxed),
+        retry_audio_cycle(
+            || {
+                let capture = Capture::start(requested, config.daemon.queue_capacity)
+                    .map_err(|e| CaptureFailure(format!("{e:#}")))?;
+                eprintln!(
+                    "armed on {} ({} Hz, {} channel(s))",
+                    capture.device_name, capture.sample_rate, capture.channels
+                );
+                let session = detector.live_session();
+                collect_armed_detections(
+                    &capture.device_name,
+                    capture.sample_rate,
+                    capture.channels,
+                    |mut audio| {
+                        audio["requested"] = json!(requested);
+                        // CPAL default may be an opaque bridge, not a physical device.
+                        audio["effective"] = if crate::audio_devices::is_default(requested) {
+                            Value::Null
+                        } else {
+                            json!(&capture.device_name)
+                        };
+                        audio["available"] = json!(true);
+                        poll_control(detector, "armed", Some(audio), || accept_control(&listener))
+                    },
+                    |timeout| capture.receiver().recv_timeout(timeout),
+                    |sample_rate, samples| session.accept(sample_rate, samples),
+                    || shutdown_requested.load(Ordering::Relaxed),
+                )
+            },
+            |detail| {
+                let until = std::time::Instant::now() + Duration::from_secs(1);
+                loop {
+                    if shutdown_requested.load(Ordering::Relaxed) {
+                        return Ok(Some(Command::Shutdown));
+                    }
+                    let mut audio = crate::audio_devices::status(requested, None, Some(detail));
+                    audio["available"] = json!(false);
+                    if let Some(command) =
+                        poll_control(detector, "audio_unavailable", Some(audio), || {
+                            accept_control(&listener)
+                        })?
+                    {
+                        return Ok(Some(command));
+                    }
+                    if std::time::Instant::now() >= until {
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(50));
+                }
+                Ok(None)
+            },
         )
     };
     let mut execute = |triggered| execute_detected_actions(triggered, |id| detector.run_action(id));
@@ -3192,9 +3394,13 @@ where
             sample_rate,
             samples,
         }) => accept(sample_rate, &samples),
-        Ok(AudioEvent::Error(error)) => bail!("audio capture failed: {error}"),
+        Ok(AudioEvent::Error(error)) => {
+            Err(CaptureFailure(format!("audio capture failed: {error}")).into())
+        }
         Err(RecvTimeoutError::Timeout) => Ok(Vec::new()),
-        Err(RecvTimeoutError::Disconnected) => bail!("audio capture disconnected"),
+        Err(RecvTimeoutError::Disconnected) => {
+            Err(CaptureFailure("audio capture disconnected".into()).into())
+        }
     }
 }
 
@@ -3284,17 +3490,21 @@ where
     S: Read + Write,
     A: FnMut() -> Result<Option<S>>,
 {
-    let details = daemon_details(
+    let mut details = daemon_details(
         detector.backend_kind(),
         detector.effective_runtime(),
         detector.fallback_used(),
         detector.load_time(),
         audio,
     );
+    attach_engine_groups(&mut details, detector);
     poll_control_connections(accept, state, &details)
 }
 
 trait DetectorControl {
+    fn engine_groups(&self) -> Vec<crate::engine::GroupStatus> {
+        Vec::new()
+    }
     fn backend_kind(&self) -> &str;
     fn effective_runtime(&self) -> Runtime;
     fn fallback_used(&self) -> bool;
@@ -3304,6 +3514,9 @@ trait DetectorControl {
 }
 
 impl DetectorControl for Detector {
+    fn engine_groups(&self) -> Vec<crate::engine::GroupStatus> {
+        self.engine_statuses()
+    }
     fn backend_kind(&self) -> &str {
         self.backend_kind
     }
@@ -3575,10 +3788,12 @@ fn request_id() -> String {
 fn stopped_status(config: &Config, paths: &AppPaths) -> serde_json::Value {
     json!({"status_version":1,"app":"omawake","daemon":{"running":false,"state":"stopped"},
         "backend":{"kind":config.backend.kind,"requested":{"runtime":config.backend.runtime,"device":config.backend.device},"effective":null,"supported_capabilities":supported_capabilities(),"fallback_policy":config.backend.fallback,"fallback_used":false,"placement_verified":false,"evidence":[]},
-        "model":{"family":"silero-vad+moonshine-asr","path":config.model_directory(paths),"loaded":false},"last_error":null,"details":{}})
+        "model":{"family":"silero-vad+moonshine-asr","path":config.model_directory(paths),"loaded":false},"last_error":null,"details":{"audio":crate::audio_devices::status(&config.audio.device,None,None)}})
 }
 
 fn schema(config: &Config, config_path: &Path, paths: &AppPaths) -> serde_json::Value {
+    let audio_inventory = crate::audio::device_inventory(&config.audio.device);
+    let audio_choices = crate::audio_devices::schema_choices(&audio_inventory);
     let selected_ready = match config.backend.kind.as_str() {
         "audiocpp" => crate::engine::audiocpp::discover_provider(config, paths).is_ok(),
         "openvino-genai" => {
@@ -3620,7 +3835,7 @@ fn schema(config: &Config, config_path: &Path, paths: &AppPaths) -> serde_json::
             {"key":"model.verifier","type":"string","section":"Model","label":"Verifier model","description":"Phrase verifier filename inside the model directory","value":config.model.verifier,"file_value":null,"supported":true,"restart_required":true},
             {"key":"model.vad","type":"string","section":"Model","label":"VAD model","description":"Silero VAD filename inside the model directory","value":config.model.vad,"file_value":null,"supported":true,"restart_required":true},
             {"key":"model.sample_rate","type":"integer","section":"Model","label":"Sample rate","description":"Native model sample rate in hertz","value":config.model.sample_rate,"file_value":null,"supported":true,"restart_required":true,"min":1},
-            {"key":"audio.device","type":"string","section":"Audio","label":"Input device","description":"CPAL input device name or default","value":config.audio.device,"file_value":null,"supported":true,"restart_required":true},
+            {"key":"audio.device","type":"enum","choices":audio_choices,"discovery_error":audio_inventory["error"],"section":"Audio","label":"Input device","description":"System default, PipeWire node, or legacy CPAL input name","choices_command":["audio-devices","--detailed","--json"],"value":config.audio.device,"file_value":null,"supported":true,"restart_required":true},
             {"key":"daemon.cooldown_milliseconds","type":"integer","section":"Daemon","label":"Cooldown","description":"Delay after launching an action before reopening capture","value":config.daemon.cooldown_milliseconds,"file_value":null,"supported":true,"restart_required":true,"min":0},
             {"key":"daemon.queue_capacity","type":"integer","section":"Daemon","label":"Capture queue","description":"Bounded live-audio queue capacity","value":config.daemon.queue_capacity,"file_value":null,"supported":true,"restart_required":true,"min":1}],
         "collections":[
@@ -3659,3 +3874,132 @@ fn human_schema_lines(schema: &Value) -> Result<Vec<String>> {
 #[cfg(test)]
 #[path = "../tests/unit/app_main.rs"]
 mod tests;
+
+fn choose_audio_device(current: &str) -> Result<Option<String>> {
+    app_setup::audio::choose(current, crate::audio::device_inventory)
+}
+
+fn setup_audio(
+    config_path: &Path,
+    paths: &AppPaths,
+    device: Option<String>,
+    apply: bool,
+    test: bool,
+) -> Result<()> {
+    let mut config = Config::load(config_path)?;
+    let interactive = device.is_none() && !test && !apply;
+    let selected = if interactive {
+        let Some(selected) = choose_audio_device(&config.audio.device)? else {
+            println!("Setup cancelled.");
+            return Ok(());
+        };
+        selected
+    } else {
+        device.unwrap_or_else(|| config.audio.device.clone())
+    };
+    crate::audio_devices::validate(&selected, "input")?;
+    if test {
+        test_audio_device(&selected)?;
+    }
+    let mut save = apply;
+    if interactive {
+        loop {
+            let items = [
+                MenuItem::available(
+                    "Apply",
+                    "Save this route and restart an already-active service.",
+                ),
+                MenuItem::available(
+                    "Test device",
+                    "Run a short audio check without loading a model.",
+                ),
+                MenuItem::available("Cancel", "Leave the current configuration unchanged."),
+            ];
+            match app_setup::wizard::select("Apply audio device", &selected, &items, 0)? {
+                Some(0) => {
+                    save = true;
+                    break;
+                }
+                Some(1) => {
+                    if let Err(error) = test_audio_device(&selected) {
+                        eprintln!("Audio test failed: {error:#}");
+                    }
+                }
+                _ => {
+                    println!("Setup cancelled.");
+                    return Ok(());
+                }
+            }
+        }
+    }
+    if save {
+        config.audio.device = selected;
+        let restarted = save_and_reload_active(config, config_path, paths)?;
+        println!(
+            "Audio device saved; {}.",
+            if restarted {
+                "active service restarted"
+            } else {
+                "restart any manually launched daemon to apply"
+            }
+        );
+    } else if !test {
+        println!("Audio device: {selected}; use --apply to save or --test to check it.");
+    }
+    Ok(())
+}
+
+fn test_audio_device(selected: &str) -> Result<()> {
+    let capture = Capture::start(selected, 32)?;
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    let mut count = 0;
+    let mut energy = 0.0_f64;
+    let mut peak = 0.0_f32;
+    println!("Listening for three seconds on {selected}…");
+    while std::time::Instant::now() < deadline {
+        match capture.receiver().recv_timeout(Duration::from_millis(50)) {
+            Ok(AudioEvent::Samples { samples, .. }) => {
+                for sample in samples {
+                    energy += f64::from(sample).powi(2);
+                    peak = peak.max(sample.abs());
+                    count += 1;
+                }
+            }
+            Ok(AudioEvent::Error(error)) => bail!("{error}"),
+            Err(RecvTimeoutError::Disconnected) => bail!("microphone disconnected"),
+            Err(RecvTimeoutError::Timeout) => {}
+        }
+    }
+    if count == 0 {
+        bail!("microphone delivered no samples");
+    }
+    println!(
+        "Captured {count} samples; RMS {:.4}, peak {peak:.4}. No audio was saved.",
+        (energy / count as f64).sqrt()
+    );
+    Ok(())
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+struct CaptureFailure(String);
+
+/// Retry only capture failures. Each attempt owns and drops its capture and
+/// recognition session before waiting, so reconnect never reuses partial audio.
+fn retry_audio_cycle(
+    mut attempt: impl FnMut() -> Result<(Vec<Detection>, Option<Command>)>,
+    mut wait: impl FnMut(&str) -> Result<Option<Command>>,
+) -> Result<(Vec<Detection>, Option<Command>)> {
+    loop {
+        match attempt() {
+            Ok(value) => return Ok(value),
+            Err(error) if error.downcast_ref::<CaptureFailure>().is_some() => {
+                eprintln!("audio unavailable: {error:#}; retrying in one second");
+                if let Some(command) = wait(&format!("{error:#}"))? {
+                    return Ok((Vec::new(), Some(command)));
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}

@@ -51,3 +51,10 @@ linked. The declarations remain under the upstream MIT license in
 
 Release archives contain `RUST-DEPENDENCIES.txt`, generated with cargo-about
 from the locked Rust dependency graph.
+
+The experimental trainable encoder uses Intel's `openvino` and `openvino-sys`
+Rust wrappers (Apache-2.0) with runtime linking. Their license appears in the
+locked Rust dependency notices. This does not bundle the OpenVINO runtime.
+Whisper preprocessing and the tiny classifier are independently implemented;
+no sherpa-onnx implementation is included. The numeric test fixtures are
+project-generated signals and reference feature values, not speech recordings.
