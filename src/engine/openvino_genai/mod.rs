@@ -1173,6 +1173,7 @@ struct GenAiApi {
     result_free: unsafe extern "C" fn(*mut c_void),
     whisper_config_create_from_json:
         unsafe extern "C" fn(*const c_char, *mut *mut c_void) -> Status,
+    whisper_config_set_language: unsafe extern "C" fn(*mut c_void, *const c_char) -> Status,
     whisper_config_validate: unsafe extern "C" fn(*const c_void) -> Status,
     whisper_config_free: unsafe extern "C" fn(*mut c_void),
 }
@@ -1193,6 +1194,12 @@ impl GenAiApi {
                 symbol(
                     &library,
                     b"ov_genai_whisper_generation_config_create_from_json\0",
+                )?
+            },
+            whisper_config_set_language: unsafe {
+                symbol(
+                    &library,
+                    b"ov_genai_whisper_generation_config_set_language\0",
                 )?
             },
             whisper_config_validate: unsafe {
@@ -1496,51 +1503,42 @@ struct OpenVinoProvider {
 
 impl OpenVinoProvider {
     /// Build the optional generation config that pins the configured
-    /// language for every generate call; `None` follows the model default.
-    /// Build the language-pinned generation config from a derived JSON file.
-    /// The pinned runtime's `set_language` entry point rejects every language
-    /// (status -17, recorded in the W09 evidence); loading the same field
-    /// through `create_from_json` works, so the explicit language is baked
-    /// into a derived config file in the worker-owned cache directory.
+    /// language for every generate call; `None` follows the model default
+    /// (auto-detection).
     fn language_config(&self) -> Result<Option<GenAiConfigGuard<'_>>> {
         if self.evidence.language.is_empty() {
             return Ok(None);
         }
-        let derived = PathBuf::from(&self.evidence.cache_directory)
-            .join(format!("generation_config.{}.json", self.evidence.language));
         Ok(Some(GenAiConfigGuard {
             api: &self.genai,
             config: create_language_config(
                 &self.core,
                 &self.genai,
-                &self.model_directory.display().to_string(),
-                &derived,
+                &self.model_directory,
                 &self.evidence.language,
             )?,
         }))
     }
 }
 
-/// Build a validated generation config from the pinned model metadata plus the
-/// explicit language; the derived JSON lives in the cache directory so the
-/// verified model tree stays untouched.
+/// Build a validated generation config carrying the explicit language.
+///
+/// The pinned model's `generation_config.json` provides `lang_to_id` and
+/// `is_multilingual` (the JSON constructor ignores `language`, so the value
+/// cannot be delivered through a file); `set_language` then receives the
+/// wrapped Whisper token (`"<|es|>"`) because the pinned runtime's
+/// `validate()` looks the language up verbatim in `lang_to_id` — plain
+/// two-letter codes are only normalized in runtime builds that include
+/// openvinotoolkit/openvino.genai#4258.
 fn create_language_config(
     core: &CoreApi,
     api: &GenAiApi,
-    model_directory: &str,
-    derived_path: &Path,
+    model_directory: &Path,
     language: &str,
 ) -> Result<*mut c_void> {
-    let pinned_config = PathBuf::from(model_directory).join("generation_config.json");
-    let model_config = fs::read_to_string(&pinned_config)
-        .with_context(|| format!("read {}", pinned_config.display()))?;
-    let mut parsed: serde_json::Value = serde_json::from_str(&model_config)
-        .context("parse pinned OpenVINO generation_config.json")?;
-    parsed["language"] = language.into();
-    fs::write(derived_path, serde_json::to_vec_pretty(&parsed)?)
-        .with_context(|| format!("write {}", derived_path.display()))?;
-    let path = CString::new(derived_path.as_os_str().as_encoded_bytes())
-        .context("derived generation config path contains a NUL byte")?;
+    let pinned_config = model_directory.join("generation_config.json");
+    let path = CString::new(pinned_config.as_os_str().as_encoded_bytes())
+        .context("pinned generation config path contains a NUL byte")?;
     let mut config: *mut c_void = std::ptr::null_mut();
     core.check("create OpenVINO Whisper generation config", unsafe {
         (api.whisper_config_create_from_json)(path.as_ptr(), &mut config)
@@ -1548,6 +1546,11 @@ fn create_language_config(
     if config.is_null() {
         bail!("OpenVINO GenAI returned a null Whisper generation config");
     }
+    let token = format!("<|{language}|>");
+    let token_c = CString::new(token.as_str()).context("language token contains a NUL byte")?;
+    core.check("set OpenVINO Whisper generation language", unsafe {
+        (api.whisper_config_set_language)(config, token_c.as_ptr())
+    })?;
     core.check("validate OpenVINO Whisper generation config", unsafe {
         (api.whisper_config_validate)(config)
     })?;
@@ -2071,7 +2074,10 @@ mod tests {
     }
     void ov_genai_whisper_decoded_results_free(void *results) { free(results); }
     int ov_genai_whisper_generation_config_create_from_json(const char *path, void **config) {
-        (void)path; *config = malloc(16); return 0;
+        (void)path; *config = malloc(16); return FAKE_MODE == 14 ? 5 : 0;
+    }
+    int ov_genai_whisper_generation_config_set_language(void *config, const char *language) {
+        (void)config; (void)language; return 0;
     }
     int ov_genai_whisper_generation_config_validate(void *config) { (void)config; return 0; }
     void ov_genai_whisper_generation_config_free(void *config) { free(config); }
@@ -2425,26 +2431,37 @@ mod tests {
         spec.language = "es".into();
         let provider = OpenVinoProvider::open(&spec).unwrap();
         assert_eq!(provider.evidence.language, "es");
-        let error = provider
+        // A failing create_from_json surfaces as a controlled error.
+        spec.genai_library = fake_openvino_variant(14).to_path_buf();
+        let failing = OpenVinoProvider::open(&spec).unwrap();
+        let error = failing
             .transcribe(&vec![0.0_f32; 1600])
             .unwrap_err()
             .to_string();
-        assert!(error.contains("generation_config.json"), "{error}");
-        // With the pinned metadata present, the derived config is created and
-        // validated from the cache directory and the model tree stays clean.
+        assert!(
+            error.contains("create OpenVINO Whisper generation config"),
+            "{error}"
+        );
+        // With the pinned metadata present, the config is created from the
+        // model's generation_config.json, the wrapped language token is set,
+        // the config validates, and no file is ever written.
         fs::write(
             spec.model_directory.join("generation_config.json"),
-            r#"{"task": "transcribe", "language": "en"}"#,
+            r#"{"task": "transcribe", "lang_to_id": {"<|es|>": 17451, "<|en|>": 50259}}"#,
         )
         .unwrap();
+        spec.genai_library = fake_openvino_library().to_path_buf();
         let provider = OpenVinoProvider::open(&spec).unwrap();
         assert_eq!(provider.evidence.language, "es");
-        assert!(provider.transcribe(&vec![0.0_f32; 1600]).is_ok());
-        let derived = spec.cache_directory.join("generation_config.es.json");
-        assert!(derived.exists(), "derived config was not written");
-        let parsed: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(&derived).unwrap()).unwrap();
-        assert_eq!(parsed["language"], "es");
+        let transcript = provider.transcribe(&vec![0.0_f32; 1600]).unwrap();
+        assert_eq!(transcript.trim(), "hello oma");
+        assert!(
+            !spec
+                .cache_directory
+                .join("generation_config.es.json")
+                .exists(),
+            "no derived config file should be written"
+        );
         fs::remove_dir_all(root).unwrap();
     }
 

@@ -34,13 +34,14 @@ omawake wake-word add --id enciende-luz --phrase "enciende la luz" -- <command>
   token validates configuration only — it is not a qualification claim.
 - `languages` in the catalog profile, status and evidence stays the curated
   qualification claim: `es`. The English-only profile rejects any language.
-- The explicit language reaches inference through a derived
-  `generation_config.<lang>.json` in the worker-owned cache directory. The
-  pinned model tree is never modified. The pinned OpenVINO GenAI
-  2026.3.1.0 C wrapper rejects every language through its
-  `set_language` entry point (status -17) while accepting the same field via
-  `create_from_json`; this is recorded as an upstream limitation, and the
-  engine fails loudly if the derived config cannot be validated.
+- The explicit language reaches inference: the engine builds a generation
+  config from the pinned model's `generation_config.json`, sets the wrapped
+  Whisper token (`"<|es|>"`) via the C API's `set_language`, validates it,
+  and passes it to every generate call. No files are written and the pinned
+  model tree is never modified. The pinned 2026.3.1.0 build predates
+  openvinotoolkit/openvino.genai#4258, so plain two-letter codes are
+  rejected by `validate()` (wrapped tokens work); the engine sends wrapped
+  tokens and fails loudly if the config cannot be created or validated.
 - Status (`omawake status --json`), daemon details and evaluation reports
   include the configured language next to the model name.
 

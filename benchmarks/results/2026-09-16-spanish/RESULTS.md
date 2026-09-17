@@ -15,16 +15,23 @@ though the pinned model itself accepts 99 language tokens.
   the English-only profile rejects any language with a clear error. Status
   (`omawake status --json`), daemon details and evaluation reports carry the
   configured language alongside the model name.
-- **Pinned-runtime finding**: the OpenVINO GenAI 2026.3.1.0 C wrapper's
-  `ov_genai_whisper_generation_config_set_language` poisons the config object
-  — every later `validate`/`generate` call on it fails with status -17, even
-  for `"en"`, with the unmodified config validating cleanly. The same
-  language loads fine through `create_from_json`. The engine therefore bakes
-  the explicit language into a derived
-  `generation_config.<lang>.json` inside the worker-owned cache directory
-  (the verified model tree is never modified), builds the config from that
-  file, and passes it to every generate call. This is recorded as an upstream
-  runtime limitation, not worked around silently.
+- **Explicit language reaches inference**: the engine builds a generation
+  config from the pinned model's `generation_config.json`, applies the
+  language as the wrapped Whisper token (`"<|es|>"`) via
+  `ov_genai_whisper_generation_config_set_language`, validates it, and passes
+  it to every generate call. Proof: with `es` pinned, an English fixture clip
+  transcribes as garbled Spanish ("La verdad es que la consecuencia…")
+  instead of the correct English auto-detect transcript ("God, as a direct
+  consequence of the sin…"), and the Spanish positives transcribe cleanly.
+- **Pinned-runtime note**: this 2026.3.1.0 build predates
+  openvinotoolkit/openvino.genai#4258, so plain two-letter language codes are
+  rejected by `validate()` (`lang_to_id` carries wrapped `<|xx|>` keys); the
+  engine therefore sends wrapped tokens. A plain-code error from the C API
+  surfaces as status -17 with an empty message (the wrapper swallows the C++
+  exception text), which initially cost us a wrong diagnosis: an earlier
+  derived-JSON workaround silently no-oped because the JSON constructor never
+  reads `"language"`. The C wrapper's error masking is the only upstream DX
+  nit worth reporting.
 
 ## Evidence
 
