@@ -8,13 +8,13 @@ const RETAINED_IDLE_FRAMES: usize = PRE_ROLL_SAMPLES / FRAME_SAMPLES + 2;
 const MAX_UTTERANCE_SAMPLES: usize = 16_000 * 30;
 
 #[derive(Clone, Copy, Debug, Default)]
-pub(super) struct Activity {
+pub(crate) struct Activity {
     pub start_before_frame_end: Option<usize>,
     pub end_before_frame_end: Option<usize>,
 }
 
 #[derive(Debug)]
-pub(super) struct Utterance {
+pub(crate) struct Utterance {
     pub samples: Vec<f32>,
     pub start_sample: u64,
     pub end_sample: u64,
@@ -26,7 +26,7 @@ struct Active {
     pending_end_sample: Option<u64>,
 }
 
-pub(super) struct ActivityBuffer {
+pub(crate) struct ActivityBuffer {
     idle: VecDeque<Vec<f32>>,
     active: Option<Active>,
     cursor: u64,

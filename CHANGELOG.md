@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add persistent audio-device selection, PipeWire discovery, Audio setup and
+  model-free device tests, dynamic schema choices, and routing diagnostics.
+- Prevent pinned audio routes from falling back to another device.
+
 ## 0.0.2 - 2026-09-15
 
 - Added exact per-wake-word transcript aliases for uncommon names and repeatable

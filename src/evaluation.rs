@@ -368,6 +368,8 @@ pub struct EvaluationContext {
     pub enabled_keyword_ids: Vec<String>,
     pub model_name: String,
     pub model_directory: String,
+    /// Explicit verifier language sent to inference; empty is model default.
+    pub model_language: String,
     pub application_version: String,
 }
 

@@ -7,7 +7,7 @@ use rubato::{
 
 pub(super) const SAMPLE_RATE: usize = 16_000;
 
-pub(super) fn read_wave(path: &Path) -> Result<(i32, Vec<f32>)> {
+pub(crate) fn read_wave(path: &Path) -> Result<(i32, Vec<f32>)> {
     let mut reader =
         hound::WavReader::open(path).with_context(|| format!("read WAV {}", path.display()))?;
     let spec = reader.spec();
@@ -39,7 +39,7 @@ pub(super) fn read_wave(path: &Path) -> Result<(i32, Vec<f32>)> {
     Ok((spec.sample_rate as i32, samples))
 }
 
-pub(super) struct AudioResampler {
+pub(crate) struct AudioResampler {
     source_rate: Option<usize>,
     sinc: Option<SincFixedIn<f32>>,
     pending: Vec<f32>,

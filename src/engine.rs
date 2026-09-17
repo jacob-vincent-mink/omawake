@@ -14,6 +14,12 @@ use crate::config::{Config, WakeWord};
 use crate::paths::AppPaths;
 
 pub(crate) mod audio;
+pub(crate) mod embedding;
+pub(crate) mod embedding_worker;
+pub(crate) mod routing;
+pub(crate) mod trained;
+pub(crate) mod whisper_features;
+pub use routing::GroupStatus;
 pub(crate) mod audiocpp;
 pub(crate) mod openvino_genai;
 pub(crate) mod whisper;
@@ -23,8 +29,14 @@ use self::openvino_genai::{OpenVinoGenAiBackend, ProviderSpec as OpenVinoProvide
 use self::whisper::WhisperCppBackend;
 
 pub trait WakeWordBackend {
+    fn engine_statuses(&self) -> Vec<GroupStatus> {
+        Vec::new()
+    }
     fn kind(&self) -> &'static str;
     fn stream(&self) -> Box<dyn WakeWordStream + '_>;
+    fn live_stream(&self) -> Box<dyn WakeWordStream + '_> {
+        self.stream()
+    }
     fn detect_file(&self, path: &Path) -> Result<Vec<Detection>>;
 }
 
@@ -87,6 +99,47 @@ pub fn wav_duration(path: &Path) -> Result<Duration> {
 
 impl Detector {
     pub fn load(config: &Config, paths: &AppPaths) -> Result<Self> {
+        let groups = routing::plans(config)?;
+        if groups.len() > 1
+            || groups
+                .first()
+                .is_some_and(|(name, _)| !name.starts_with("default:"))
+        {
+            let started = Instant::now();
+            let backend = routing::RoutedBackend::load(groups, paths)?;
+            let statuses = backend.statuses();
+            let fallback = statuses.iter().any(|s| s.fallback_used);
+            return Self::from_backend(
+                config,
+                Box::new(backend),
+                String::new(),
+                config.backend.runtime,
+                fallback,
+                started.elapsed(),
+            );
+        }
+        if let Some((_, single)) = groups.into_iter().next() {
+            return Self::load_single(&single, paths);
+        }
+        Self::load_single(config, paths)
+    }
+    pub(crate) fn load_single(config: &Config, paths: &AppPaths) -> Result<Self> {
+        if config
+            .wake_words
+            .iter()
+            .any(|w| w.enabled && w.uses_trained_head())
+        {
+            let started = Instant::now();
+            let backend = trained::TrainedBackend::load(config, paths)?;
+            return Self::from_backend(
+                config,
+                Box::new(backend),
+                String::new(),
+                Runtime::Openvino,
+                false,
+                started.elapsed(),
+            );
+        }
         Self::load_with(
             config,
             paths,
@@ -254,6 +307,10 @@ impl Detector {
         })
     }
 
+    pub fn engine_statuses(&self) -> Vec<GroupStatus> {
+        self.backend.engine_statuses()
+    }
+
     pub fn detect_file(&self, path: &Path) -> Result<Vec<Detection>> {
         let detections = self.backend.detect_file(path)?;
         self.validate_detections(&detections)?;
@@ -264,6 +321,13 @@ impl Detector {
         DetectionSession {
             detector: self,
             stream: self.backend.stream(),
+        }
+    }
+
+    pub fn live_session(&self) -> DetectionSession<'_> {
+        DetectionSession {
+            detector: self,
+            stream: self.backend.live_stream(),
         }
     }
 
