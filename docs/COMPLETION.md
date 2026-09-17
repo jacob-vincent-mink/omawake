@@ -67,9 +67,12 @@ those inputs, without declaring the first release fully qualified.
 | W01 | Partial | Versioned real speech, generated adverse/near-match and 10.739-hour negative evidence; real-room, controlled regression and continuous idle power remain open |
 | W02/W03 | Implemented | Complete pinned whisper.cpp default and backend resolver; migration/default tests and file-only proof |
 | W04 | Implemented | Friendly compatible rows, disabled explanations, compatible preselection, narrow-terminal navigation and family discovery; CLI catalog stays stable |
-| W05 | Implemented; final audit pending | Locking, cancellation, disk preflight, hash verification and rollback tests; map cache/probe failures to acceptance before closure |
+| W05 | Implemented; final audit closed (2026-09-16) | Locking, cancellation, disk preflight, hash verification and rollback tests; `setup check` maps every cache/probe failure to a remediation row (tested), install failures restore state and surface acceptance text |
 | W06 | Partial | CPU, Vulkan, Intel GPU/NPU and GB10 CUDA evidence exists; evidence depth differs by pair, HIP pending, no blanket hardware promotion |
-| W07–W11/W22 | Next core work | Joint lifecycle first, then measured variants, maintenance and qualified language; filters/resume conditional on scale |
+| W07 | Implemented | [Pinned URL health check](CATALOG-MAINTENANCE.md) and import diagnostics (stacked PR) |
+| W08 | Done — both larger variants deferred (stop-promote, 2026-09-16) | [Moonshine Small/Medium vs Tiny](../benchmarks/results/2026-09-16-moonshine-variants/RESULTS.md) on identical corpora: identical false activations (10 per variant over 10.739 h, 0/h for `light-up`), identical clean behavior, only degraded-`forever` recall differs; 3–5× CPU and 2.5–3.5× memory cost → neither earns its footprint; pinned opt-in profiles retained for the W14 trigger (stacked PR) |
+| W09 | Implemented, smoke-scale evidence | [Spanish wake profile](LANGUAGE-PROFILE.md): multilingual Whisper Base INT8 with `model.language` genuinely reaching inference (forced-Spanish transcription of an English clip) and status; 3/3 positives, 0 false activations / 0.32 h (stacked PR); real-room and human listening remain open |
+| W10 | Implemented | Playback pause/resume ownership with Omaspeak (PR #5) |
 | W11/W22 | Deferred — scale not warranted (recorded 2026-09-16) | Pinned omawake catalog remains 3 curated model bundles and the largest single artifact is ~148 MB (whisper.cpp ggml-base.en); search/filter controls and transfer-resume stay out until an actual catalog or download-scale need appears. Any future resume work must preserve immutable pins and complete-file hashing with interruption tests |
 
 Current evidence: [defaults and gates](MODEL-DEFAULTS.md),
