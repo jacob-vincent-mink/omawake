@@ -1,18 +1,22 @@
-# Omawake 0.0.2
+# Omawake 0.0.3
 
-This follow-up to 0.0.1 improves wake-phrase configuration and setup:
+This release completes the model-support roadmap:
 
-- exact per-wake-word transcript aliases for uncommon names and repeatable ASR
-  spelling variants, without global fuzzy matching;
-- opt-in transcript diagnostics with `test --show-transcripts` to understand
-  missed phrases before adding an alias;
-- automatic refresh of the relevant active user service after CLI changes,
-  with config and service rollback if the new configuration fails;
-- hardware-aware setup recommendations that preserve existing manual choices
-  and distinguish hardware discovery from model-backed validation;
-- runtime readiness reports that require selected-model inference, with
-  provider loading and device discovery reported separately;
-- validation that rejects phrases and aliases containing only punctuation.
+- pinned catalog URL health checks (`setup model --check-urls`) and sharper
+  offline-import diagnostics that name expected and observed values;
+- a Spanish wake profile on the multilingual Whisper Base INT8 OpenVINO row,
+  with `model.language` reaching both inference and status (smoke-scale
+  evidence; real-room and listening gates stay open);
+- Moonshine Small and Medium evaluated against Tiny on identical corpora:
+  identical false-activation behavior at 3-5x the cost, so both stay
+  deferred behind pinned opt-in `asr_variant` profiles;
+- connection-owned playback pauses: TTS playback holds the wake daemon
+  paused and cannot retrigger wake actions, with nested manual pauses,
+  client disconnects and crashes releasing ownership safely;
+- installation and activation audits closed: download rollback, cache
+  acceptance mapping, and catalog verification with exact provenance;
+- service refresh, transcript aliases and `--show-transcripts` diagnostics
+  from 0.0.2 carry forward unchanged.
 
 The runtime-neutral Rust executable includes a pinned CPU audio.cpp provider.
 Setup downloads verified Moonshine Streaming Tiny Q8_0 and Silero VAD models.
