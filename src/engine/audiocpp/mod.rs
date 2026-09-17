@@ -1731,6 +1731,8 @@ int audiocpp_registry_family(const void *registry, size_t index, const char **ou
     #[test]
     fn transcript_conversion_uses_whole_phrase_matcher() {
         let matcher = PhraseMatcher::compile(&[WakeWord {
+            engine: None,
+            enrollment: None,
             id: "lights".into(),
             phrase: "light up".into(),
             aliases: Vec::new(),
@@ -2242,6 +2244,8 @@ int audiocpp_registry_family(const void *registry, size_t index, const char **ou
         let backend = AudioCppBackend {
             worker: RefCell::new(Worker::spawn(spec).unwrap()),
             matcher: PhraseMatcher::compile(&[WakeWord {
+                engine: None,
+                enrollment: None,
                 id: "greeting".into(),
                 phrase: "hello oma".into(),
                 aliases: Vec::new(),

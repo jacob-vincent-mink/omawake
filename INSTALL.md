@@ -77,3 +77,11 @@ Copy `build/bin/libaudiocpp.so.0.1.0` beside the executable under `lib/`, or
 run `omawake setup` and select its complete build directory together with a
 model. Focused `setup runtime --apply` requires the compatible model to be
 installed already.
+
+## Audio devices
+
+Run `omawake setup audio` to select and test the application’s audio device.
+Pinned routing requires PipeWire’s `pw-dump` and `pw-record` (Omawake) or
+`pw-play` (Omaspeak), supplied by `pipewire` and `pipewire-audio` on Arch.
+See [Audio device selection](docs/AUDIO-DEVICES.md) for configuration,
+service restart behavior, discovery JSON, and disconnect recovery.

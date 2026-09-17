@@ -3220,7 +3220,10 @@ fn top_level_audio_device_dispatch_uses_injected_enumerator() {
         run_with_paths_and_services(
             Cli {
                 config: Some(paths.config_file.clone()),
-                command: TopCommand::AudioDevices { json },
+                command: TopCommand::AudioDevices {
+                    json,
+                    detailed: false,
+                },
             },
             paths.clone(),
             |_, _| unreachable!(),
@@ -3232,7 +3235,10 @@ fn top_level_audio_device_dispatch_uses_injected_enumerator() {
         run_with_paths_and_services(
             Cli {
                 config: Some(paths.config_file.clone()),
-                command: TopCommand::AudioDevices { json: false },
+                command: TopCommand::AudioDevices {
+                    json: false,
+                    detailed: false
+                },
             },
             paths,
             |_, _| unreachable!(),
@@ -3914,4 +3920,77 @@ fn model_picker_disables_foreign_backends_and_rejects_invalid_selection() {
             .is_none()
     );
     assert!(choose_model_with(&paths, &Config::default(), |_, _| Ok(Some(usize::MAX))).is_err());
+}
+
+#[test]
+fn microphone_recovery_retries_only_capture_failures_and_obeys_controls() {
+    let mut attempts = 0;
+    let mut waits = 0;
+    let recovered = retry_audio_cycle(
+        || {
+            attempts += 1;
+            if attempts == 1 {
+                Err(CaptureFailure("unplugged".into()).into())
+            } else {
+                Ok((vec![], Some(Command::Shutdown)))
+            }
+        },
+        |error| {
+            assert!(error.contains("unplugged"));
+            waits += 1;
+            Ok(None)
+        },
+    )
+    .unwrap();
+    assert!(matches!(recovered.1, Some(Command::Shutdown)));
+    assert_eq!((attempts, waits), (2, 1));
+    for command in [Command::Pause, Command::Shutdown, Command::Resume] {
+        let mut command = Some(command);
+        let result = retry_audio_cycle(
+            || Err(CaptureFailure("offline".into()).into()),
+            |_| Ok(command.take()),
+        )
+        .unwrap();
+        assert!(result.1.is_some());
+    }
+    assert!(
+        retry_audio_cycle(
+            || Err(anyhow::anyhow!("inference error")),
+            |_| panic!("must not retry inference errors")
+        )
+        .is_err()
+    );
+    assert!(
+        retry_audio_cycle(
+            || Err(CaptureFailure("offline".into()).into()),
+            |_| Err(anyhow::anyhow!("socket error"))
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn mixed_runtime_reports_never_claim_the_default_device_for_all_groups() {
+    let mut report = json!({"backend":{"requested_runtime":"cuda","requested_device":"gpu","effective_runtime":"cuda","placement_verified":true}});
+    attach_group_values(
+        &mut report,
+        vec![crate::engine::GroupStatus {
+            profile: "intel:trained".into(),
+            backend: "trained-whisper-encoder".into(),
+            runtime: Runtime::Openvino,
+            requested_device: "cpu".into(),
+            fallback_used: false,
+            words: vec!["unusual".into()],
+        }],
+    );
+    assert_eq!(report["backend"]["effective_runtime"], "mixed");
+    assert_eq!(report["backend"]["requested_device"], "per-engine");
+    assert_eq!(report["backend"]["placement_verified"], false);
+    assert_eq!(report["backend"]["groups"][0]["runtime"], "openvino");
+    assert!(!backend_placement("multi-engine", Runtime::Cuda).0);
+    assert!(
+        backend_placement("trained-whisper-encoder", Runtime::Openvino)
+            .1
+            .contains("Silero VAD runs on CPU")
+    );
 }
