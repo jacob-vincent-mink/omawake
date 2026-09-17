@@ -65,7 +65,7 @@ those inputs, without declaring the first release fully qualified.
 
 | IDs | Status | Evidence / remaining acceptance |
 |---|---|---|
-| W01 | Partial | Versioned real speech, generated adverse/near-match and 10.739-hour negative evidence; real-room, controlled regression and continuous idle power remain open |
+| W01 | Partial | Versioned real speech, generated adverse/near-match and 10.739-hour negative evidence; maintainer live-verified the wake path on the v0.0.3-rc.1 install (2026-09-17); real-room, controlled regression and continuous idle power remain open |
 | W02/W03 | Implemented | Complete pinned whisper.cpp default and backend resolver; migration/default tests and file-only proof |
 | W04 | Implemented | Friendly compatible rows, disabled explanations, compatible preselection, narrow-terminal navigation and family discovery; CLI catalog stays stable |
 | W05 | Implemented; final audit closed (2026-09-16) | [Installer audit](INSTALLER-PROTECTIONS.md) maps fresh setup, failed cache/probe, corruption, cancellation, lock and disk-budget checks to acceptance; `setup check` surfaces every cache/probe failure as a remediation row (tested) and install failures restore state |
