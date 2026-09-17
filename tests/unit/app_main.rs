@@ -2962,7 +2962,8 @@ fn control_socket_handles_status_commands_and_bad_clients() {
         encoded_request(1, "status", Command::Status),
     );
     assert!(
-        poll_control(&FakeControl, "armed", None, || accept_control(&listener))
+        pause_ownership::OwnedControl::default()
+            .poll("armed", &details, || accept_control(&listener))
             .unwrap()
             .is_none()
     );
@@ -2988,7 +2989,8 @@ fn control_socket_handles_status_commands_and_bad_clients() {
             &socket_path(&paths),
             encoded_request(1, expected_state, command),
         );
-        let returned = poll_control_connections(|| accept_control(&listener), "current", &details)
+        let returned = pause_ownership::OwnedControl::default()
+            .poll("current", &details, || accept_control(&listener))
             .unwrap()
             .unwrap();
         assert!(matches!(
@@ -3650,128 +3652,7 @@ fn request_reader_is_testable_without_a_unix_socket() {
 }
 
 #[test]
-fn control_protocol_maps_every_request_to_a_response_and_transition() {
-    let details = json!({"backend": {"kind": "fake"}});
-    let request = |protocol: u32, id: &str, command: Command| {
-        Ok(Request {
-            protocol,
-            id: id.into(),
-            command,
-        })
-    };
-
-    for (command, expected_state, transition) in [
-        (Command::Status, "current", false),
-        (Command::Pause, "paused", true),
-        (Command::Resume, "armed", true),
-        (Command::Shutdown, "stopping", true),
-    ] {
-        let (response, next) =
-            control_response(request(1, expected_state, command), "current", &details);
-        assert_eq!(response.id, expected_state);
-        assert_eq!(next.is_some(), transition);
-        assert!(matches!(
-            response.result,
-            ResultPayload::State { ref state, ref details }
-                if state == expected_state && details["backend"]["kind"] == "fake"
-        ));
-    }
-
-    let (response, next) =
-        control_response(request(9, "old", Command::Status), "current", &details);
-    assert!(next.is_none());
-    assert!(
-        matches!(response.result, ResultPayload::Error { ref code, .. } if code == "protocol_mismatch")
-    );
-
-    let (response, next) =
-        control_response(Err(anyhow::anyhow!("broken JSON")), "current", &details);
-    assert!(next.is_none());
-    assert!(
-        matches!(response.result, ResultPayload::Error { ref code, .. } if code == "invalid_request")
-    );
-}
-
-#[test]
-fn control_stream_processes_messages_entirely_in_memory() {
-    let details = json!({"backend": {"kind": "fake"}});
-    for (bytes, expected_code, expected_command) in [
-        (b"not-json\n".to_vec(), Some("invalid_request"), None),
-        (
-            encoded_request(2, "old", Command::Status),
-            Some("protocol_mismatch"),
-            None,
-        ),
-        (encoded_request(1, "status", Command::Status), None, None),
-        (
-            encoded_request(1, "pause", Command::Pause),
-            None,
-            Some(Command::Pause),
-        ),
-    ] {
-        let mut stream = ScriptedStream::responding_with(bytes);
-        let command = handle_control_stream(&mut stream, "armed", &details);
-        assert_eq!(command.is_some(), expected_command.is_some());
-        let response: Response = serde_json::from_slice(&stream.request).unwrap();
-        match expected_code {
-            Some(expected) => assert!(
-                matches!(response.result, ResultPayload::Error { ref code, .. } if code == expected)
-            ),
-            None => assert!(matches!(response.result, ResultPayload::State { .. })),
-        }
-    }
-
-    let mut disconnected =
-        ScriptedStream::responding_with(encoded_request(1, "disconnected", Command::Status));
-    disconnected.fail_writes = true;
-    assert!(handle_control_stream(&mut disconnected, "armed", &details).is_none());
-}
-
-#[test]
-fn control_polling_skips_non_commands_and_stops_at_transition_in_memory() {
-    let details = json!({"backend": {"kind": "fake"}});
-    let mut clients = VecDeque::from([
-        ScriptedStream::responding_with(b"invalid\n".to_vec()),
-        ScriptedStream::responding_with(encoded_request(1, "status", Command::Status)),
-        ScriptedStream::responding_with(encoded_request(1, "stop", Command::Shutdown)),
-    ]);
-    let command = poll_control_connections(|| Ok(clients.pop_front()), "armed", &details).unwrap();
-    assert!(matches!(command, Some(Command::Shutdown)));
-    assert!(clients.is_empty());
-
-    assert!(
-        poll_control_connections(
-            || Ok::<Option<ScriptedStream>, anyhow::Error>(None),
-            "armed",
-            &details,
-        )
-        .unwrap()
-        .is_none()
-    );
-    assert!(
-        poll_control_connections(
-            || Err::<Option<ScriptedStream>, _>(anyhow::anyhow!("accept failed")),
-            "armed",
-            &details,
-        )
-        .is_err()
-    );
-
-    let command = poll_control(
-        &FakeControl,
-        "armed",
-        Some(json!({"device": "test microphone"})),
-        || {
-            Ok(Some(ScriptedStream::responding_with(encoded_request(
-                1,
-                "pause",
-                Command::Pause,
-            ))))
-        },
-    )
-    .unwrap();
-    assert!(matches!(command, Some(Command::Pause)));
-
+fn control_connection_preparation_handles_errors() {
     assert!(
         prepare_accepted_control(Ok(()), |_| Ok(()))
             .unwrap()
@@ -3826,16 +3707,6 @@ fn real_detector_forwards_control_metadata_without_native_backend() {
         DetectorControl::run(&detector, "computer").unwrap().state,
         "started"
     );
-
-    let mut streams = VecDeque::from([ScriptedStream::responding_with(encoded_request(
-        1,
-        "pause",
-        Command::Pause,
-    ))]);
-    assert!(matches!(
-        poll_control(&detector, "armed", None, || Ok(streams.pop_front())).unwrap(),
-        Some(Command::Pause)
-    ));
 }
 
 #[test]

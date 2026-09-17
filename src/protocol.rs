@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 pub enum Command {
     Status,
     Pause,
+    /// Hold a pause until this control connection closes.
+    HoldPause,
     Resume,
     Shutdown,
 }
