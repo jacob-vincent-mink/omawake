@@ -46,3 +46,22 @@ Regression coverage includes competing installers, lock reuse, insufficient
 space and overflow, cancellation cleanup, real signals in disposable processes,
 registry enumeration failures and missing required families. Existing corruption,
 license and activation tests continue to cover the transaction boundaries.
+
+## Acceptance audit, 2026-09-16
+
+The current failure tests were inspected, not just counted. The ownership-branch
+full suite also ran these tests successfully. W05's implementation checks map to:
+
+| Boundary | Existing acceptance evidence |
+|---|---|
+| Fresh setup and failed provider proof | `fresh_full_setup_proves_both_native_assets_before_its_first_config_save` verifies both assets precede first config save, and failed proof preserves original config bytes |
+| Cache failure before runtime activation | `npu_runtime_cache_preparation_finishes_before_config_commit` injects compilation and proof failures, checking original config bytes after each |
+| Cache failure during model activation | `focused_model_apply_replaces_invalid_config_only_after_cache_success` preserves even invalid pre-existing config on failure |
+| Failed multi-file download | `failed_second_asset_leaves_previous_model_and_cleans_staging` preserves the previous model and removes only staging |
+| Corruption and paths | `corrupt_download_and_unsafe_catalog_paths_are_rejected` rejects wrong data and traversal without publishing a model |
+| Competing installs, cancellation, disk budget | `tests/unit/install_guard.rs` checks lock exclusion/reuse, owned staging cleanup, original asset preservation, insufficient space/overflow and real signal cancellation |
+
+This closes the acceptance mapping for implemented W05 protections. Injected
+failures establish transaction ordering; they do not simulate every device driver
+or disk-exhaustion timing. Unknown compiled-cache sizing and forced-kill debris
+remain the documented limits above, rather than claims of completed features.

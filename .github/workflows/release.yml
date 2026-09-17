@@ -101,6 +101,8 @@ jobs:
             > "${root}/licenses/POCKETFFT-LICENSE"
           cp README.md INSTALL.md ACCELERATOR_SETUP.md RUNTIME.md CHANGELOG.md RELEASE_NOTES.md DEMO.md config.example.toml "${root}/"
           cp -a assets benchmarks packaging scripts "${root}/"
+          mkdir -p "${root}/docs"
+          cp docs/AUDIO-DEVICES.md "${root}/docs/"
           tar -C dist -cJf "dist/${package}.tar.xz" "${package}"
           (cd dist && sha256sum "${package}.tar.xz" > "${package}.sha256")
           echo "name=${package}" >> "${GITHUB_OUTPUT}"

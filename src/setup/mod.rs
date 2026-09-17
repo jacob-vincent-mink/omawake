@@ -67,7 +67,7 @@ pub fn ensure_config(path: &Path) -> Result<Config> {
 }
 
 pub fn checks(path: &Path, paths: &AppPaths) -> Vec<Check> {
-    checks_with(
+    let mut result = checks_with(
         path,
         paths,
         &|config, paths| {
@@ -86,7 +86,29 @@ pub fn checks(path: &Path, paths: &AppPaths) -> Vec<Check> {
         },
         command_exists("systemctl"),
         &systemd::is_active,
-    )
+    );
+    if let Ok(config) = Config::load(path) {
+        let inventory = crate::audio::device_inventory(&config.audio.device);
+        if crate::audio_devices::is_default(&config.audio.device) {
+            result.push(ok(
+                "audio_device",
+                "System default (resolved when audio opens)",
+            ));
+        } else if inventory["devices"].as_array().is_some_and(|devices| {
+            devices
+                .iter()
+                .any(|d| d["selector"] == config.audio.device && d["available"] == true)
+        }) {
+            result.push(ok("audio_device", config.audio.device));
+        } else {
+            result.push(fail(
+                "audio_device",
+                format!("{} is unavailable", config.audio.device),
+                "connect the device or run `omawake setup audio`",
+            ));
+        }
+    }
+    result
 }
 
 fn checks_with(
@@ -467,3 +489,5 @@ fn fail(
 #[cfg(test)]
 #[path = "../../tests/unit/setup_mod.rs"]
 mod tests;
+
+pub mod audio;

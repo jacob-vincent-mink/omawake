@@ -5,7 +5,7 @@
 //! worker, so a vendor-runtime failure cannot take down the daemon.
 
 mod protocol;
-mod ring;
+pub(crate) mod ring;
 
 use std::cell::{Cell, RefCell};
 use std::env;
@@ -962,7 +962,7 @@ fn prepend_library_directories(command: &mut Command, directories: &[PathBuf]) -
     Ok(())
 }
 
-fn harden_worker_process() -> Result<()> {
+pub(crate) fn harden_worker_process() -> Result<()> {
     let limit = libc::rlimit {
         rlim_cur: 0,
         rlim_max: 0,
@@ -1319,7 +1319,7 @@ impl VadApi {
     }
 }
 
-struct AudioCppVad {
+pub(crate) struct AudioCppVad {
     api: VadApi,
     registry: *mut c_void,
     model: *mut c_void,
@@ -1328,7 +1328,7 @@ struct AudioCppVad {
 }
 
 impl AudioCppVad {
-    fn open(library: &Path, model: &Path, threads: i32) -> Result<Self> {
+    pub(crate) fn open(library: &Path, model: &Path, threads: i32) -> Result<Self> {
         let api = VadApi::load(library)?;
         let mut vad = Self {
             api,
@@ -1381,7 +1381,7 @@ impl AudioCppVad {
         Ok(vad)
     }
 
-    fn restart(&mut self) -> Result<()> {
+    pub(crate) fn restart(&mut self) -> Result<()> {
         self.cursor = 0;
         self.api.check("reset Silero VAD stream", unsafe {
             (self.api.stream_reset)(self.session)
@@ -1391,7 +1391,7 @@ impl AudioCppVad {
         })
     }
 
-    fn activity(&mut self, samples: &[f32]) -> Result<Activity> {
+    pub(crate) fn activity(&mut self, samples: &[f32]) -> Result<Activity> {
         if samples.len() != FRAME_SAMPLES {
             bail!("Silero VAD requires exactly {FRAME_SAMPLES} samples per frame");
         }
@@ -2242,6 +2242,8 @@ mod tests {
     #[test]
     fn phrase_matching_uses_provider_independent_matcher() {
         let matcher = PhraseMatcher::compile(&[WakeWord {
+            engine: None,
+            enrollment: None,
             id: "lights".into(),
             phrase: "light up".into(),
             aliases: Vec::new(),
@@ -2740,6 +2742,8 @@ mod tests {
         let backend = OpenVinoGenAiBackend {
             worker: RefCell::new(Worker::spawn_with(spec, executable).unwrap()),
             matcher: PhraseMatcher::compile(&[WakeWord {
+                engine: None,
+                enrollment: None,
                 id: "greeting".into(),
                 phrase: "hello oma".into(),
                 aliases: Vec::new(),

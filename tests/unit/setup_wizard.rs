@@ -196,6 +196,10 @@ fn guided_setup_metadata_covers_modes_runtimes_devices_and_review() {
     assert_eq!(setup_mode(1), SetupMode::Runtime);
     assert_eq!(setup_mode(2), SetupMode::Model);
     assert_eq!(setup_mode(3), SetupMode::Check);
+    assert_eq!(setup_mode(4), SetupMode::Audio);
+    assert_eq!(modes[4].label, "Audio");
+    assert_eq!(setup_mode(5), SetupMode::Onboard);
+    assert_eq!(modes[5].label, "Teach a wake word");
 
     let cpu_only = runtime_items(&cpu_loadable);
     assert!(cpu_only[0].enabled);
@@ -351,6 +355,8 @@ fn guided_flows_map_scripted_choices_and_preserve_preferences() {
         SetupMode::Runtime,
         SetupMode::Model,
         SetupMode::Check,
+        SetupMode::Audio,
+        SetupMode::Onboard,
     ]
     .into_iter()
     .enumerate()

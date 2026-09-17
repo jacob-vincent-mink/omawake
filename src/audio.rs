@@ -4,6 +4,7 @@ use ::cpal::{SampleFormat, StreamConfig};
 use anyhow::{Context, Result, bail};
 
 mod cpal;
+mod pipewire;
 use self::cpal::CpalCaptureFactory;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -44,6 +45,10 @@ trait CaptureFactory {
 
 impl Capture {
     pub fn start(requested_device: &str, queue_capacity: usize) -> Result<Self> {
+        crate::audio_devices::validate(requested_device, "input")?;
+        if requested_device.starts_with("pipewire:") {
+            return pipewire::start(requested_device, queue_capacity);
+        }
         Self::start_with(&CpalCaptureFactory, requested_device, queue_capacity)
     }
 
@@ -140,16 +145,18 @@ fn choose_device<S: DeviceSource>(requested: &str, source: &S) -> Result<S::Devi
         return source.default_device()?.context("no default input device");
     }
     let needle = requested.to_lowercase();
-    source
-        .input_devices()?
-        .into_iter()
-        .find(|device| {
-            source
-                .device_name(device)
-                .map(|name| name.to_lowercase() == needle)
-                .unwrap_or(false)
-        })
-        .with_context(|| format!("input device not found: {requested}"))
+    let mut matches = source.input_devices()?.into_iter().filter(|device| {
+        source
+            .device_name(device)
+            .is_ok_and(|name| name.to_lowercase() == needle)
+    });
+    let device = matches
+        .next()
+        .with_context(|| format!("input device not found: {requested}"))?;
+    if matches.next().is_some() {
+        bail!("ambiguous input device name: {requested}; select a PipeWire device instead");
+    }
+    Ok(device)
 }
 
 fn open_capture<S: AudioSource>(
@@ -200,3 +207,44 @@ fn mix_to_mono<T: Copy>(input: &[T], channels: usize, convert: &impl Fn(T) -> f3
 #[cfg(test)]
 #[path = "../tests/unit/audio.rs"]
 mod tests;
+
+/// Physical PipeWire sources plus legacy CPAL names, without opening capture.
+pub fn device_inventory(selected: &str) -> serde_json::Value {
+    let pipewire = crate::audio_devices::discover("input");
+    let pipewire_error = pipewire.as_ref().err().map(|e| format!("{e:#}"));
+    let legacy = input_devices();
+    let found = match (pipewire, legacy) {
+        (Ok(mut devices), names) => {
+            if let Ok(names) = names {
+                append_legacy(&mut devices, names);
+            }
+            Ok(devices)
+        }
+        (Err(_), Ok(names)) if !names.is_empty() => {
+            let mut devices = Vec::new();
+            append_legacy(&mut devices, names);
+            Ok(devices)
+        }
+        (Err(error), _) => Err(error),
+    };
+    let mut report = crate::audio_devices::inventory_from("input", selected, found);
+    if let Some(error) = pipewire_error {
+        report["error"] = serde_json::json!(error);
+    }
+    report
+}
+fn append_legacy(devices: &mut Vec<crate::audio_devices::Device>, names: Vec<String>) {
+    for name in names {
+        if crate::audio_devices::is_default(&name) {
+            continue;
+        }
+        devices.push(crate::audio_devices::Device {
+            selector: name.clone(),
+            label: format!("{name} (CPAL)"),
+            direction: "input".into(),
+            backend: "cpal".into(),
+            is_default: false,
+            available: true,
+        });
+    }
+}

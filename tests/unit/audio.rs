@@ -440,3 +440,14 @@ fn audio_events_retain_samples_and_errors() {
         matches!(AudioEvent::Error("bad".into()), AudioEvent::Error(message) if message == "bad")
     );
 }
+
+#[test]
+fn duplicate_legacy_names_require_an_unambiguous_selector() {
+    let source = FakeDeviceSource::new(None, &["USB", "usb"]);
+    assert!(
+        choose_device("USB", &source)
+            .unwrap_err()
+            .to_string()
+            .contains("ambiguous")
+    );
+}
