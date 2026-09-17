@@ -1,0 +1,8 @@
+{
+  "fresh_offline_install": true,
+  "sigint_repair_cancelled": true,
+  "previous_weights_and_manifest_retained": true,
+  "staging_removed": true,
+  "retry_after_cancellation_succeeded": true,
+  "configuration_unchanged": true
+}

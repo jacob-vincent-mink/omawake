@@ -1,3 +1,4 @@
+use super::install_guard::{self, InstallGuard};
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Component, Path, PathBuf};
@@ -66,7 +67,11 @@ pub fn install(
 ) -> Result<PathBuf> {
     install_with_fetch(paths, spec, source_directory, progress, |asset| {
         Ok(Box::new(
-            ureq::get(asset.url)
+            ureq::AgentBuilder::new()
+                .timeout_connect(std::time::Duration::from_secs(10))
+                .timeout_read(std::time::Duration::from_secs(5))
+                .build()
+                .get(asset.url)
                 .call()
                 .with_context(|| format!("download {}", asset.url))?
                 .into_reader(),
@@ -81,6 +86,7 @@ fn install_with_fetch(
     progress: ProgressFormat,
     mut fetch: impl FnMut(&ModelAsset) -> Result<Box<dyn Read>>,
 ) -> Result<PathBuf> {
+    let mut guard = InstallGuard::acquire(&paths.data_dir, spec.id)?;
     let target = model_directory(paths, spec);
     if verify_directory(&target, spec).is_ok() {
         emit(progress, "already-installed", spec, None, None, None)?;
@@ -114,11 +120,24 @@ fn install_with_fetch(
     let downloads = paths.data_dir.join("downloads").join(spec.id);
     fs::create_dir_all(&models)?;
     fs::create_dir_all(&downloads)?;
+    let missing = if source_directory.is_some() {
+        0
+    } else {
+        spec.assets
+            .iter()
+            .filter(|asset| {
+                verify_file(&downloads.join(asset.path), asset.size, asset.sha256).is_err()
+            })
+            .map(|asset| asset.size)
+            .sum()
+    };
+    install_guard::preflight(&models, &downloads, spec.total_size(), missing)?;
     let staging = models.join(format!(".{}.install-{}", spec.id, std::process::id()));
     let old = models.join(format!(".{}.old-{}", spec.id, std::process::id()));
     remove_directory_if_present(&staging)?;
     remove_directory_if_present(&old)?;
     fs::create_dir_all(&staging)?;
+    guard.staging(&staging);
 
     let prepare = (|| -> Result<()> {
         for asset in spec.assets {
@@ -142,6 +161,7 @@ fn install_with_fetch(
         return Err(error).context("prepare model installation");
     }
 
+    install_guard::check_cancelled()?;
     if target.exists() {
         fs::rename(&target, &old).context("retain previous model during activation")?;
     }
@@ -222,6 +242,7 @@ fn write_download(
     let mut reported = 0_u64;
     let mut buffer = [0_u8; 128 * 1024];
     loop {
+        install_guard::check_cancelled()?;
         let count = input.read(&mut buffer)?;
         if count == 0 {
             break;
@@ -396,6 +417,7 @@ fn sha256_file(path: &Path) -> Result<String> {
     let mut hasher = Sha256::new();
     let mut buffer = [0_u8; 128 * 1024];
     loop {
+        install_guard::check_cancelled()?;
         let count = input.read(&mut buffer)?;
         if count == 0 {
             break;
@@ -419,15 +441,7 @@ fn validate_relative_file(value: &str) -> Result<()> {
 }
 
 fn copy_synced(source: &Path, destination: &Path) -> Result<()> {
-    fs::copy(source, destination).with_context(|| {
-        format!(
-            "copy model asset {} to {}",
-            source.display(),
-            destination.display()
-        )
-    })?;
-    File::open(destination)?.sync_all()?;
-    Ok(())
+    install_guard::copy(source, destination)
 }
 
 fn remove_directory_if_present(path: &Path) -> Result<()> {

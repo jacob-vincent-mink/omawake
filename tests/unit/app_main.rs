@@ -530,7 +530,7 @@ fn guided_full_rolls_back_existing_and_new_configs_after_later_failures() {
 fn guided_model_catalog_exposes_status_metadata_and_selection() {
     let paths = test_paths("guided-model-catalog");
     let active = crate::catalog::models()[0].id;
-    let selected = choose_model_with(&paths, active, |items, preferred| {
+    let selected = choose_model_with(&paths, &Config::default(), |items, preferred| {
         assert_eq!(preferred, 0);
         assert!(items[0].enabled);
         assert!(items[0].label.contains("download required"));
@@ -3326,7 +3326,7 @@ fn setup_dispatch_covers_checks_catalog_and_safe_failure_paths() {
     assert!(
         setup(
             Some(SetupCommand::All {
-                model,
+                model: Some(model),
                 source_dir: Some(paths.data_dir.join("missing-model-assets")),
                 progress_format: ProgressFormat::Json,
             }),
@@ -3961,6 +3961,94 @@ fn stale_socket_connection_errors_cover_kernel_variants() {
     assert!(!indicates_stale_socket(
         std::io::ErrorKind::PermissionDenied
     ));
+}
+
+#[test]
+fn runtime_selection_keeps_explicit_whisper_backend_and_discovers_its_library() {
+    let paths = test_paths("whisper-runtime-default");
+    let runtime = paths.data_dir.join("whisper-runtime");
+    fs::create_dir_all(&runtime).unwrap();
+    fs::write(runtime.join("libwhisper.so.1"), b"discovery fixture").unwrap();
+    let mut config = Config::default();
+    config.backend.kind = "whispercpp".into();
+    let candidate = runtime_selection_candidate(
+        &config,
+        &paths.config_file,
+        &RuntimeSelection {
+            runtime: Runtime::Default,
+            device: "cpu".into(),
+        },
+        None,
+        Some(&runtime),
+    )
+    .unwrap();
+    assert_eq!(candidate.backend.kind, "whispercpp");
+    assert_eq!(candidate.model.name, crate::catalog::WHISPER_MODEL_ID);
+    assert_eq!(candidate.backend.library, runtime.join("libwhisper.so.1"));
+    let next = runtime_selection_candidate(
+        &candidate,
+        &paths.config_file,
+        &RuntimeSelection {
+            runtime: Runtime::Cuda,
+            device: "gpu".into(),
+        },
+        None,
+        None,
+    )
+    .unwrap();
+    assert_eq!(next.backend.kind, "audiocpp");
+    assert_eq!(next.model.name, crate::catalog::DEFAULT_MODEL_ID);
+    assert!(next.backend.library.as_os_str().is_empty());
+}
+
+#[test]
+fn setup_all_leaves_model_unspecified_until_backend_resolution() {
+    let cli = Cli::try_parse_from(["omawake", "setup", "all"]).unwrap();
+    assert!(matches!(
+        cli.command,
+        TopCommand::Setup {
+            command: Some(SetupCommand::All { model: None, .. })
+        }
+    ));
+}
+
+#[test]
+fn model_picker_disables_foreign_backends_and_rejects_invalid_selection() {
+    let paths = test_paths("compatible-model-picker");
+    for (backend, runtime, device) in [
+        ("audiocpp", Runtime::Cuda, "gpu"),
+        ("openvino-genai", Runtime::Openvino, "npu"),
+        ("whispercpp", Runtime::Default, "cpu"),
+    ] {
+        let mut config = Config::default();
+        config.backend.kind = backend.into();
+        config.backend.runtime = runtime;
+        config.backend.device = device.into();
+        let selected = choose_model_with(&paths, &config, |items, preferred| {
+            assert!(items[preferred].enabled);
+            for (item, model) in items.iter().zip(crate::catalog::models()) {
+                assert_eq!(item.enabled, model.backend == backend);
+                if !item.enabled {
+                    assert!(item.detail.contains("Requires the"));
+                }
+            }
+            Ok(Some(preferred))
+        })
+        .unwrap()
+        .unwrap();
+        assert_eq!(selected.backend, backend);
+        let incompatible = crate::catalog::models()
+            .iter()
+            .position(|model| model.backend != backend)
+            .unwrap();
+        assert!(choose_model_with(&paths, &config, |_, _| Ok(Some(incompatible))).is_err());
+    }
+    assert!(
+        choose_model_with(&paths, &Config::default(), |_, _| Ok(None))
+            .unwrap()
+            .is_none()
+    );
+    assert!(choose_model_with(&paths, &Config::default(), |_, _| Ok(Some(usize::MAX))).is_err());
 }
 
 #[test]

@@ -1,0 +1,252 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-16",
+  "binary_sha256": "10af0a0523650d987ee3f288050dfc96c5e1ec2e9fd257deefa0bd130b2fbfe5",
+  "qualification": "limited file-only evidence; no hardware/default promotion",
+  "providers": {
+    "moonshine": {
+      "library_sha256": "29b506eae5bc764cf68c428009c1dd21b5bc58cee458453aaa9adac8fa325c10",
+      "model_provenance_sha256": "faad6c8c61d04d4a7de1a774222207ac8d098b95fb02802d301d8eeb4d92c22a"
+    },
+    "whispercpp": {
+      "library_sha256": "b3c706c77af76e37c44b9b91b0b59765ff854983cf120a4496239ca7b677bd68",
+      "model_provenance_sha256": "470300c8338aaa43f208288e69a548a0567f19a0a3d46b22cc1749a3797b054f"
+    }
+  },
+  "results": {
+    "moonshine-human": {
+      "backend": {
+        "backend_kind": "audiocpp",
+        "effective_runtime": "default",
+        "fallback_used": false,
+        "placement_evidence": "audio.cpp created explicit CPU Silero and ASR sessions",
+        "placement_verified": true,
+        "requested_device": "cpu",
+        "requested_runtime": "default"
+      },
+      "summary": {
+        "duplicate_predictions": 0,
+        "expected_events": 2,
+        "f1": 1.0,
+        "false_activations": 0,
+        "false_activations_per_hour": null,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "negative_audio_hours": 0.0,
+        "precision": 1.0,
+        "predictions": 2,
+        "recall": 1.0,
+        "true_positives": 2,
+        "wrong_id_predictions": 0
+      },
+      "timing": {
+        "aggregate_real_time_factor": 0.03921170814288884,
+        "files": 2,
+        "p50_file_milliseconds": 272.561525,
+        "p95_file_milliseconds": 611.074318,
+        "total_audio_milliseconds": 22535.0,
+        "total_elapsed_milliseconds": 883.635843
+      },
+      "prediction_fingerprint": "2c7d40666d66ccd89429d5db24e538f3ea5441608155ba3bd9b47b367ef39796",
+      "model_load_milliseconds": 1026.428319,
+      "report_sha256": "80e0fd418fdd640ab27c640b1c4f3b9ee0b51b811fc28eb2aff4d29c072e96e7",
+      "manifest_sha256": "10aa137a73dff3cf3f69137e5c2c7be3a2bb4b9e47d786f3013bfd25d85fa3d7",
+      "configuration_sha256": "13cef37dea986a7cc5de0274c51b4a97c409def2852db796992dbef458ff91d7"
+    },
+    "whispercpp-human": {
+      "backend": {
+        "backend_kind": "whispercpp",
+        "effective_runtime": "default",
+        "fallback_used": false,
+        "placement_evidence": "whisper.cpp created explicit CPU VAD and verifier contexts",
+        "placement_verified": true,
+        "requested_device": "cpu",
+        "requested_runtime": "default"
+      },
+      "summary": {
+        "duplicate_predictions": 0,
+        "expected_events": 2,
+        "f1": 1.0,
+        "false_activations": 0,
+        "false_activations_per_hour": null,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "negative_audio_hours": 0.0,
+        "precision": 1.0,
+        "predictions": 2,
+        "recall": 1.0,
+        "true_positives": 2,
+        "wrong_id_predictions": 0
+      },
+      "timing": {
+        "aggregate_real_time_factor": 0.4616498194808076,
+        "files": 2,
+        "p50_file_milliseconds": 1659.021606,
+        "p95_file_milliseconds": 8744.257076,
+        "total_audio_milliseconds": 22535.0,
+        "total_elapsed_milliseconds": 10403.278682
+      },
+      "prediction_fingerprint": "f16860370069b4f10e55dea2a352ad5f23ec4151bff0dbcfeaf7835fd681307e",
+      "model_load_milliseconds": 70.351624,
+      "report_sha256": "279023a018b15c8b923590a4709fd86384c303b6cf09efd9ae1103b5407026fe",
+      "manifest_sha256": "10aa137a73dff3cf3f69137e5c2c7be3a2bb4b9e47d786f3013bfd25d85fa3d7",
+      "configuration_sha256": "3d8c39ad512377ad154fa9dc77caac8d82f44cfdbb4d38a030d09757ad4f5cc2"
+    },
+    "moonshine-synthetic": {
+      "backend": {
+        "backend_kind": "audiocpp",
+        "effective_runtime": "default",
+        "fallback_used": false,
+        "placement_evidence": "audio.cpp created explicit CPU Silero and ASR sessions",
+        "placement_verified": true,
+        "requested_device": "cpu",
+        "requested_runtime": "default"
+      },
+      "summary": {
+        "duplicate_predictions": 0,
+        "expected_events": 60,
+        "f1": 0.991596638655462,
+        "false_activations": 0,
+        "false_activations_per_hour": null,
+        "false_negatives": 1,
+        "false_positives": 0,
+        "negative_audio_hours": 0.0,
+        "precision": 1.0,
+        "predictions": 59,
+        "recall": 0.9833333333333332,
+        "true_positives": 59,
+        "wrong_id_predictions": 0
+      },
+      "timing": {
+        "aggregate_real_time_factor": 0.03768967009612426,
+        "files": 60,
+        "p50_file_milliseconds": 79.186822,
+        "p95_file_milliseconds": 99.261832,
+        "total_audio_milliseconds": 132406.75,
+        "total_elapsed_milliseconds": 4990.366726000001
+      },
+      "prediction_fingerprint": "d94b3311a79b5d8be04149d52dd4408819403089cfa3a4b94123eb238d5d014e",
+      "model_load_milliseconds": 1007.440756,
+      "report_sha256": "e94baf4047dc4e5df00d5b58dc10679966a08247ff5392a18ae2bb02e37db6cd",
+      "manifest_sha256": "6c222113c4d413a6695aa87fdf17aed707bd18d6aceb1e7f28d8e63827f0af27",
+      "configuration_sha256": "8f4b6917cfb56f7c021f017b5d2c7d140a0532d6be6928174ad27df72f323154"
+    },
+    "whispercpp-synthetic": {
+      "backend": {
+        "backend_kind": "whispercpp",
+        "effective_runtime": "default",
+        "fallback_used": false,
+        "placement_evidence": "whisper.cpp created explicit CPU VAD and verifier contexts",
+        "placement_verified": true,
+        "requested_device": "cpu",
+        "requested_runtime": "default"
+      },
+      "summary": {
+        "duplicate_predictions": 0,
+        "expected_events": 60,
+        "f1": 0.9655172413793104,
+        "false_activations": 0,
+        "false_activations_per_hour": null,
+        "false_negatives": 4,
+        "false_positives": 0,
+        "negative_audio_hours": 0.0,
+        "precision": 1.0,
+        "predictions": 56,
+        "recall": 0.9333333333333332,
+        "true_positives": 56,
+        "wrong_id_predictions": 0
+      },
+      "timing": {
+        "aggregate_real_time_factor": 0.6162843360327174,
+        "files": 60,
+        "p50_file_milliseconds": 1301.298051,
+        "p95_file_milliseconds": 1654.0916189999998,
+        "total_audio_milliseconds": 132406.75,
+        "total_elapsed_milliseconds": 81600.20601
+      },
+      "prediction_fingerprint": "73d73498b1b6bb5ca5e0b3577ec6f6e96aa59c1968eef408a6106b7cee93a87e",
+      "model_load_milliseconds": 63.530379999999994,
+      "report_sha256": "4e1e58118204d02ade5558b4363b5d0cf773e66ad38d68581a9d158e681f6ff4",
+      "manifest_sha256": "6c222113c4d413a6695aa87fdf17aed707bd18d6aceb1e7f28d8e63827f0af27",
+      "configuration_sha256": "caed338c2c27a6173b894975f716e417889885b8a17c6fb8738030442ce0cde1"
+    },
+    "moonshine-negative": {
+      "backend": {
+        "backend_kind": "audiocpp",
+        "effective_runtime": "default",
+        "fallback_used": false,
+        "placement_evidence": "audio.cpp created explicit CPU Silero and ASR sessions",
+        "placement_verified": true,
+        "requested_device": "cpu",
+        "requested_runtime": "default"
+      },
+      "summary": {
+        "duplicate_predictions": 0,
+        "expected_events": 0,
+        "f1": null,
+        "false_activations": 0,
+        "false_activations_per_hour": 0.0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "negative_audio_hours": 0.25068890624999995,
+        "precision": null,
+        "predictions": 0,
+        "recall": null,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "timing": {
+        "aggregate_real_time_factor": 0.041910674784574525,
+        "files": 100,
+        "p50_file_milliseconds": 325.132564,
+        "p95_file_milliseconds": 849.2341,
+        "total_audio_milliseconds": 902480.0625,
+        "total_elapsed_milliseconds": 37823.54839899999
+      },
+      "prediction_fingerprint": "0993a1a0ce6f850dd32aaf6de35d9b21c4f74842e907f437f4cb0f146ace3dce",
+      "model_load_milliseconds": 1025.3115719999998,
+      "report_sha256": "0c3e9772831e50d0e6c3689beaf731d6eb4ea828917ca521db67201501447806",
+      "manifest_sha256": "61b7c1c112babc875ed55f7db89a0205e2de0c44b96577ff2b906a057fe815e8",
+      "configuration_sha256": "13cef37dea986a7cc5de0274c51b4a97c409def2852db796992dbef458ff91d7"
+    },
+    "whispercpp-negative": {
+      "backend": {
+        "backend_kind": "whispercpp",
+        "effective_runtime": "default",
+        "fallback_used": false,
+        "placement_evidence": "whisper.cpp created explicit CPU VAD and verifier contexts",
+        "placement_verified": true,
+        "requested_device": "cpu",
+        "requested_runtime": "default"
+      },
+      "summary": {
+        "duplicate_predictions": 0,
+        "expected_events": 0,
+        "f1": null,
+        "false_activations": 0,
+        "false_activations_per_hour": 0.0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "negative_audio_hours": 0.25068890624999995,
+        "precision": null,
+        "predictions": 0,
+        "recall": null,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "timing": {
+        "aggregate_real_time_factor": 0.3613138914944174,
+        "files": 100,
+        "p50_file_milliseconds": 2559.273783,
+        "p95_file_milliseconds": 7842.424189,
+        "total_audio_milliseconds": 902480.0625,
+        "total_elapsed_milliseconds": 326078.583378
+      },
+      "prediction_fingerprint": "0993a1a0ce6f850dd32aaf6de35d9b21c4f74842e907f437f4cb0f146ace3dce",
+      "model_load_milliseconds": 82.917078,
+      "report_sha256": "efe7df4ae36054490fa6accc8cb90293ebfdc00b46f22af73fa133571063ac5c",
+      "manifest_sha256": "61b7c1c112babc875ed55f7db89a0205e2de0c44b96577ff2b906a057fe815e8",
+      "configuration_sha256": "3d8c39ad512377ad154fa9dc77caac8d82f44cfdbb4d38a030d09757ad4f5cc2"
+    }
+  }
+}

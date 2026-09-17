@@ -47,6 +47,7 @@ pub(crate) fn probe_provider(config: &Config, paths: &AppPaths) -> Result<(PathB
     }
     let library = discover_provider(config, paths)?;
     let api = AudioCppApi::load(&library)?;
+    crate::provider_families::require(&api._library, &["moonshine_asr", "silero_vad"])?;
     let version = unsafe { (api.build_version)() };
     let version = if version.is_null() {
         format!("audio.cpp ABI 0.1.0 (requested {backend}:{device})")
@@ -1496,6 +1497,11 @@ pub(crate) mod tests {
     int audiocpp_registry_create(const char *json, void **out) {
     (void) json; *out = malloc(1); return *out ? 0 : 1;
     }
+size_t audiocpp_registry_family_count(const void *registry) { (void)registry; return 2; }
+int audiocpp_registry_family(const void *registry, size_t index, const char **out) {
+    (void)registry; static const char *names[] = {"moonshine_asr", "silero_vad"};
+    if (index >= 2) return 1; *out = names[index]; return 0;
+}
     void audiocpp_registry_free(void *value) { free(value); }
     int audiocpp_model_load(void *registry, const char *path, const void *config,
                         const void *options, void **out) {

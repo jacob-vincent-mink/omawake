@@ -12,6 +12,7 @@ mod native_worker;
 pub mod paths;
 pub mod phrase;
 pub mod protocol;
+mod provider_families;
 pub mod runtime_inventory;
 pub mod setup;
 

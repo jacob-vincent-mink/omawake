@@ -1,0 +1,155 @@
+{
+  "schema_version": 1,
+  "corpus": {
+    "id": "light-up-computer-synthetic-near-matches-v1",
+    "version": "1",
+    "license_spdx": "NOASSERTION",
+    "source": "Locally authored sentences synthesized with Supertonic 3 (Open RAIL-M model); output licensing not asserted by this manifest"
+  },
+  "clips": [
+    {
+      "id": "light-bulb-M1",
+      "path": "light-bulb-M1.wav",
+      "sha256": "a52f453944cc83b43d02a33e1481d9c677ef97a2313c931542ee99dcfc67a805",
+      "split": "synthetic-near-match",
+      "tags": {
+        "text": "The light bulb is broken.",
+        "voice": "M1",
+        "ground_truth": "synthesis-prompt-not-human-transcription"
+      },
+      "expected": []
+    },
+    {
+      "id": "light-bulb-F1",
+      "path": "light-bulb-F1.wav",
+      "sha256": "fa4ac58956bcb7192f9793476fc27de66e4706e7a959f472a9e4edba1b16ef78",
+      "split": "synthetic-near-match",
+      "tags": {
+        "text": "The light bulb is broken.",
+        "voice": "F1",
+        "ground_truth": "synthesis-prompt-not-human-transcription"
+      },
+      "expected": []
+    },
+    {
+      "id": "line-up-M1",
+      "path": "line-up-M1.wav",
+      "sha256": "779c5429f0825451e805d0984221879564983f098e0afd262b5fcf3d59f1d9ec",
+      "split": "synthetic-near-match",
+      "tags": {
+        "text": "Please line up by the door.",
+        "voice": "M1",
+        "ground_truth": "synthesis-prompt-not-human-transcription"
+      },
+      "expected": []
+    },
+    {
+      "id": "line-up-F1",
+      "path": "line-up-F1.wav",
+      "sha256": "c4638986e10f586a0877f9b764a1bc1e9cead5b2b30f47c44f8b4270f4e8eec7",
+      "split": "synthetic-near-match",
+      "tags": {
+        "text": "Please line up by the door.",
+        "voice": "F1",
+        "ground_truth": "synthesis-prompt-not-human-transcription"
+      },
+      "expected": []
+    },
+    {
+      "id": "bright-cup-M1",
+      "path": "bright-cup-M1.wav",
+      "sha256": "57517556b7347702aa60f79fdb510245be94d4f9b25aa76a1a9cd8317b65ab56",
+      "split": "synthetic-near-match",
+      "tags": {
+        "text": "A bright cup is on the desk.",
+        "voice": "M1",
+        "ground_truth": "synthesis-prompt-not-human-transcription"
+      },
+      "expected": []
+    },
+    {
+      "id": "bright-cup-F1",
+      "path": "bright-cup-F1.wav",
+      "sha256": "6d9ce4290f3019b84bbb7606b0beb925e92082246d7b4b7dbcd0d1f5040825b8",
+      "split": "synthetic-near-match",
+      "tags": {
+        "text": "A bright cup is on the desk.",
+        "voice": "F1",
+        "ground_truth": "synthesis-prompt-not-human-transcription"
+      },
+      "expected": []
+    },
+    {
+      "id": "computerized-M1",
+      "path": "computerized-M1.wav",
+      "sha256": "8e038ebae654cfcf69b50ccd9f058d80084cb003f99e47b49fb336800fab46c0",
+      "split": "synthetic-near-match",
+      "tags": {
+        "text": "This is a computerized inventory system.",
+        "voice": "M1",
+        "ground_truth": "synthesis-prompt-not-human-transcription"
+      },
+      "expected": []
+    },
+    {
+      "id": "computerized-F1",
+      "path": "computerized-F1.wav",
+      "sha256": "153b16eacb804efa6379743b652181c2970668da121a638ae9a062a71c36429b",
+      "split": "synthetic-near-match",
+      "tags": {
+        "text": "This is a computerized inventory system.",
+        "voice": "F1",
+        "ground_truth": "synthesis-prompt-not-human-transcription"
+      },
+      "expected": []
+    },
+    {
+      "id": "compute-M1",
+      "path": "compute-M1.wav",
+      "sha256": "c31943a01c9d32a4a08a667f8f2fbc4bdc1d6d1909dbdeee3f58f90998a77b7d",
+      "split": "synthetic-near-match",
+      "tags": {
+        "text": "Please compute the total.",
+        "voice": "M1",
+        "ground_truth": "synthesis-prompt-not-human-transcription"
+      },
+      "expected": []
+    },
+    {
+      "id": "compute-F1",
+      "path": "compute-F1.wav",
+      "sha256": "3372fe66d32191429e0bca4ecb7880de3939235127e0b7f46bf39e876ebedf73",
+      "split": "synthetic-near-match",
+      "tags": {
+        "text": "Please compute the total.",
+        "voice": "F1",
+        "ground_truth": "synthesis-prompt-not-human-transcription"
+      },
+      "expected": []
+    },
+    {
+      "id": "commuter-M1",
+      "path": "commuter-M1.wav",
+      "sha256": "dc470a19f10cbed773b2ba22b0360772816c7a5c8e1867630d4b5db3d75f7523",
+      "split": "synthetic-near-match",
+      "tags": {
+        "text": "The commuter train arrived early.",
+        "voice": "M1",
+        "ground_truth": "synthesis-prompt-not-human-transcription"
+      },
+      "expected": []
+    },
+    {
+      "id": "commuter-F1",
+      "path": "commuter-F1.wav",
+      "sha256": "52ca49622eb0b14894dc764c761b61664dd9879a7387a4d9fcb8e23e12749fe5",
+      "split": "synthetic-near-match",
+      "tags": {
+        "text": "The commuter train arrived early.",
+        "voice": "F1",
+        "ground_truth": "synthesis-prompt-not-human-transcription"
+      },
+      "expected": []
+    }
+  ]
+}

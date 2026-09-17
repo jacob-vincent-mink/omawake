@@ -1,0 +1,2627 @@
+{
+  "evaluation": {
+    "application_version": "0.0.2",
+    "backend": {
+      "backend_kind": "audiocpp",
+      "effective_runtime": "cuda",
+      "fallback_used": false,
+      "placement_evidence": "audio.cpp created explicit CUDA sessions",
+      "placement_verified": true,
+      "requested_device": "gpu",
+      "requested_runtime": "cuda"
+    },
+    "evaluation": "omawake-phrase-verifier-accuracy",
+    "files": [
+      {
+        "audio_duration_milliseconds": 10435.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 470.295712,
+        "expected": [],
+        "id": "1089-134686-0000",
+        "matches": [],
+        "path": "0.wav",
+        "predictions": [],
+        "real_time_factor": 0.04506906679444178,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 3275.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 76.879733,
+        "expected": [],
+        "id": "1089-134686-0001",
+        "matches": [],
+        "path": "1.wav",
+        "predictions": [],
+        "real_time_factor": 0.023474727633587787,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 2680.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 45.112456,
+        "expected": [],
+        "id": "1089-134686-0003",
+        "matches": [],
+        "path": "2.wav",
+        "predictions": [],
+        "real_time_factor": 0.016833005970149254,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 5215.0625,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 73.95753500000001,
+        "expected": [],
+        "id": "1089-134686-0004",
+        "matches": [],
+        "path": "3.wav",
+        "predictions": [],
+        "real_time_factor": 0.014181524190745556,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 9635.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 127.985321,
+        "expected": [],
+        "id": "1089-134686-0005",
+        "matches": [],
+        "path": "4.wav",
+        "predictions": [],
+        "real_time_factor": 0.013283375298391284,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 10555.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 139.866543,
+        "expected": [],
+        "id": "1089-134686-0006",
+        "matches": [],
+        "path": "5.wav",
+        "predictions": [],
+        "real_time_factor": 0.013251212032212224,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 4275.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 69.627319,
+        "expected": [],
+        "id": "1089-134686-0007",
+        "matches": [],
+        "path": "6.wav",
+        "predictions": [],
+        "real_time_factor": 0.01628709216374269,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 6730.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 87.461753,
+        "expected": [],
+        "id": "1089-134686-0008",
+        "matches": [],
+        "path": "7.wav",
+        "predictions": [],
+        "real_time_factor": 0.012995802823179792,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 10575.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 133.020562,
+        "expected": [],
+        "id": "1089-134686-0009",
+        "matches": [],
+        "path": "8.wav",
+        "predictions": [],
+        "real_time_factor": 0.012578776548463358,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 4405.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 60.463429999999995,
+        "expected": [],
+        "id": "1089-134686-0010",
+        "matches": [],
+        "path": "9.wav",
+        "predictions": [],
+        "real_time_factor": 0.013726090805902385,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 12445.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 163.81902100000002,
+        "expected": [],
+        "id": "1089-134686-0011",
+        "matches": [],
+        "path": "10.wav",
+        "predictions": [],
+        "real_time_factor": 0.013163440819606268,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 11640.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 147.56027,
+        "expected": [],
+        "id": "1089-134686-0012",
+        "matches": [],
+        "path": "11.wav",
+        "predictions": [],
+        "real_time_factor": 0.012676999140893472,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 7915.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 100.918196,
+        "expected": [],
+        "id": "1089-134686-0013",
+        "matches": [],
+        "path": "12.wav",
+        "predictions": [],
+        "real_time_factor": 0.012750245862286796,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 2225.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 35.739557,
+        "expected": [],
+        "id": "1089-134686-0014",
+        "matches": [],
+        "path": "13.wav",
+        "predictions": [],
+        "real_time_factor": 0.01606272224719101,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 5814.999999999999,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 79.39186600000001,
+        "expected": [],
+        "id": "1089-134686-0015",
+        "matches": [],
+        "path": "14.wav",
+        "predictions": [],
+        "real_time_factor": 0.01365294342218401,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 3540.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 56.758702,
+        "expected": [],
+        "id": "1089-134686-0016",
+        "matches": [],
+        "path": "15.wav",
+        "predictions": [],
+        "real_time_factor": 0.01603353163841808,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 8870.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 115.904193,
+        "expected": [],
+        "id": "1089-134686-0017",
+        "matches": [],
+        "path": "16.wav",
+        "predictions": [],
+        "real_time_factor": 0.013066989064261555,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 15720.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 197.288399,
+        "expected": [],
+        "id": "1089-134686-0018",
+        "matches": [],
+        "path": "17.wav",
+        "predictions": [],
+        "real_time_factor": 0.012550152608142491,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 13895.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 176.540902,
+        "expected": [],
+        "id": "1089-134686-0019",
+        "matches": [],
+        "path": "18.wav",
+        "predictions": [],
+        "real_time_factor": 0.012705354587981287,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 16790.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 227.548601,
+        "expected": [],
+        "id": "1089-134686-0020",
+        "matches": [],
+        "path": "19.wav",
+        "predictions": [],
+        "real_time_factor": 0.013552626622989877,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 6550.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 84.73074,
+        "expected": [],
+        "id": "1089-134686-0021",
+        "matches": [],
+        "path": "20.wav",
+        "predictions": [],
+        "real_time_factor": 0.012935990839694655,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 11175.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 152.215064,
+        "expected": [],
+        "id": "1089-134686-0022",
+        "matches": [],
+        "path": "21.wav",
+        "predictions": [],
+        "real_time_factor": 0.0136210348098434,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 13275.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 184.891718,
+        "expected": [],
+        "id": "1089-134686-0023",
+        "matches": [],
+        "path": "22.wav",
+        "predictions": [],
+        "real_time_factor": 0.013927813032015063,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 11655.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 141.336722,
+        "expected": [],
+        "id": "1089-134686-0024",
+        "matches": [],
+        "path": "23.wav",
+        "predictions": [],
+        "real_time_factor": 0.012126702874302876,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 6610.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 82.397504,
+        "expected": [],
+        "id": "1089-134686-0025",
+        "matches": [],
+        "path": "24.wav",
+        "predictions": [],
+        "real_time_factor": 0.012465583055975794,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 4010.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 58.316721,
+        "expected": [],
+        "id": "1089-134686-0026",
+        "matches": [],
+        "path": "25.wav",
+        "predictions": [],
+        "real_time_factor": 0.01454282319201995,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 2710.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 43.961925,
+        "expected": [],
+        "id": "1089-134686-0027",
+        "matches": [],
+        "path": "26.wav",
+        "predictions": [],
+        "real_time_factor": 0.01622211254612546,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 7830.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 108.409987,
+        "expected": [],
+        "id": "1089-134686-0028",
+        "matches": [],
+        "path": "27.wav",
+        "predictions": [],
+        "real_time_factor": 0.013845464495530011,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 4670.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 66.378624,
+        "expected": [],
+        "id": "1089-134686-0029",
+        "matches": [],
+        "path": "28.wav",
+        "predictions": [],
+        "real_time_factor": 0.014213838115631691,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 2715.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 38.327482,
+        "expected": [],
+        "id": "1089-134686-0030",
+        "matches": [],
+        "path": "29.wav",
+        "predictions": [],
+        "real_time_factor": 0.014116936279926336,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 6615.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 82.893473,
+        "expected": [],
+        "id": "1089-134686-0031",
+        "matches": [],
+        "path": "30.wav",
+        "predictions": [],
+        "real_time_factor": 0.012531137263794406,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 4090.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 62.75001,
+        "expected": [],
+        "id": "1089-134686-0032",
+        "matches": [],
+        "path": "31.wav",
+        "predictions": [],
+        "real_time_factor": 0.015342300733496333,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 3330.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 46.12232899999999,
+        "expected": [],
+        "id": "1089-134686-0033",
+        "matches": [],
+        "path": "32.wav",
+        "predictions": [],
+        "real_time_factor": 0.013850549249249246,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 5810.000000000001,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 74.714257,
+        "expected": [],
+        "id": "1089-134686-0034",
+        "matches": [],
+        "path": "33.wav",
+        "predictions": [],
+        "real_time_factor": 0.012859596729776247,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 3445.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 49.924961,
+        "expected": [],
+        "id": "1089-134686-0035",
+        "matches": [],
+        "path": "34.wav",
+        "predictions": [],
+        "real_time_factor": 0.014492006095791,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 3250.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 45.514936,
+        "expected": [],
+        "id": "1089-134686-0036",
+        "matches": [],
+        "path": "35.wav",
+        "predictions": [],
+        "real_time_factor": 0.014004595692307692,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 5210.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 69.398311,
+        "expected": [],
+        "id": "1089-134686-0037",
+        "matches": [],
+        "path": "36.wav",
+        "predictions": [],
+        "real_time_factor": 0.013320213243761998,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134686",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 2085.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 33.882897,
+        "expected": [],
+        "id": "1089-134691-0000",
+        "matches": [],
+        "path": "37.wav",
+        "predictions": [],
+        "real_time_factor": 0.016250789928057553,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134691",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 5415.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 81.950671,
+        "expected": [],
+        "id": "1089-134691-0001",
+        "matches": [],
+        "path": "38.wav",
+        "predictions": [],
+        "real_time_factor": 0.015134011265004617,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134691",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 11600.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 151.118997,
+        "expected": [],
+        "id": "1089-134691-0002",
+        "matches": [],
+        "path": "39.wav",
+        "predictions": [],
+        "real_time_factor": 0.013027499741379312,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134691",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 2175.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 32.192175000000006,
+        "expected": [],
+        "id": "1089-134691-0003",
+        "matches": [],
+        "path": "40.wav",
+        "predictions": [],
+        "real_time_factor": 0.014801000000000003,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134691",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 5175.0625,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 67.466707,
+        "expected": [],
+        "id": "1089-134691-0004",
+        "matches": [],
+        "path": "41.wav",
+        "predictions": [],
+        "real_time_factor": 0.01303688738058719,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134691",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 5360.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 72.084779,
+        "expected": [],
+        "id": "1089-134691-0005",
+        "matches": [],
+        "path": "42.wav",
+        "predictions": [],
+        "real_time_factor": 0.013448652798507462,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134691",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 5895.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 81.70611099999999,
+        "expected": [],
+        "id": "1089-134691-0006",
+        "matches": [],
+        "path": "43.wav",
+        "predictions": [],
+        "real_time_factor": 0.01386023935538592,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134691",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 3440.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 49.106335,
+        "expected": [],
+        "id": "1089-134691-0007",
+        "matches": [],
+        "path": "44.wav",
+        "predictions": [],
+        "real_time_factor": 0.01427509738372093,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134691",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 14985.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 196.291197,
+        "expected": [],
+        "id": "1089-134691-0008",
+        "matches": [],
+        "path": "45.wav",
+        "predictions": [],
+        "real_time_factor": 0.01309917897897898,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134691",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 20055.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 265.726723,
+        "expected": [],
+        "id": "1089-134691-0009",
+        "matches": [],
+        "path": "46.wav",
+        "predictions": [],
+        "real_time_factor": 0.01324989892794814,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134691",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 3195.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 51.801364,
+        "expected": [],
+        "id": "1089-134691-0010",
+        "matches": [],
+        "path": "47.wav",
+        "predictions": [],
+        "real_time_factor": 0.01621325946791862,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134691",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 20010.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 245.514332,
+        "expected": [],
+        "id": "1089-134691-0011",
+        "matches": [],
+        "path": "48.wav",
+        "predictions": [],
+        "real_time_factor": 0.012269581809095452,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134691",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 15030.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 187.811452,
+        "expected": [],
+        "id": "1089-134691-0012",
+        "matches": [],
+        "path": "49.wav",
+        "predictions": [],
+        "real_time_factor": 0.012495771922821024,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134691",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 16329.999999999998,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 244.848523,
+        "expected": [],
+        "id": "1089-134691-0013",
+        "matches": [],
+        "path": "50.wav",
+        "predictions": [],
+        "real_time_factor": 0.014993785854255972,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134691",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 4755.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 96.792699,
+        "expected": [],
+        "id": "1089-134691-0014",
+        "matches": [],
+        "path": "51.wav",
+        "predictions": [],
+        "real_time_factor": 0.02035598296529969,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134691",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 3395.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 75.01613,
+        "expected": [],
+        "id": "1089-134691-0015",
+        "matches": [],
+        "path": "52.wav",
+        "predictions": [],
+        "real_time_factor": 0.022096061855670104,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134691",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 9060.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 113.048299,
+        "expected": [],
+        "id": "1089-134691-0016",
+        "matches": [],
+        "path": "53.wav",
+        "predictions": [],
+        "real_time_factor": 0.01247773719646799,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134691",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 11695.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 149.049873,
+        "expected": [],
+        "id": "1089-134691-0017",
+        "matches": [],
+        "path": "54.wav",
+        "predictions": [],
+        "real_time_factor": 0.012744751859769131,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134691",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 3090.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 47.278476,
+        "expected": [],
+        "id": "1089-134691-0018",
+        "matches": [],
+        "path": "55.wav",
+        "predictions": [],
+        "real_time_factor": 0.015300477669902912,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134691",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 3155.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 44.150181,
+        "expected": [],
+        "id": "1089-134691-0019",
+        "matches": [],
+        "path": "56.wav",
+        "predictions": [],
+        "real_time_factor": 0.01399371822503962,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134691",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 3990.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 67.331987,
+        "expected": [],
+        "id": "1089-134691-0020",
+        "matches": [],
+        "path": "57.wav",
+        "predictions": [],
+        "real_time_factor": 0.01687518471177945,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134691",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 13370.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 175.27917200000002,
+        "expected": [],
+        "id": "1089-134691-0021",
+        "matches": [],
+        "path": "58.wav",
+        "predictions": [],
+        "real_time_factor": 0.013109885714285716,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134691",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 5635.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 79.922394,
+        "expected": [],
+        "id": "1089-134691-0022",
+        "matches": [],
+        "path": "59.wav",
+        "predictions": [],
+        "real_time_factor": 0.014183211002661934,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134691",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 7735.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 102.81108,
+        "expected": [],
+        "id": "1089-134691-0023",
+        "matches": [],
+        "path": "60.wav",
+        "predictions": [],
+        "real_time_factor": 0.013291671622495152,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134691",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 2215.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 41.634240000000005,
+        "expected": [],
+        "id": "1089-134691-0024",
+        "matches": [],
+        "path": "61.wav",
+        "predictions": [],
+        "real_time_factor": 0.01879649661399549,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134691",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 8005.000000000001,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 146.84961299999998,
+        "expected": [],
+        "id": "1089-134691-0025",
+        "matches": [],
+        "path": "62.wav",
+        "predictions": [],
+        "real_time_factor": 0.018344736164896933,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "134691",
+          "ground_truth": "negative-transcript",
+          "speaker": "1089"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 10725.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 217.078693,
+        "expected": [],
+        "id": "1188-133604-0000",
+        "matches": [],
+        "path": "63.wav",
+        "predictions": [],
+        "real_time_factor": 0.020240437575757577,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 9040.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 167.871109,
+        "expected": [],
+        "id": "1188-133604-0001",
+        "matches": [],
+        "path": "64.wav",
+        "predictions": [],
+        "real_time_factor": 0.018569812942477875,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 17960.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 349.451206,
+        "expected": [],
+        "id": "1188-133604-0002",
+        "matches": [],
+        "path": "65.wav",
+        "predictions": [],
+        "real_time_factor": 0.019457194097995543,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 12610.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 246.808366,
+        "expected": [],
+        "id": "1188-133604-0003",
+        "matches": [],
+        "path": "66.wav",
+        "predictions": [],
+        "real_time_factor": 0.019572431879460745,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 10650.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 212.509292,
+        "expected": [],
+        "id": "1188-133604-0004",
+        "matches": [],
+        "path": "67.wav",
+        "predictions": [],
+        "real_time_factor": 0.019953924131455397,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 8560.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 169.753545,
+        "expected": [],
+        "id": "1188-133604-0005",
+        "matches": [],
+        "path": "68.wav",
+        "predictions": [],
+        "real_time_factor": 0.019831021612149533,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 2400.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 48.338398,
+        "expected": [],
+        "id": "1188-133604-0006",
+        "matches": [],
+        "path": "69.wav",
+        "predictions": [],
+        "real_time_factor": 0.020140999166666663,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 14240.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 187.496859,
+        "expected": [],
+        "id": "1188-133604-0007",
+        "matches": [],
+        "path": "70.wav",
+        "predictions": [],
+        "real_time_factor": 0.013166914255617978,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 20755.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 261.537259,
+        "expected": [],
+        "id": "1188-133604-0008",
+        "matches": [],
+        "path": "71.wav",
+        "predictions": [],
+        "real_time_factor": 0.012601168826788724,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 23060.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 444.638046,
+        "expected": [],
+        "id": "1188-133604-0009",
+        "matches": [],
+        "path": "72.wav",
+        "predictions": [],
+        "real_time_factor": 0.01928178863833478,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 6095.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 110.310486,
+        "expected": [],
+        "id": "1188-133604-0010",
+        "matches": [],
+        "path": "73.wav",
+        "predictions": [],
+        "real_time_factor": 0.0180985210828548,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 15190.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 195.89842700000003,
+        "expected": [],
+        "id": "1188-133604-0011",
+        "matches": [],
+        "path": "74.wav",
+        "predictions": [],
+        "real_time_factor": 0.01289653897300856,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 14650.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 196.972414,
+        "expected": [],
+        "id": "1188-133604-0012",
+        "matches": [],
+        "path": "75.wav",
+        "predictions": [],
+        "real_time_factor": 0.013445215972696246,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 3020.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 45.173768,
+        "expected": [],
+        "id": "1188-133604-0013",
+        "matches": [],
+        "path": "76.wav",
+        "predictions": [],
+        "real_time_factor": 0.014958201324503312,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 4390.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 61.062197999999995,
+        "expected": [],
+        "id": "1188-133604-0014",
+        "matches": [],
+        "path": "77.wav",
+        "predictions": [],
+        "real_time_factor": 0.013909384510250568,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 16085.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 206.663584,
+        "expected": [],
+        "id": "1188-133604-0015",
+        "matches": [],
+        "path": "78.wav",
+        "predictions": [],
+        "real_time_factor": 0.0128482178427106,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 16595.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 219.827258,
+        "expected": [],
+        "id": "1188-133604-0016",
+        "matches": [],
+        "path": "79.wav",
+        "predictions": [],
+        "real_time_factor": 0.01324659584212112,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 4615.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 61.151126,
+        "expected": [],
+        "id": "1188-133604-0017",
+        "matches": [],
+        "path": "80.wav",
+        "predictions": [],
+        "real_time_factor": 0.013250514842903576,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 11549.9375,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 150.950421,
+        "expected": [],
+        "id": "1188-133604-0018",
+        "matches": [],
+        "path": "81.wav",
+        "predictions": [],
+        "real_time_factor": 0.013069371241186373,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 13930.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 174.52299399999998,
+        "expected": [],
+        "id": "1188-133604-0019",
+        "matches": [],
+        "path": "82.wav",
+        "predictions": [],
+        "real_time_factor": 0.012528570997846374,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 10260.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 139.671295,
+        "expected": [],
+        "id": "1188-133604-0020",
+        "matches": [],
+        "path": "83.wav",
+        "predictions": [],
+        "real_time_factor": 0.013613186647173491,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 14020.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 246.204141,
+        "expected": [],
+        "id": "1188-133604-0021",
+        "matches": [],
+        "path": "84.wav",
+        "predictions": [],
+        "real_time_factor": 0.017560923038516404,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 9630.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 218.341207,
+        "expected": [],
+        "id": "1188-133604-0022",
+        "matches": [],
+        "path": "85.wav",
+        "predictions": [],
+        "real_time_factor": 0.022673022533748702,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 23670.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 316.574213,
+        "expected": [],
+        "id": "1188-133604-0023",
+        "matches": [],
+        "path": "86.wav",
+        "predictions": [],
+        "real_time_factor": 0.013374491465990705,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 15240.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 198.457489,
+        "expected": [],
+        "id": "1188-133604-0024",
+        "matches": [],
+        "path": "87.wav",
+        "predictions": [],
+        "real_time_factor": 0.01302214494750656,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 7450.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 100.714227,
+        "expected": [],
+        "id": "1188-133604-0025",
+        "matches": [],
+        "path": "88.wav",
+        "predictions": [],
+        "real_time_factor": 0.013518688187919464,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 20125.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 275.55319000000003,
+        "expected": [],
+        "id": "1188-133604-0026",
+        "matches": [],
+        "path": "89.wav",
+        "predictions": [],
+        "real_time_factor": 0.01369208397515528,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 11245.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 140.535312,
+        "expected": [],
+        "id": "1188-133604-0027",
+        "matches": [],
+        "path": "90.wav",
+        "predictions": [],
+        "real_time_factor": 0.012497582214317475,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 19005.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 246.987583,
+        "expected": [],
+        "id": "1188-133604-0028",
+        "matches": [],
+        "path": "91.wav",
+        "predictions": [],
+        "real_time_factor": 0.012995926493028153,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 3705.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 52.175157,
+        "expected": [],
+        "id": "1188-133604-0029",
+        "matches": [],
+        "path": "92.wav",
+        "predictions": [],
+        "real_time_factor": 0.014082363562753036,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 1915.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 29.266585000000003,
+        "expected": [],
+        "id": "1188-133604-0030",
+        "matches": [],
+        "path": "93.wav",
+        "predictions": [],
+        "real_time_factor": 0.015282812010443866,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 4250.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 62.772297,
+        "expected": [],
+        "id": "1188-133604-0031",
+        "matches": [],
+        "path": "94.wav",
+        "predictions": [],
+        "real_time_factor": 0.01476995223529412,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 10985.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 141.935603,
+        "expected": [],
+        "id": "1188-133604-0032",
+        "matches": [],
+        "path": "95.wav",
+        "predictions": [],
+        "real_time_factor": 0.012920855985434682,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 6625.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 91.061169,
+        "expected": [],
+        "id": "1188-133604-0033",
+        "matches": [],
+        "path": "96.wav",
+        "predictions": [],
+        "real_time_factor": 0.013745082113207546,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 20905.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 275.705254,
+        "expected": [],
+        "id": "1188-133604-0034",
+        "matches": [],
+        "path": "97.wav",
+        "predictions": [],
+        "real_time_factor": 0.013188483807701507,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 2925.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 40.262958000000005,
+        "expected": [],
+        "id": "1188-133604-0035",
+        "matches": [],
+        "path": "98.wav",
+        "predictions": [],
+        "real_time_factor": 0.013765113846153847,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 7970.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 109.011411,
+        "expected": [],
+        "id": "1188-133604-0036",
+        "matches": [],
+        "path": "99.wav",
+        "predictions": [],
+        "real_time_factor": 0.01367771781681305,
+        "split": "test-clean",
+        "tags": {
+          "chapter": "133604",
+          "ground_truth": "negative-transcript",
+          "speaker": "1188"
+        },
+        "wrong_id_prediction_indices": []
+      }
+    ],
+    "inputs": {
+      "config_sha256": "7aebd6f6c4787919a39f4fbbbf5948f2fedb13e5a14189e7127d3958b4847874",
+      "corpus": {
+        "id": "librispeech-test-clean-test-other-negative-light-up-first-100-smoke",
+        "license_spdx": "CC-BY-4.0",
+        "source": "https://www.openslr.org/12",
+        "version": "openslr-12-test-clean+test-other"
+      },
+      "enabled_keyword_ids": [
+        "computer",
+        "light-up"
+      ],
+      "manifest_sha256": "61b7c1c112babc875ed55f7db89a0205e2de0c44b96577ff2b906a057fe815e8",
+      "matching": {
+        "early_tolerance_ms": 250,
+        "late_tolerance_ms": 750
+      },
+      "model_directory": "/tmp/omawake-rc3-cuda-final/data/omawake/models/moonshine-streaming-tiny-q8_0-silero-v6.2.1",
+      "model_name": "moonshine-streaming-tiny-q8_0-silero-v6.2.1"
+    },
+    "model_load_milliseconds": 609.5928779999999,
+    "per_keyword": {
+      "computer": {
+        "duplicate_predictions": 0,
+        "expected_events": 0,
+        "f1": null,
+        "false_activations": 0,
+        "false_activations_per_hour": 0.0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "negative_audio_hours": 0.25068890624999995,
+        "precision": null,
+        "predictions": 0,
+        "recall": null,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "light-up": {
+        "duplicate_predictions": 0,
+        "expected_events": 0,
+        "f1": null,
+        "false_activations": 0,
+        "false_activations_per_hour": 0.0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "negative_audio_hours": 0.25068890624999995,
+        "precision": null,
+        "predictions": 0,
+        "recall": null,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      }
+    },
+    "prediction_fingerprint": "0993a1a0ce6f850dd32aaf6de35d9b21c4f74842e907f437f4cb0f146ace3dce",
+    "schema_version": 1,
+    "summary": {
+      "duplicate_predictions": 0,
+      "expected_events": 0,
+      "f1": null,
+      "false_activations": 0,
+      "false_activations_per_hour": 0.0,
+      "false_negatives": 0,
+      "false_positives": 0,
+      "negative_audio_hours": 0.25068890624999995,
+      "precision": null,
+      "predictions": 0,
+      "recall": null,
+      "true_positives": 0,
+      "wrong_id_predictions": 0
+    },
+    "timing": {
+      "aggregate_real_time_factor": 0.01472867527419754,
+      "files": 100,
+      "p50_file_milliseconds": 108.409987,
+      "p95_file_milliseconds": 275.55319000000003,
+      "total_audio_milliseconds": 902480.0625,
+      "total_elapsed_milliseconds": 13292.335782
+    }
+  },
+  "resources": {
+    "command": [
+      "/tmp/oma-model-qualification-F1DZcy/omawake/target/release/omawake",
+      "--config",
+      "/tmp/oma-model-qualification-F1DZcy/wake-negative.toml",
+      "evaluate",
+      "/tmp/oma-model-qualification-F1DZcy/negative/manifest.json"
+    ],
+    "sample_period_seconds": 0.2,
+    "power": {
+      "status": "unavailable",
+      "reason": "[Errno 2] No such file or directory: '/sys/class/powercap/intel-rapl:0/energy_uj'"
+    },
+    "peak_group_rss_bytes": 663511040,
+    "peak_group_members": 3,
+    "rss_definition": "sum of resident pages across the process group; shared pages may be counted twice",
+    "initial_load_average": [
+      0.8681640625,
+      0.4833984375,
+      0.2470703125
+    ],
+    "wall_seconds": 14.437602083024103,
+    "exit_code": 0,
+    "user_cpu_seconds": 8.08092,
+    "system_cpu_seconds": 10.485277,
+    "max_process_rss_kib": 665812,
+    "final_load_average": [
+      1.0517578125,
+      0.54248046875,
+      0.27099609375
+    ]
+  }
+}
