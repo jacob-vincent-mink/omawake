@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.0.3-rc.1 - 2026-09-17
+## 0.0.3 - 2026-09-17
 
 - Reconciled the model-support roadmap: W02-W05 setup/activation/cache gates
   audited and closed, W10 playback ownership landed, and the tracker records
