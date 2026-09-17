@@ -45,9 +45,10 @@ ffmpeg), staged with per-clip SHA-256 in
 
 | Set | Clips | Result |
 |---|---|---|
-| "enciende la luz" positives | 3 | 3/3 detected |
-| "apaga la luz" near-match | 1 | not detected (transcribed "Apakah la luz?") |
+| "enciende la luz" positives | 3 | 3/3 detected (clean Spanish transcripts) |
+| "apaga la luz" near-match | 1 | not detected (transcribed "Apaga la luz.") |
 | "enciende el ventilador" distractor | 1 | not detected |
+| English clip with `es` pinned | 1 | Spanish-forced transcription (language reaches inference) |
 | Spanish negatives | 100 (0.320 h) | **0 false activations** (0.0/h) |
 
 Sample WAVs are in [samples/](samples/) (`pos1–3` detected, `neg1–2`
