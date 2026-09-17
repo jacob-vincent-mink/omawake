@@ -79,7 +79,12 @@ pub fn probe(config: &Config, config_path: &Path) -> Probe {
             },
         };
     }
-    match crate::engine::audiocpp::probe_provider(config, &paths) {
+    let provider = if backend.kind == "whispercpp" {
+        crate::engine::whisper::probe_provider(config, &paths)
+    } else {
+        crate::engine::audiocpp::probe_provider(config, &paths)
+    };
+    match provider {
         Ok((library, version)) => Probe {
             loadable: true,
             device_accessible: None,

@@ -3,6 +3,8 @@ use serde::Serialize;
 use crate::backend::Runtime;
 use crate::config::Config;
 
+pub const WHISPER_MODEL_ID: &str = "whisper-base.en-ggml-silero-v6.2.0";
+
 pub const DEFAULT_MODEL_ID: &str = "moonshine-streaming-tiny-q8_0-silero-v6.2.1";
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -37,6 +39,11 @@ pub struct LicenseNotice {
 pub struct ModelSpec {
     pub id: &'static str,
     pub backend: &'static str,
+    #[serde(skip)] // Presentation is not part of the schema-1 install identity.
+    pub name: &'static str,
+    /// Native provider family, distinct from the complete profile description.
+    #[serde(skip)] // Derived from the pinned profile; preserve existing manifests.
+    pub asr_family: &'static str,
     pub family: &'static str,
     pub description: &'static str,
     pub license: &'static str,
@@ -83,7 +90,9 @@ const AUDIOCPP_GGUF_REVISION: &str = "6d5436fc85f7a20c2e9f4e472b7f3a532f686444";
 const SILERO_REVISION: &str = "7e30209a3e901f9842f81b225f3e93d8199902b1";
 const OPENAI_WHISPER_REVISION: &str = "911407f4214e0e1d82085af863093ec0b66f9cd6";
 const OPENVINO_WHISPER_REVISION: &str = "3b292a83752fbfcad0bd6384bcf71d0b1fc4fe74";
+const OPENVINO_WHISPER_MULTI_REVISION: &str = "0606293f0511136ada21755a265492f623a934b8";
 pub const OPENVINO_MODEL_ID: &str = "whisper-base.en-int8-ov-silero-v6.2.1";
+pub const OPENVINO_MULTILINGUAL_MODEL_ID: &str = "whisper-base-int8-ov-silero-v6.2.1";
 
 const AUDIOCPP_ASSETS: &[ModelAsset] = &[
     ModelAsset {
@@ -277,10 +286,185 @@ const OPENVINO_NOTICES: &[LicenseNotice] = &[
     },
 ];
 
+const WHISPER_REVISION: &str = "5359861c739e955e79d9a303bcbc70fb988958b1";
+const WHISPER_VAD_REVISION: &str = "9ffd54a1e1ee413ddf265af9913beaf518d1639b";
+const WHISPER_ASSETS: &[ModelAsset] = &[
+    ModelAsset {
+        role: "wake phrase verifier",
+        path: "ggml-base.en.bin",
+        url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.en.bin",
+        size: 147_964_211,
+        sha256: "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002",
+        source_url: "https://huggingface.co/openai/whisper-base.en",
+        source_revision: OPENAI_WHISPER_REVISION,
+        license: "Apache-2.0",
+    },
+    ModelAsset {
+        role: "voice activity detector",
+        path: "ggml-silero-v6.2.0.bin",
+        url: "https://huggingface.co/ggml-org/whisper-vad/resolve/9ffd54a1e1ee413ddf265af9913beaf518d1639b/ggml-silero-v6.2.0.bin",
+        size: 885_098,
+        sha256: "2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987",
+        source_url: "https://huggingface.co/ggml-org/whisper-vad",
+        source_revision: WHISPER_VAD_REVISION,
+        license: "MIT",
+    },
+];
+
+const OPENVINO_MULTILINGUAL_ASSETS: &[ModelAsset] = &[
+    ModelAsset {
+        role: "verifier metadata",
+        path: "config.json",
+        url: "https://huggingface.co/OpenVINO/whisper-base-int8-ov/resolve/0606293f0511136ada21755a265492f623a934b8/config.json",
+        size: 1_320,
+        sha256: "7580357cd33e60d3c453b90b6ab4d78606cbc5de32cc2da8df873468dcfac237",
+        source_url: "https://huggingface.co/OpenVINO/whisper-base-int8-ov",
+        source_revision: OPENVINO_WHISPER_MULTI_REVISION,
+        license: "Apache-2.0",
+    },
+    ModelAsset {
+        role: "generation metadata",
+        path: "generation_config.json",
+        url: "https://huggingface.co/OpenVINO/whisper-base-int8-ov/resolve/0606293f0511136ada21755a265492f623a934b8/generation_config.json",
+        size: 3_802,
+        sha256: "a24ccb25a8638fb23d3acfa0b234982497dd30bb3c577d145619525629f38e97",
+        source_url: "https://huggingface.co/OpenVINO/whisper-base-int8-ov",
+        source_revision: OPENVINO_WHISPER_MULTI_REVISION,
+        license: "Apache-2.0",
+    },
+    ModelAsset {
+        role: "Whisper decoder weights",
+        path: "openvino_decoder_model.bin",
+        url: "https://huggingface.co/OpenVINO/whisper-base-int8-ov/resolve/0606293f0511136ada21755a265492f623a934b8/openvino_decoder_model.bin",
+        size: 52_439_987,
+        sha256: "1e373d629c4a1a5c7a1964188f77c2b52b0bb488f27015fd9dc35bcb1e7eef42",
+        source_url: "https://huggingface.co/OpenVINO/whisper-base-int8-ov",
+        source_revision: OPENVINO_WHISPER_MULTI_REVISION,
+        license: "Apache-2.0",
+    },
+    ModelAsset {
+        role: "Whisper decoder graph",
+        path: "openvino_decoder_model.xml",
+        url: "https://huggingface.co/OpenVINO/whisper-base-int8-ov/resolve/0606293f0511136ada21755a265492f623a934b8/openvino_decoder_model.xml",
+        size: 564_428,
+        sha256: "901c8584bd9c7721b879d617d2941fb9c318150cfec5d04056bc8faaa9745285",
+        source_url: "https://huggingface.co/OpenVINO/whisper-base-int8-ov",
+        source_revision: OPENVINO_WHISPER_MULTI_REVISION,
+        license: "Apache-2.0",
+    },
+    ModelAsset {
+        role: "detokenizer weights",
+        path: "openvino_detokenizer.bin",
+        url: "https://huggingface.co/OpenVINO/whisper-base-int8-ov/resolve/0606293f0511136ada21755a265492f623a934b8/openvino_detokenizer.bin",
+        size: 736_181,
+        sha256: "2542d1fe6c4c5d838e7b7c61b24996b94ae0cb54e64ff6dbaab2b9dd5ddd7ca0",
+        source_url: "https://huggingface.co/OpenVINO/whisper-base-int8-ov",
+        source_revision: OPENVINO_WHISPER_MULTI_REVISION,
+        license: "Apache-2.0",
+    },
+    ModelAsset {
+        role: "detokenizer graph",
+        path: "openvino_detokenizer.xml",
+        url: "https://huggingface.co/OpenVINO/whisper-base-int8-ov/resolve/0606293f0511136ada21755a265492f623a934b8/openvino_detokenizer.xml",
+        size: 9_699,
+        sha256: "2ef46e0d325a858753784b4f96172bd0e627cd9ff1fd0c9db5ac8bc1785b8c7f",
+        source_url: "https://huggingface.co/OpenVINO/whisper-base-int8-ov",
+        source_revision: OPENVINO_WHISPER_MULTI_REVISION,
+        license: "Apache-2.0",
+    },
+    ModelAsset {
+        role: "Whisper encoder weights",
+        path: "openvino_encoder_model.bin",
+        url: "https://huggingface.co/OpenVINO/whisper-base-int8-ov/resolve/0606293f0511136ada21755a265492f623a934b8/openvino_encoder_model.bin",
+        size: 23_097_456,
+        sha256: "a0aa4518850411dfadc7799b426d7c08e966a85367be96588432fbadf40789d8",
+        source_url: "https://huggingface.co/OpenVINO/whisper-base-int8-ov",
+        source_revision: OPENVINO_WHISPER_MULTI_REVISION,
+        license: "Apache-2.0",
+    },
+    ModelAsset {
+        role: "Whisper encoder graph",
+        path: "openvino_encoder_model.xml",
+        url: "https://huggingface.co/OpenVINO/whisper-base-int8-ov/resolve/0606293f0511136ada21755a265492f623a934b8/openvino_encoder_model.xml",
+        size: 295_834,
+        sha256: "79dc09241718475ca14277bb16766cfb688b279f412cae8972b1c1857863ae3a",
+        source_url: "https://huggingface.co/OpenVINO/whisper-base-int8-ov",
+        source_revision: OPENVINO_WHISPER_MULTI_REVISION,
+        license: "Apache-2.0",
+    },
+    ModelAsset {
+        role: "tokenizer weights",
+        path: "openvino_tokenizer.bin",
+        url: "https://huggingface.co/OpenVINO/whisper-base-int8-ov/resolve/0606293f0511136ada21755a265492f623a934b8/openvino_tokenizer.bin",
+        size: 1_898_933,
+        sha256: "846f3c65f7a71f120fce7aaaf41b342f0767eb13e3c4e7c2a54f1d49b5c38fda",
+        source_url: "https://huggingface.co/OpenVINO/whisper-base-int8-ov",
+        source_revision: OPENVINO_WHISPER_MULTI_REVISION,
+        license: "Apache-2.0",
+    },
+    ModelAsset {
+        role: "tokenizer graph",
+        path: "openvino_tokenizer.xml",
+        url: "https://huggingface.co/OpenVINO/whisper-base-int8-ov/resolve/0606293f0511136ada21755a265492f623a934b8/openvino_tokenizer.xml",
+        size: 27_011,
+        sha256: "3e4ddd6e2031c307d5db367630298ae77d6f9f5675b689cb536e0da617a0e38d",
+        source_url: "https://huggingface.co/OpenVINO/whisper-base-int8-ov",
+        source_revision: OPENVINO_WHISPER_MULTI_REVISION,
+        license: "Apache-2.0",
+    },
+    ModelAsset {
+        role: "audio preprocessor metadata",
+        path: "preprocessor_config.json",
+        url: "https://huggingface.co/OpenVINO/whisper-base-int8-ov/resolve/0606293f0511136ada21755a265492f623a934b8/preprocessor_config.json",
+        size: 356,
+        sha256: "994838f1fa6462c8b9b3c90edada831f11f3dd8b4664634e18f4694d005c9dbf",
+        source_url: "https://huggingface.co/OpenVINO/whisper-base-int8-ov",
+        source_revision: OPENVINO_WHISPER_MULTI_REVISION,
+        license: "Apache-2.0",
+    },
+    ModelAsset {
+        role: "voice activity detector",
+        path: "silero_vad_16k.safetensors",
+        url: "https://raw.githubusercontent.com/snakers4/silero-vad/7e30209a3e901f9842f81b225f3e93d8199902b1/src/silero_vad/data/silero_vad_16k.safetensors",
+        size: 1_239_748,
+        sha256: "c59271c284ae9c8335d795d60e0bfdb71aaaceec578d9bd9ffc1b8153c319ea1",
+        source_url: "https://github.com/snakers4/silero-vad",
+        source_revision: SILERO_REVISION,
+        license: "MIT",
+    },
+];
+
+const OPENVINO_MULTILINGUAL_NOTICES: &[LicenseNotice] = &[
+    LicenseNotice {
+        path: "LICENSES/Whisper-Apache-2.0.txt",
+        license: "Apache-2.0",
+        copyright: "Copyright The OpenAI Whisper Authors",
+        source_url: "https://github.com/openai/whisper/blob/main/LICENSE",
+    },
+    LicenseNotice {
+        path: "LICENSES/Silero-VAD-MIT.txt",
+        license: "MIT",
+        copyright: "Copyright (c) 2020-present Silero Team",
+        source_url: "https://github.com/snakers4/silero-vad/blob/7e30209a3e901f9842f81b225f3e93d8199902b1/LICENSE",
+    },
+];
+
+const WHISPER_NOTICES: &[LicenseNotice] = &[
+    OPENVINO_NOTICES[0],
+    LicenseNotice {
+        path: "LICENSES/Silero-VAD-MIT.txt",
+        license: "MIT",
+        copyright: "Copyright (c) 2020-present Silero Team",
+        source_url: "https://huggingface.co/ggml-org/whisper-vad/blob/9ffd54a1e1ee413ddf265af9913beaf518d1639b/README.md",
+    },
+];
+
 const MODELS: &[ModelSpec] = &[
     ModelSpec {
         id: DEFAULT_MODEL_ID,
         backend: "audiocpp",
+        name: "Moonshine Streaming Tiny",
+        asr_family: "moonshine_asr",
         family: "silero-vad+moonshine-asr",
         description: "Silero VAD 6.2.1 with Moonshine Streaming Tiny Q8_0 phrase verification",
         license: "MIT",
@@ -303,6 +487,8 @@ const MODELS: &[ModelSpec] = &[
     ModelSpec {
         id: OPENVINO_MODEL_ID,
         backend: "openvino-genai",
+        name: "Whisper Base.en · OpenVINO",
+        asr_family: "whisper",
         family: "silero-vad+whisper-base.en-int8",
         description: "English Silero VAD 6.2.1 with OpenVINO Whisper Base.en INT8 verification",
         license: "Apache-2.0",
@@ -322,6 +508,54 @@ const MODELS: &[ModelSpec] = &[
         assets: OPENVINO_ASSETS,
         notices: OPENVINO_NOTICES,
     },
+    ModelSpec {
+        id: OPENVINO_MULTILINGUAL_MODEL_ID,
+        backend: "openvino-genai",
+        name: "Whisper Base · OpenVINO (multilingual)",
+        asr_family: "whisper",
+        family: "silero-vad+whisper-base-int8",
+        description: "Silero VAD 6.2.1 with OpenVINO Whisper Base INT8 (multilingual) verification",
+        license: "Apache-2.0",
+        license_status: "verified-origin-and-conversion",
+        license_url: "https://github.com/openai/whisper/blob/main/LICENSE",
+        source_url: "https://huggingface.co/openai/whisper-base",
+        source_revision: OPENVINO_WHISPER_MULTI_REVISION,
+        languages: &["es"],
+        multilingual: true,
+        converted_source_url: "https://huggingface.co/OpenVINO/whisper-base-int8-ov",
+        converted_source_revision: OPENVINO_WHISPER_MULTI_REVISION,
+        downloadable: true,
+        verifier: ".",
+        vad: "silero_vad_16k.safetensors",
+        sample_rate: 16_000,
+        probe_audio: None,
+        assets: OPENVINO_MULTILINGUAL_ASSETS,
+        notices: OPENVINO_MULTILINGUAL_NOTICES,
+    },
+    ModelSpec {
+        id: WHISPER_MODEL_ID,
+        backend: "whispercpp",
+        name: "Whisper Base.en · whisper.cpp",
+        asr_family: "whisper",
+        family: "silero-vad+whisper-base.en-ggml",
+        description: "English Whisper Base.en with Silero VAD 6.2.0 through whisper.cpp 1.9.3 (CPU)",
+        license: "Apache-2.0 AND MIT",
+        license_status: "verified-origin-and-conversion",
+        license_url: "https://huggingface.co/openai/whisper-base.en/blob/911407f4214e0e1d82085af863093ec0b66f9cd6/README.md",
+        source_url: "https://huggingface.co/openai/whisper-base.en",
+        source_revision: OPENAI_WHISPER_REVISION,
+        languages: &["en"],
+        multilingual: false,
+        converted_source_url: "https://huggingface.co/ggerganov/whisper.cpp",
+        converted_source_revision: WHISPER_REVISION,
+        downloadable: true,
+        verifier: "ggml-base.en.bin",
+        vad: "ggml-silero-v6.2.0.bin",
+        sample_rate: 16_000,
+        probe_audio: None,
+        assets: WHISPER_ASSETS,
+        notices: WHISPER_NOTICES,
+    },
 ];
 
 pub fn backends() -> &'static [BackendSpec] {
@@ -336,21 +570,71 @@ pub fn model(id: &str) -> Option<&'static ModelSpec> {
     MODELS.iter().find(|item| item.id == id)
 }
 
+/// Resolve the maintained default for a backend/runtime/device combination.
+/// Compatibility is a format/adapter contract, not proof of device availability.
+pub fn default_model(
+    backend: &str,
+    runtime: Runtime,
+    device: &str,
+) -> anyhow::Result<&'static ModelSpec> {
+    let id = match backend {
+        "audiocpp" => DEFAULT_MODEL_ID,
+        "openvino-genai" => OPENVINO_MODEL_ID,
+        "whispercpp" => WHISPER_MODEL_ID,
+        _ => anyhow::bail!("no catalog default for backend {backend:?}"),
+    };
+    let spec = model(id).expect("catalog default exists");
+    anyhow::ensure!(
+        spec.compatible_with(backend, runtime, device),
+        "backend {backend:?} has no compatible default for {runtime:?} / {device}"
+    );
+    Ok(spec)
+}
+
+/// Keep a selected compatible catalog model; otherwise use the backend default.
+pub fn setup_model(config: &Config) -> anyhow::Result<&'static ModelSpec> {
+    if let Some(spec) = model(&config.model.name)
+        && spec.compatible_with(
+            &config.backend.kind,
+            config.backend.runtime,
+            &config.backend.device,
+        )
+    {
+        return Ok(spec);
+    }
+    default_model(
+        &config.backend.kind,
+        config.backend.runtime,
+        &config.backend.device,
+    )
+}
+
 impl ModelSpec {
+    pub fn compatible_with(self, backend: &str, runtime: Runtime, device: &str) -> bool {
+        if self.backend != backend || crate::backend::canonical_device(runtime, device).is_err() {
+            return false;
+        }
+        match backend {
+            "audiocpp" => matches!(
+                runtime,
+                Runtime::Default | Runtime::Cuda | Runtime::Vulkan | Runtime::Hip
+            ),
+            "openvino-genai" => runtime == Runtime::Openvino,
+            "whispercpp" => runtime == Runtime::Default,
+            _ => false,
+        }
+    }
+
     pub fn total_size(self) -> u64 {
         self.assets.iter().map(|asset| asset.size).sum()
     }
 
     pub fn activate(self, config: &mut Config) {
-        let runtime_is_compatible = match self.backend {
-            "audiocpp" => matches!(
-                config.backend.runtime,
-                Runtime::Default | Runtime::Cuda | Runtime::Vulkan | Runtime::Hip
-            ),
-            "openvino-genai" => config.backend.runtime == Runtime::Openvino,
-            _ => false,
-        };
-        let preserve_provider = config.backend.kind == self.backend && runtime_is_compatible;
+        let preserve_provider = self.compatible_with(
+            &config.backend.kind,
+            config.backend.runtime,
+            &config.backend.device,
+        );
         if !preserve_provider {
             config.backend.library.clear();
             config.backend.library_dirs.clear();
@@ -369,7 +653,7 @@ impl ModelSpec {
             config
                 .backend
                 .options
-                .insert("audiocpp.asr_family".into(), "moonshine_asr".into());
+                .insert("audiocpp.asr_family".into(), self.asr_family.into());
         }
         config.model.name = self.id.into();
         config.model.directory.clear();

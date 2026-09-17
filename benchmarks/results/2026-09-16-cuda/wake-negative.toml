@@ -1,0 +1,39 @@
+[backend]
+kind = "audiocpp"
+runtime = "cuda"
+device = "gpu"
+threads = 2
+fallback = "error"
+device_id = 0
+library = "/tmp/omawake-rc3-cuda-final/audiocpp-build/bin/libaudiocpp.so"
+library_dirs = ["/tmp/omawake-rc3-cuda-final/audiocpp-build/bin"]
+
+[backend.options]
+"audiocpp.asr_family" = "moonshine_asr"
+
+[model]
+name = "moonshine-streaming-tiny-q8_0-silero-v6.2.1"
+directory = "/tmp/omawake-rc3-cuda-final/data/omawake/models/moonshine-streaming-tiny-q8_0-silero-v6.2.1"
+verifier = "moonshine-streaming-tiny-q8_0.gguf"
+vad = "silero_vad_16k.safetensors"
+sample_rate = 16000
+
+[audio]
+device = "default"
+
+[daemon]
+cooldown_milliseconds = 1500
+queue_capacity = 8
+
+
+[[wake_words]]
+id="light-up"
+phrase="light up"
+enabled=true
+command=["false"]
+
+[[wake_words]]
+id="computer"
+phrase="computer"
+enabled=true
+command=["false"]

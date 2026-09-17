@@ -15,6 +15,16 @@
   profiles (`backend.options.audiocpp.asr_variant`).
 - Daemon pauses are connection-owned: HoldPause owners, nested/manual pause
   interactions and crashes cannot leak state or retrigger wake actions.
+- Added persistent audio-device selection, PipeWire discovery, Audio setup
+  with model-free device tests, dynamic schema choices, and routing
+  diagnostics; pinned audio routes no longer fall back to another device.
+
+
+## Unreleased
+
+- Add persistent audio-device selection, PipeWire discovery, Audio setup and
+  model-free device tests, dynamic schema choices, and routing diagnostics.
+- Prevent pinned audio routes from falling back to another device.
 
 ## 0.0.2 - 2026-09-15
 

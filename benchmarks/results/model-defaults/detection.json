@@ -1,0 +1,21 @@
+{
+  "actions": [],
+  "backend": {
+    "effective_runtime": "default",
+    "fallback_used": false,
+    "kind": "whispercpp"
+  },
+  "detections": [
+    {
+      "id": "ask-not",
+      "start_time": 3.007999897003174,
+      "timestamps": [],
+      "tokens": [
+        "ask",
+        "not"
+      ]
+    }
+  ],
+  "keywords_buffer": "ask not",
+  "model_load_milliseconds": 71
+}

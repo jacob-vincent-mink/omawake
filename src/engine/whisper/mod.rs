@@ -24,6 +24,11 @@ use crate::paths::AppPaths;
 use crate::phrase::{PhraseMatcher, normalize_tokens, record_transcript};
 
 unsafe extern "C" {
+    fn oma_whisper_probe(
+        library: *const c_char,
+        error: *mut c_char,
+        error_capacity: usize,
+    ) -> c_int;
     fn oma_whisper_open(
         library_path: *const c_char,
         verifier_path: *const c_char,
@@ -278,6 +283,63 @@ fn resolve_model_asset(directory: &Path, configured: &str, label: &str) -> Resul
         directory,
         &format!("whisper.cpp {label} model"),
     )
+}
+
+/// Check the exact native ABI without model files, in a bounded child process.
+pub(crate) fn probe_provider(config: &Config, paths: &AppPaths) -> Result<(PathBuf, String)> {
+    if config.backend.kind != "whispercpp" || config.backend.runtime != Runtime::Default {
+        bail!("whisper.cpp requires the CPU default runtime");
+    }
+    config.backend.validate_shape()?;
+    let library = resolve_library(config, paths)?;
+    let directories = resolve_library_dirs(config, paths, &library)?;
+    let response = crate::native_worker::ResponseFile::create(&paths.runtime_dir, "whisper-probe")?;
+    let mut command = Command::new(env::current_exe()?);
+    command
+        .arg("--config")
+        .arg(&paths.config_file)
+        .arg("__whisper-probe")
+        .arg(&library)
+        .arg(response.path())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    configure_library_path(&mut command, &directories)?;
+    let mut child = command
+        .spawn()
+        .context("spawn whisper.cpp provider probe")?;
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if !status.success() {
+                    bail!("whisper.cpp provider probe failed: {status}");
+                }
+                break;
+            }
+            Ok(None) if started.elapsed() < Duration::from_secs(15) => {
+                thread::sleep(Duration::from_millis(10))
+            }
+            result => {
+                let _ = child.kill();
+                let _ = child.wait();
+                result.context("wait for whisper.cpp provider probe")?;
+                bail!("whisper.cpp provider probe timed out");
+            }
+        }
+    }
+    let result: std::result::Result<String, String> = response.read_json()?;
+    Ok((library, result.map_err(anyhow::Error::msg)?))
+}
+
+pub(crate) fn probe_library(library: &Path) -> Result<String> {
+    harden_worker_process()?;
+    let library = path_to_c_string(library)?;
+    let mut error = [0; 1024];
+    if unsafe { oma_whisper_probe(library.as_ptr(), error.as_mut_ptr(), error.len()) } != 0 {
+        bail!("{}", c_buffer(&error));
+    }
+    Ok("whisper.cpp 1.9.3".into())
 }
 
 fn resolve_library(config: &Config, paths: &AppPaths) -> Result<PathBuf> {
@@ -1217,6 +1279,8 @@ mod tests {
     #[test]
     fn transcript_conversion_uses_whole_phrase_matcher() {
         let matcher = PhraseMatcher::compile(&[WakeWord {
+            engine: None,
+            enrollment: None,
             id: "computer".into(),
             phrase: "hey computer".into(),
             aliases: Vec::new(),
@@ -1268,6 +1332,8 @@ mod tests {
         config.model.verifier = verifier.file_name().unwrap().to_string_lossy().into_owned();
         config.model.vad = vad.file_name().unwrap().to_string_lossy().into_owned();
         config.wake_words = vec![WakeWord {
+            engine: None,
+            enrollment: None,
             id: "greeting".into(),
             phrase: "hello oma".into(),
             aliases: vec!["hello oh ma".into()],

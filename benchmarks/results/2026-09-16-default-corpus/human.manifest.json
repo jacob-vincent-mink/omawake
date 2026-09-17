@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "corpus": {
+    "id": "librispeech-light-up-lovely-child-forever-positives",
+    "version": "openslr-12-test-clean+test-other",
+    "license_spdx": "CC-BY-4.0",
+    "source": "https://www.openslr.org/12"
+  },
+  "matching": {
+    "early_tolerance_ms": 250,
+    "late_tolerance_ms": 750
+  },
+  "clips": [
+    {
+      "id": "1089-134686-0002",
+      "path": "0.wav",
+      "sha256": "dfb54074469700446b889a622230fb6d918a19f3e6cb90afeb62d0ec98651c01",
+      "split": "positive-librispeech",
+      "tags": {
+        "ground_truth": "reference-transcript"
+      },
+      "expected": [
+        {
+          "keyword_id": "light-up"
+        }
+      ]
+    },
+    {
+      "id": "6128-63240-0023",
+      "path": "1.wav",
+      "sha256": "f3647daac9547ce471fbf7196b32c29e57923a308d322292deabc02515399d75",
+      "split": "positive-librispeech",
+      "tags": {
+        "ground_truth": "reference-transcript"
+      },
+      "expected": [
+        {
+          "keyword_id": "light-up"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,149 @@
+{
+  "wake-silence": {
+    "resources": {
+      "command": [
+        "env",
+        "XDG_CACHE_HOME=/home/jacob/src/github.com/jacob-vincent-mink/.qualification/20260916/idle-cache",
+        "XDG_STATE_HOME=/home/jacob/src/github.com/jacob-vincent-mink/.qualification/20260916/idle-state",
+        "XDG_RUNTIME_DIR=/home/jacob/src/github.com/jacob-vincent-mink/.qualification/20260916/idle-run",
+        "taskset",
+        "-c",
+        "6,7",
+        "../.qualification/20260916/bin/omawake-candidate",
+        "--config",
+        "../.qualification/20260916/wake-adverse.toml",
+        "test",
+        "--audio",
+        "../.qualification/20260916/silence.wav",
+        "--show-transcripts"
+      ],
+      "sample_period_seconds": 0.2,
+      "power": {
+        "status": "unavailable",
+        "reason": "[Errno 13] Permission denied: '/sys/class/powercap/intel-rapl:0/energy_uj'"
+      },
+      "peak_group_rss_bytes": 148144128,
+      "peak_group_members": 2,
+      "rss_definition": "sum of resident pages across the process group; shared pages may be counted twice",
+      "initial_load_average": [
+        5.59375,
+        5.02490234375,
+        4.1328125
+      ],
+      "wall_seconds": 7.050214457995025,
+      "exit_code": 0,
+      "user_cpu_seconds": 3.8742929999999998,
+      "system_cpu_seconds": 6.929485,
+      "max_process_rss_kib": 109500,
+      "final_load_average": [
+        5.78662109375,
+        5.07470703125,
+        4.15380859375
+      ]
+    },
+    "stdout": "",
+    "stderr": "",
+    "fixture_sha256": {
+      "silence.wav": "e14ff9e3be3d5257e57c029ea807754eaf22d1104999d69db4ec9e50e7c674d4",
+      "noise-floor.wav": "7330eb28558cdb892a057800e79d65e776ed414996d32d3f39aea6edb30da91c"
+    }
+  },
+  "wake-noise-floor": {
+    "resources": {
+      "command": [
+        "env",
+        "XDG_CACHE_HOME=/home/jacob/src/github.com/jacob-vincent-mink/.qualification/20260916/idle-cache",
+        "XDG_STATE_HOME=/home/jacob/src/github.com/jacob-vincent-mink/.qualification/20260916/idle-state",
+        "XDG_RUNTIME_DIR=/home/jacob/src/github.com/jacob-vincent-mink/.qualification/20260916/idle-run",
+        "taskset",
+        "-c",
+        "6,7",
+        "../.qualification/20260916/bin/omawake-candidate",
+        "--config",
+        "../.qualification/20260916/wake-adverse.toml",
+        "test",
+        "--audio",
+        "../.qualification/20260916/noise-floor.wav",
+        "--show-transcripts"
+      ],
+      "sample_period_seconds": 0.2,
+      "power": {
+        "status": "unavailable",
+        "reason": "[Errno 13] Permission denied: '/sys/class/powercap/intel-rapl:0/energy_uj'"
+      },
+      "peak_group_rss_bytes": 150544384,
+      "peak_group_members": 2,
+      "rss_definition": "sum of resident pages across the process group; shared pages may be counted twice",
+      "initial_load_average": [
+        5.65283203125,
+        5.12744140625,
+        4.20703125
+      ],
+      "wall_seconds": 6.132463506015483,
+      "exit_code": 0,
+      "user_cpu_seconds": 3.350378,
+      "system_cpu_seconds": 5.7205449999999995,
+      "max_process_rss_kib": 111268,
+      "final_load_average": [
+        5.6806640625,
+        5.14208984375,
+        4.216796875
+      ]
+    },
+    "stdout": "",
+    "stderr": "",
+    "fixture_sha256": {
+      "silence.wav": "e14ff9e3be3d5257e57c029ea807754eaf22d1104999d69db4ec9e50e7c674d4",
+      "noise-floor.wav": "7330eb28558cdb892a057800e79d65e776ed414996d32d3f39aea6edb30da91c"
+    }
+  },
+  "wake-positive-control": {
+    "resources": {
+      "command": [
+        "env",
+        "XDG_CACHE_HOME=/home/jacob/src/github.com/jacob-vincent-mink/.qualification/20260916/idle-cache",
+        "XDG_STATE_HOME=/home/jacob/src/github.com/jacob-vincent-mink/.qualification/20260916/idle-state",
+        "XDG_RUNTIME_DIR=/home/jacob/src/github.com/jacob-vincent-mink/.qualification/20260916/idle-run",
+        "taskset",
+        "-c",
+        "6,7",
+        "../.qualification/20260916/bin/omawake-candidate",
+        "--config",
+        "../.qualification/20260916/wake-adverse.toml",
+        "test",
+        "--audio",
+        "../.qualification/20260916/wake-adverse/1089-134686-0002-clean.wav",
+        "--show-transcripts"
+      ],
+      "sample_period_seconds": 0.2,
+      "power": {
+        "status": "unavailable",
+        "reason": "[Errno 13] Permission denied: '/sys/class/powercap/intel-rapl:0/energy_uj'"
+      },
+      "peak_group_rss_bytes": 113709056,
+      "peak_group_members": 2,
+      "rss_definition": "sum of resident pages across the process group; shared pages may be counted twice",
+      "initial_load_average": [
+        5.74560546875,
+        5.244140625,
+        4.30126953125
+      ],
+      "wall_seconds": 0.41590610300772823,
+      "exit_code": 0,
+      "user_cpu_seconds": 0.501197,
+      "system_cpu_seconds": 0.097871,
+      "max_process_rss_kib": 114164,
+      "final_load_average": [
+        5.74560546875,
+        5.244140625,
+        4.30126953125
+      ]
+    },
+    "stdout": "light-up\n",
+    "stderr": "verifier transcript: \"After early nightfall, the yellow lamps would light up here and there the squalid quarter of the brothels.\"\n",
+    "fixture_sha256": {
+      "silence.wav": "e14ff9e3be3d5257e57c029ea807754eaf22d1104999d69db4ec9e50e7c674d4",
+      "noise-floor.wav": "7330eb28558cdb892a057800e79d65e776ed414996d32d3f39aea6edb30da91c"
+    }
+  }
+}

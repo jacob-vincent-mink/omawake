@@ -1,0 +1,158 @@
+{
+  "backend": {
+    "effective_runtime": "default",
+    "fallback_used": false,
+    "kind": "audiocpp",
+    "placement_evidence": "audio.cpp created explicit CPU Silero and ASR sessions",
+    "placement_verified": true,
+    "requested_device": "cpu",
+    "requested_runtime": "default"
+  },
+  "benchmark": "omawake-file-detection",
+  "files": [
+    {
+      "audio_duration_milliseconds": 16715.0,
+      "iterations": [
+        {
+          "detections": [
+            {
+              "id": "lovely-child",
+              "start_time": 0.0020000000949949026,
+              "timestamps": [],
+              "tokens": [
+                "lovely",
+                "child"
+              ]
+            },
+            {
+              "id": "forever",
+              "start_time": 0.0020000000949949026,
+              "timestamps": [],
+              "tokens": [
+                "forever"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 557.74657,
+          "iteration": 1,
+          "real_time_factor": 0.03336802692192642
+        },
+        {
+          "detections": [
+            {
+              "id": "lovely-child",
+              "start_time": 0.0020000000949949026,
+              "timestamps": [],
+              "tokens": [
+                "lovely",
+                "child"
+              ]
+            },
+            {
+              "id": "forever",
+              "start_time": 0.0020000000949949026,
+              "timestamps": [],
+              "tokens": [
+                "forever"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 566.168949,
+          "iteration": 2,
+          "real_time_factor": 0.033871908405623694
+        },
+        {
+          "detections": [
+            {
+              "id": "lovely-child",
+              "start_time": 0.0020000000949949026,
+              "timestamps": [],
+              "tokens": [
+                "lovely",
+                "child"
+              ]
+            },
+            {
+              "id": "forever",
+              "start_time": 0.0020000000949949026,
+              "timestamps": [],
+              "tokens": [
+                "forever"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 573.299337,
+          "iteration": 3,
+          "real_time_factor": 0.034298494585701465
+        },
+        {
+          "detections": [
+            {
+              "id": "lovely-child",
+              "start_time": 0.0020000000949949026,
+              "timestamps": [],
+              "tokens": [
+                "lovely",
+                "child"
+              ]
+            },
+            {
+              "id": "forever",
+              "start_time": 0.0020000000949949026,
+              "timestamps": [],
+              "tokens": [
+                "forever"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 557.631125,
+          "iteration": 4,
+          "real_time_factor": 0.03336112025127131
+        },
+        {
+          "detections": [
+            {
+              "id": "lovely-child",
+              "start_time": 0.0020000000949949026,
+              "timestamps": [],
+              "tokens": [
+                "lovely",
+                "child"
+              ]
+            },
+            {
+              "id": "forever",
+              "start_time": 0.0020000000949949026,
+              "timestamps": [],
+              "tokens": [
+                "forever"
+              ]
+            }
+          ],
+          "elapsed_milliseconds": 570.398991,
+          "iteration": 5,
+          "real_time_factor": 0.034124977026622795
+        }
+      ],
+      "path": "1221-135766-0001-clean.wav",
+      "summary": {
+        "p50_milliseconds": 566.168949,
+        "p50_real_time_factor": 0.033871908405623694,
+        "p95_milliseconds": 573.299337,
+        "p95_real_time_factor": 0.034298494585701465,
+        "samples": 5
+      }
+    }
+  ],
+  "measured_iterations": 5,
+  "model_load_milliseconds": 133.338082,
+  "schema_version": 1,
+  "summary": {
+    "p50_milliseconds": 566.168949,
+    "p50_real_time_factor": 0.033871908405623694,
+    "p95_milliseconds": 573.299337,
+    "p95_real_time_factor": 0.034298494585701465,
+    "samples": 5
+  },
+  "warmup_iterations": 1
+}

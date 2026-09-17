@@ -1,0 +1,132 @@
+{
+  "application_version": "0.0.2",
+  "backend": {
+    "backend_kind": "audiocpp",
+    "effective_runtime": "default",
+    "fallback_used": false,
+    "placement_evidence": "audio.cpp created explicit CPU Silero and ASR sessions",
+    "placement_verified": true,
+    "requested_device": "cpu",
+    "requested_runtime": "default"
+  },
+  "evaluation": "omawake-phrase-verifier-accuracy",
+  "inputs": {
+    "config_sha256": "fbb74b6b56f97ba725ad6f53eb2206c956f8e3d280b4356cd3b6c27b44820f3c",
+    "corpus": {
+      "id": "librispeech-test-clean-test-other-negative-light-up",
+      "license_spdx": "CC-BY-4.0",
+      "source": "https://www.openslr.org/12",
+      "version": "openslr-12-test-clean+test-other"
+    },
+    "enabled_keyword_ids": [
+      "computer",
+      "light-up"
+    ],
+    "manifest_sha256": "2f7af0535b6c46b5f635b9dab84569bb93135ce004bcd4ebc937267025ac19a8",
+    "matching": {
+      "early_tolerance_ms": 250,
+      "late_tolerance_ms": 750
+    },
+    "model_directory": "/home/jacob/.local/share/omawake/models/moonshine-streaming-tiny-q8_0-silero-v6.2.1",
+    "model_name": "moonshine-streaming-tiny-q8_0-silero-v6.2.1"
+  },
+  "model_load_milliseconds": 142.791467,
+  "per_keyword": {
+    "computer": {
+      "duplicate_predictions": 0,
+      "expected_events": 0,
+      "f1": null,
+      "false_activations": 0,
+      "false_activations_per_hour": 0.0,
+      "false_negatives": 0,
+      "false_positives": 0,
+      "negative_audio_hours": 10.738754375000006,
+      "precision": null,
+      "predictions": 0,
+      "recall": null,
+      "true_positives": 0,
+      "wrong_id_predictions": 0
+    },
+    "light-up": {
+      "duplicate_predictions": 0,
+      "expected_events": 0,
+      "f1": null,
+      "false_activations": 0,
+      "false_activations_per_hour": 0.0,
+      "false_negatives": 0,
+      "false_positives": 0,
+      "negative_audio_hours": 10.738754375000006,
+      "precision": null,
+      "predictions": 0,
+      "recall": null,
+      "true_positives": 0,
+      "wrong_id_predictions": 0
+    }
+  },
+  "prediction_fingerprint": "83e91f477b3fe409e46efd74acc8e54624544b8345ad20602bac3c2dfaf256d0",
+  "schema_version": 1,
+  "summary": {
+    "duplicate_predictions": 0,
+    "expected_events": 0,
+    "f1": null,
+    "false_activations": 0,
+    "false_activations_per_hour": 0.0,
+    "false_negatives": 0,
+    "false_positives": 0,
+    "negative_audio_hours": 10.738754375000006,
+    "precision": null,
+    "predictions": 0,
+    "recall": null,
+    "true_positives": 0,
+    "wrong_id_predictions": 0
+  },
+  "timing": {
+    "aggregate_real_time_factor": 0.04156543529001642,
+    "files": 5557,
+    "p50_file_milliseconds": 224.874144,
+    "p95_file_milliseconds": 697.6348810000001,
+    "total_audio_milliseconds": 38659515.75,
+    "total_elapsed_milliseconds": 1606899.6002499957
+  },
+  "file_count": 5557,
+  "raw_report_sha256": "a8cc530f6b1c154614714721643c562785ea32a985a140d089c01d7a154df07a",
+  "resources": {
+    "command": [
+      "env",
+      "XDG_CACHE_HOME=/tmp/oma-qualification-20260916/cache",
+      "XDG_STATE_HOME=/tmp/oma-qualification-20260916/state",
+      "XDG_RUNTIME_DIR=/tmp/oma-qualification-20260916/run",
+      "taskset",
+      "-c",
+      "14,15",
+      "/tmp/oma-qualification-20260916/bin/omawake-candidate",
+      "--config",
+      "/tmp/oma-qualification-20260916/wake-negative.toml",
+      "evaluate",
+      "/tmp/omawake-kws-corpus/librispeech-negative-light-up.manifest.json"
+    ],
+    "sample_period_seconds": 0.2,
+    "power": {
+      "status": "unavailable",
+      "reason": "[Errno 13] Permission denied: '/sys/class/powercap/intel-rapl:0/energy_uj'"
+    },
+    "peak_group_rss_bytes": 286072832,
+    "peak_group_members": 3,
+    "rss_definition": "sum of resident pages across the process group; shared pages may be counted twice",
+    "initial_load_average": [
+      3.69140625,
+      3.98486328125,
+      3.37939453125
+    ],
+    "wall_seconds": 1621.3842024240003,
+    "exit_code": 0,
+    "user_cpu_seconds": 2441.129131,
+    "system_cpu_seconds": 438.074292,
+    "max_process_rss_kib": 244124,
+    "final_load_average": [
+      3.595703125,
+      4.48681640625,
+      4.6826171875
+    ]
+  }
+}

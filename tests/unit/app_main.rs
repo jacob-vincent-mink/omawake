@@ -530,7 +530,7 @@ fn guided_full_rolls_back_existing_and_new_configs_after_later_failures() {
 fn guided_model_catalog_exposes_status_metadata_and_selection() {
     let paths = test_paths("guided-model-catalog");
     let active = crate::catalog::models()[0].id;
-    let selected = choose_model_with(&paths, active, |items, preferred| {
+    let selected = choose_model_with(&paths, &Config::default(), |items, preferred| {
         assert_eq!(preferred, 0);
         assert!(items[0].enabled);
         assert!(items[0].label.contains("download required"));
@@ -972,6 +972,7 @@ fn hidden_native_worker_dispatch_forwards_exact_provider_arguments() {
         Cli {
             config: None,
             command: TopCommand::OpenVinoGenAiWorker {
+                language: String::new(),
                 genai_library: path("genai"),
                 core_library: path("core"),
                 audiocpp_library: path("audio"),
@@ -2038,6 +2039,8 @@ fn metadata_helpers_return_stable_shapes() {
         true,
         Duration::from_millis(12),
         Some(json!({"device":"test"})),
+        "fake-model",
+        "es",
     );
     assert_eq!(details["backend"]["kind"], "fake");
     assert_eq!(details["model_load_milliseconds"], 12);
@@ -2962,7 +2965,8 @@ fn control_socket_handles_status_commands_and_bad_clients() {
         encoded_request(1, "status", Command::Status),
     );
     assert!(
-        poll_control(&FakeControl, "armed", None, || accept_control(&listener))
+        pause_ownership::OwnedControl::default()
+            .poll("armed", &details, || accept_control(&listener))
             .unwrap()
             .is_none()
     );
@@ -2988,7 +2992,8 @@ fn control_socket_handles_status_commands_and_bad_clients() {
             &socket_path(&paths),
             encoded_request(1, expected_state, command),
         );
-        let returned = poll_control_connections(|| accept_control(&listener), "current", &details)
+        let returned = pause_ownership::OwnedControl::default()
+            .poll("current", &details, || accept_control(&listener))
             .unwrap()
             .unwrap();
         assert!(matches!(
@@ -3218,7 +3223,10 @@ fn top_level_audio_device_dispatch_uses_injected_enumerator() {
         run_with_paths_and_services(
             Cli {
                 config: Some(paths.config_file.clone()),
-                command: TopCommand::AudioDevices { json },
+                command: TopCommand::AudioDevices {
+                    json,
+                    detailed: false,
+                },
             },
             paths.clone(),
             |_, _| unreachable!(),
@@ -3230,7 +3238,10 @@ fn top_level_audio_device_dispatch_uses_injected_enumerator() {
         run_with_paths_and_services(
             Cli {
                 config: Some(paths.config_file.clone()),
-                command: TopCommand::AudioDevices { json: false },
+                command: TopCommand::AudioDevices {
+                    json: false,
+                    detailed: false
+                },
             },
             paths,
             |_, _| unreachable!(),
@@ -3267,6 +3278,8 @@ fn setup_dispatch_covers_checks_catalog_and_safe_failure_paths() {
                 download: None,
                 set: None,
                 verify: None,
+                check_urls: false,
+                url_prefix: None,
                 source_dir: None,
                 no_activate: false,
                 progress_format: ProgressFormat::Human,
@@ -3284,6 +3297,8 @@ fn setup_dispatch_covers_checks_catalog_and_safe_failure_paths() {
         download,
         set,
         verify,
+        check_urls: false,
+        url_prefix: None,
         source_dir: archive,
         no_activate: false,
         progress_format: ProgressFormat::Human,
@@ -3320,7 +3335,7 @@ fn setup_dispatch_covers_checks_catalog_and_safe_failure_paths() {
     assert!(
         setup(
             Some(SetupCommand::All {
-                model,
+                model: Some(model),
                 source_dir: Some(paths.data_dir.join("missing-model-assets")),
                 progress_format: ProgressFormat::Json,
             }),
@@ -3393,6 +3408,8 @@ fn noninteractive_setup_covers_safe_runtime_model_and_service_decisions() {
             download: None,
             set: None,
             verify: Some("unknown".into()),
+            check_urls: false,
+            url_prefix: None,
             source_dir: None,
             no_activate: false,
             progress_format: ProgressFormat::Human,
@@ -3403,6 +3420,8 @@ fn noninteractive_setup_covers_safe_runtime_model_and_service_decisions() {
             download: None,
             set: Some("unknown".into()),
             verify: None,
+            check_urls: false,
+            url_prefix: None,
             source_dir: None,
             no_activate: false,
             progress_format: ProgressFormat::Human,
@@ -3417,6 +3436,8 @@ fn noninteractive_setup_covers_safe_runtime_model_and_service_decisions() {
             download: None,
             set: None,
             verify: None,
+            check_urls: false,
+            url_prefix: None,
             source_dir: None,
             no_activate: false,
             progress_format: ProgressFormat::Human,
@@ -3644,128 +3665,7 @@ fn request_reader_is_testable_without_a_unix_socket() {
 }
 
 #[test]
-fn control_protocol_maps_every_request_to_a_response_and_transition() {
-    let details = json!({"backend": {"kind": "fake"}});
-    let request = |protocol: u32, id: &str, command: Command| {
-        Ok(Request {
-            protocol,
-            id: id.into(),
-            command,
-        })
-    };
-
-    for (command, expected_state, transition) in [
-        (Command::Status, "current", false),
-        (Command::Pause, "paused", true),
-        (Command::Resume, "armed", true),
-        (Command::Shutdown, "stopping", true),
-    ] {
-        let (response, next) =
-            control_response(request(1, expected_state, command), "current", &details);
-        assert_eq!(response.id, expected_state);
-        assert_eq!(next.is_some(), transition);
-        assert!(matches!(
-            response.result,
-            ResultPayload::State { ref state, ref details }
-                if state == expected_state && details["backend"]["kind"] == "fake"
-        ));
-    }
-
-    let (response, next) =
-        control_response(request(9, "old", Command::Status), "current", &details);
-    assert!(next.is_none());
-    assert!(
-        matches!(response.result, ResultPayload::Error { ref code, .. } if code == "protocol_mismatch")
-    );
-
-    let (response, next) =
-        control_response(Err(anyhow::anyhow!("broken JSON")), "current", &details);
-    assert!(next.is_none());
-    assert!(
-        matches!(response.result, ResultPayload::Error { ref code, .. } if code == "invalid_request")
-    );
-}
-
-#[test]
-fn control_stream_processes_messages_entirely_in_memory() {
-    let details = json!({"backend": {"kind": "fake"}});
-    for (bytes, expected_code, expected_command) in [
-        (b"not-json\n".to_vec(), Some("invalid_request"), None),
-        (
-            encoded_request(2, "old", Command::Status),
-            Some("protocol_mismatch"),
-            None,
-        ),
-        (encoded_request(1, "status", Command::Status), None, None),
-        (
-            encoded_request(1, "pause", Command::Pause),
-            None,
-            Some(Command::Pause),
-        ),
-    ] {
-        let mut stream = ScriptedStream::responding_with(bytes);
-        let command = handle_control_stream(&mut stream, "armed", &details);
-        assert_eq!(command.is_some(), expected_command.is_some());
-        let response: Response = serde_json::from_slice(&stream.request).unwrap();
-        match expected_code {
-            Some(expected) => assert!(
-                matches!(response.result, ResultPayload::Error { ref code, .. } if code == expected)
-            ),
-            None => assert!(matches!(response.result, ResultPayload::State { .. })),
-        }
-    }
-
-    let mut disconnected =
-        ScriptedStream::responding_with(encoded_request(1, "disconnected", Command::Status));
-    disconnected.fail_writes = true;
-    assert!(handle_control_stream(&mut disconnected, "armed", &details).is_none());
-}
-
-#[test]
-fn control_polling_skips_non_commands_and_stops_at_transition_in_memory() {
-    let details = json!({"backend": {"kind": "fake"}});
-    let mut clients = VecDeque::from([
-        ScriptedStream::responding_with(b"invalid\n".to_vec()),
-        ScriptedStream::responding_with(encoded_request(1, "status", Command::Status)),
-        ScriptedStream::responding_with(encoded_request(1, "stop", Command::Shutdown)),
-    ]);
-    let command = poll_control_connections(|| Ok(clients.pop_front()), "armed", &details).unwrap();
-    assert!(matches!(command, Some(Command::Shutdown)));
-    assert!(clients.is_empty());
-
-    assert!(
-        poll_control_connections(
-            || Ok::<Option<ScriptedStream>, anyhow::Error>(None),
-            "armed",
-            &details,
-        )
-        .unwrap()
-        .is_none()
-    );
-    assert!(
-        poll_control_connections(
-            || Err::<Option<ScriptedStream>, _>(anyhow::anyhow!("accept failed")),
-            "armed",
-            &details,
-        )
-        .is_err()
-    );
-
-    let command = poll_control(
-        &FakeControl,
-        "armed",
-        Some(json!({"device": "test microphone"})),
-        || {
-            Ok(Some(ScriptedStream::responding_with(encoded_request(
-                1,
-                "pause",
-                Command::Pause,
-            ))))
-        },
-    )
-    .unwrap();
-    assert!(matches!(command, Some(Command::Pause)));
-
+fn control_connection_preparation_handles_errors() {
     assert!(
         prepare_accepted_control(Ok(()), |_| Ok(()))
             .unwrap()
@@ -3820,16 +3720,6 @@ fn real_detector_forwards_control_metadata_without_native_backend() {
         DetectorControl::run(&detector, "computer").unwrap().state,
         "started"
     );
-
-    let mut streams = VecDeque::from([ScriptedStream::responding_with(encoded_request(
-        1,
-        "pause",
-        Command::Pause,
-    ))]);
-    assert!(matches!(
-        poll_control(&detector, "armed", None, || Ok(streams.pop_front())).unwrap(),
-        Some(Command::Pause)
-    ));
 }
 
 #[test]
@@ -3955,4 +3845,165 @@ fn stale_socket_connection_errors_cover_kernel_variants() {
     assert!(!indicates_stale_socket(
         std::io::ErrorKind::PermissionDenied
     ));
+}
+
+#[test]
+fn runtime_selection_keeps_explicit_whisper_backend_and_discovers_its_library() {
+    let paths = test_paths("whisper-runtime-default");
+    let runtime = paths.data_dir.join("whisper-runtime");
+    fs::create_dir_all(&runtime).unwrap();
+    fs::write(runtime.join("libwhisper.so.1"), b"discovery fixture").unwrap();
+    let mut config = Config::default();
+    config.backend.kind = "whispercpp".into();
+    let candidate = runtime_selection_candidate(
+        &config,
+        &paths.config_file,
+        &RuntimeSelection {
+            runtime: Runtime::Default,
+            device: "cpu".into(),
+        },
+        None,
+        Some(&runtime),
+    )
+    .unwrap();
+    assert_eq!(candidate.backend.kind, "whispercpp");
+    assert_eq!(candidate.model.name, crate::catalog::WHISPER_MODEL_ID);
+    assert_eq!(candidate.backend.library, runtime.join("libwhisper.so.1"));
+    let next = runtime_selection_candidate(
+        &candidate,
+        &paths.config_file,
+        &RuntimeSelection {
+            runtime: Runtime::Cuda,
+            device: "gpu".into(),
+        },
+        None,
+        None,
+    )
+    .unwrap();
+    assert_eq!(next.backend.kind, "audiocpp");
+    assert_eq!(next.model.name, crate::catalog::DEFAULT_MODEL_ID);
+    assert!(next.backend.library.as_os_str().is_empty());
+}
+
+#[test]
+fn setup_all_leaves_model_unspecified_until_backend_resolution() {
+    let cli = Cli::try_parse_from(["omawake", "setup", "all"]).unwrap();
+    assert!(matches!(
+        cli.command,
+        TopCommand::Setup {
+            command: Some(SetupCommand::All { model: None, .. })
+        }
+    ));
+}
+
+#[test]
+fn model_picker_disables_foreign_backends_and_rejects_invalid_selection() {
+    let paths = test_paths("compatible-model-picker");
+    for (backend, runtime, device) in [
+        ("audiocpp", Runtime::Cuda, "gpu"),
+        ("openvino-genai", Runtime::Openvino, "npu"),
+        ("whispercpp", Runtime::Default, "cpu"),
+    ] {
+        let mut config = Config::default();
+        config.backend.kind = backend.into();
+        config.backend.runtime = runtime;
+        config.backend.device = device.into();
+        let selected = choose_model_with(&paths, &config, |items, preferred| {
+            assert!(items[preferred].enabled);
+            for (item, model) in items.iter().zip(crate::catalog::models()) {
+                assert_eq!(item.enabled, model.backend == backend);
+                if !item.enabled {
+                    assert!(item.detail.contains("Requires the"));
+                }
+            }
+            Ok(Some(preferred))
+        })
+        .unwrap()
+        .unwrap();
+        assert_eq!(selected.backend, backend);
+        let incompatible = crate::catalog::models()
+            .iter()
+            .position(|model| model.backend != backend)
+            .unwrap();
+        assert!(choose_model_with(&paths, &config, |_, _| Ok(Some(incompatible))).is_err());
+    }
+    assert!(
+        choose_model_with(&paths, &Config::default(), |_, _| Ok(None))
+            .unwrap()
+            .is_none()
+    );
+    assert!(choose_model_with(&paths, &Config::default(), |_, _| Ok(Some(usize::MAX))).is_err());
+}
+
+#[test]
+fn microphone_recovery_retries_only_capture_failures_and_obeys_controls() {
+    let mut attempts = 0;
+    let mut waits = 0;
+    let recovered = retry_audio_cycle(
+        || {
+            attempts += 1;
+            if attempts == 1 {
+                Err(CaptureFailure("unplugged".into()).into())
+            } else {
+                Ok((vec![], Some(Command::Shutdown)))
+            }
+        },
+        |error| {
+            assert!(error.contains("unplugged"));
+            waits += 1;
+            Ok(None)
+        },
+    )
+    .unwrap();
+    assert!(matches!(recovered.1, Some(Command::Shutdown)));
+    assert_eq!((attempts, waits), (2, 1));
+    for command in [Command::Pause, Command::Shutdown, Command::Resume] {
+        let mut command = Some(command);
+        let result = retry_audio_cycle(
+            || Err(CaptureFailure("offline".into()).into()),
+            |_| Ok(command.take()),
+        )
+        .unwrap();
+        assert!(result.1.is_some());
+    }
+    assert!(
+        retry_audio_cycle(
+            || Err(anyhow::anyhow!("inference error")),
+            |_| panic!("must not retry inference errors")
+        )
+        .is_err()
+    );
+    assert!(
+        retry_audio_cycle(
+            || Err(CaptureFailure("offline".into()).into()),
+            |_| Err(anyhow::anyhow!("socket error"))
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn mixed_runtime_reports_never_claim_the_default_device_for_all_groups() {
+    let mut report = json!({"backend":{"requested_runtime":"cuda","requested_device":"gpu","effective_runtime":"cuda","placement_verified":true}});
+    attach_group_values(
+        &mut report,
+        vec![crate::engine::GroupStatus {
+            profile: "intel:trained".into(),
+            backend: "trained-whisper-encoder".into(),
+            runtime: Runtime::Openvino,
+            requested_device: "cpu".into(),
+            fallback_used: false,
+            words: vec!["unusual".into()],
+        }],
+    );
+    assert_eq!(report["backend"]["effective_runtime"], "mixed");
+    assert_eq!(report["backend"]["requested_device"], "per-engine");
+    assert_eq!(report["backend"]["placement_verified"], false);
+    assert_eq!(report["backend"]["groups"][0]["runtime"], "openvino");
+    assert!(!backend_placement("multi-engine", Runtime::Cuda).0);
+    assert!(
+        backend_placement("trained-whisper-encoder", Runtime::Openvino)
+            .1
+            .contains("Silero VAD runs on CPU")
+    );
 }

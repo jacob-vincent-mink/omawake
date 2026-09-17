@@ -55,6 +55,8 @@ fn fixture_spec(first: &'static [u8], second: &'static [u8]) -> &'static ModelSp
     Box::leak(Box::new(ModelSpec {
         id: "tiny",
         backend: "audiocpp",
+        name: "Test",
+        asr_family: "moonshine_asr",
         family: "test",
         description: "test model",
         license: "MIT",
@@ -313,4 +315,142 @@ fn apache_notice_is_installed_with_apache_terms_and_provenance() {
     assert!(notice.starts_with("Model weights published by Example\n\nApache License\n"));
     assert!(notice.contains("TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION"));
     assert!(notice.ends_with("Source: https://example.invalid/model-card\n"));
+}
+
+#[test]
+fn a_second_installer_cannot_replace_an_active_profile() {
+    let root = temp("locked-profile");
+    let app = paths(&root);
+    let spec = fixture_spec(b"model", b"vad");
+    let target = model_directory(&app, spec);
+    fs::create_dir_all(&target).unwrap();
+    fs::write(target.join("keep"), b"active").unwrap();
+    let guard = InstallGuard::acquire(&app.data_dir, spec.id).unwrap();
+    let result = install_with_fetch(&app, spec, None, ProgressFormat::Human, |_| {
+        panic!("busy installer must not download")
+    });
+    assert!(result.unwrap_err().to_string().contains("busy"));
+    assert_eq!(fs::read(target.join("keep")).unwrap(), b"active");
+    drop(guard);
+    install_with_fetch(&app, spec, None, ProgressFormat::Human, |asset| {
+        Ok(Box::new(std::io::Cursor::new(
+            if asset.role == "verifier" {
+                b"model".to_vec()
+            } else {
+                b"vad".to_vec()
+            },
+        )))
+    })
+    .unwrap();
+    verify(&app, spec).unwrap();
+}
+
+#[test]
+fn interrupted_download_preserves_active_files_and_releases_the_lock() {
+    let root = temp("interrupted-download");
+    let app = paths(&root);
+    let spec = fixture_spec(b"model", b"vad");
+    let target = model_directory(&app, spec);
+    fs::create_dir_all(&target).unwrap();
+    fs::write(target.join("keep"), b"active").unwrap();
+    let error = install_with_fetch(&app, spec, None, ProgressFormat::Human, |_| {
+        install_guard::cancel_current();
+        Ok(Box::new(std::io::Cursor::new(b"model")))
+    })
+    .unwrap_err();
+    assert!(format!("{error:#}").contains("cancelled"));
+    assert_eq!(fs::read(target.join("keep")).unwrap(), b"active");
+    assert!(
+        !app.data_dir
+            .join(format!("models/.tiny.install-{}", std::process::id()))
+            .exists()
+    );
+    assert!(!app.data_dir.join("downloads/tiny/model.gguf.part").exists());
+    drop(InstallGuard::acquire(&app.data_dir, spec.id).unwrap());
+}
+
+#[test]
+fn url_checks_report_ok_mismatch_and_unreachable_without_writes() {
+    let probes: &mut dyn FnMut(&str) -> std::result::Result<u64, String> = &mut |url: &str| {
+        if url.contains("tiny") {
+            Ok(60_407_904)
+        } else if url.contains("whisper") {
+            Ok(1)
+        } else {
+            Err("request failed: connection refused".into())
+        }
+    };
+    let checks = check_urls_with(None, probes);
+    let mut seen = 0;
+    for spec in crate::catalog::models() {
+        seen += spec.assets.len();
+    }
+    assert_eq!(checks.len(), seen);
+    let by_asset: std::collections::HashMap<&str, &UrlCheck> = checks
+        .iter()
+        .map(|check| (check.asset.as_str(), check))
+        .collect();
+    let ok = by_asset.get("moonshine-streaming-tiny-q8_0.gguf").unwrap();
+    assert_eq!(ok.status, "ok");
+    assert!(ok.detail.is_none());
+    assert!(ok.url.contains("https://huggingface.co"));
+    let mismatch = checks
+        .iter()
+        .find(|check| check.status == "size-mismatch")
+        .unwrap();
+    assert!(mismatch.detail.as_deref().unwrap().contains("pinned size"));
+    let unreachable = checks
+        .iter()
+        .find(|check| check.status == "unreachable")
+        .unwrap();
+    assert!(
+        unreachable
+            .detail
+            .as_deref()
+            .unwrap()
+            .contains("connection refused")
+    );
+}
+
+#[test]
+fn url_prefix_replaces_the_origin_and_keeps_the_path() {
+    let checks = check_urls_with(Some("http://127.0.0.1:9"), &mut |_url| Ok(0));
+    assert!(
+        checks
+            .iter()
+            .all(|check| check.url.starts_with("http://127.0.0.1:9/"))
+    );
+    assert!(
+        checks
+            .iter()
+            .all(|check| !check.url.contains("huggingface.co"))
+    );
+    // The bare prefix (no trailing slash) still produces one slash.
+    let checks = check_urls_with(Some("http://127.0.0.1:9"), &mut |_url| Ok(0));
+    assert!(checks.iter().all(|check| !check.url.contains("//9")));
+}
+
+#[test]
+fn verify_file_diagnostics_name_expected_and_actual_values() {
+    let dir = temp("verify-diagnostics");
+    let path = dir.join("asset.bin");
+    fs::write(&path, b"short").unwrap();
+    let size_error = verify_file(&path, 10, digest(b"short"))
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(
+        size_error.contains("expected 10 bytes, found 5"),
+        "{size_error}"
+    );
+    let longer = vec![0_u8; 10];
+    fs::write(&path, &longer).unwrap();
+    let digest_error = verify_file(&path, 10, digest(b"other"))
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(digest_error.contains("checksum mismatch"), "{digest_error}");
+    assert!(digest_error.contains("expected"));
+    assert!(digest_error.contains("found"));
+    fs::remove_dir_all(dir).unwrap();
 }

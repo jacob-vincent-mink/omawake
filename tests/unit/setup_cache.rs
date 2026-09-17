@@ -42,6 +42,7 @@ fn placement(
     crate::engine::openvino_genai::PlacementEvidence {
         profile_id: "whisper-base.en-int8-ov".into(),
         languages: vec!["en".into()],
+        language: String::new(),
         multilingual: false,
         runtime_build: "test".into(),
         runtime_description: "safe injected OpenVINO".into(),

@@ -1,0 +1,1215 @@
+{
+  "schema_version": 1,
+  "corpus": {
+    "id": "librispeech-test-clean-test-other-negative-light-up-first-100-smoke",
+    "version": "openslr-12-test-clean+test-other",
+    "license_spdx": "CC-BY-4.0",
+    "source": "https://www.openslr.org/12"
+  },
+  "matching": {
+    "early_tolerance_ms": 250,
+    "late_tolerance_ms": 750
+  },
+  "clips": [
+    {
+      "id": "1089-134686-0000",
+      "path": "0.wav",
+      "sha256": "0b1785dba56f22af426ccb25d318f7e103558fd40e1c3ab064b455dba2afae12",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0001",
+      "path": "1.wav",
+      "sha256": "6b0b24796a1017a65007d392b9f8d6e64e030cdafbf82d8ffa4235fe4b371443",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0003",
+      "path": "2.wav",
+      "sha256": "2db232f2d626af81adb8b224bdcc72d71ed94e9f7180194a6279e532a08c9115",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0004",
+      "path": "3.wav",
+      "sha256": "62fa78c06e5a74d08d38ab3e899eb3115810a4f33769389a2c6b498f01d5deb1",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0005",
+      "path": "4.wav",
+      "sha256": "5818821a0def2096ff87b9bad20cdcf64e9d5ee7e44e946186538789ca576d64",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0006",
+      "path": "5.wav",
+      "sha256": "537fddd348bdce01783c3df6824fd94e6f143935583c7133e63ea391b51df48a",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0007",
+      "path": "6.wav",
+      "sha256": "2cff67acc90735509fb83be543636b224e12711f24dcea765077ae4bbe455a48",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0008",
+      "path": "7.wav",
+      "sha256": "c6d413fe63540a24110a8dd2db4502d41cf55112767dc2338cb4234cc8c09777",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0009",
+      "path": "8.wav",
+      "sha256": "890fef6afaac390b3f56e48aeca76ab86bbdac5e6cd39c054e8432c8dc19b36b",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0010",
+      "path": "9.wav",
+      "sha256": "a2f7cf27e284947bd4eb5778b953898827fd453707131f95b2215f0023285eb0",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0011",
+      "path": "10.wav",
+      "sha256": "097baaee33039db64dd47e7f1bf9880530be8e4f693d70dc022059c7fef2cc69",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0012",
+      "path": "11.wav",
+      "sha256": "cf0bee8a3f0e173986ebc53c1b4e911e43ebbb89d2fab5aeaa3dd7e331b97d21",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0013",
+      "path": "12.wav",
+      "sha256": "5ca0d0141fec49d2a047f86a682eee7386d566385daf8f530756c1cbba3167ea",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0014",
+      "path": "13.wav",
+      "sha256": "fee8e0460ca707f108782be0d93c555bf34fb6b1cb297e5fceed70192cc65f9b",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0015",
+      "path": "14.wav",
+      "sha256": "6bbec6a76806a1906e5372b403dce881f728d2c43711ae84d41e3bc254a4f022",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0016",
+      "path": "15.wav",
+      "sha256": "54fa9c1671887053aa4398e0fb92d16886c27b155e50c0f71146a37c9f38c37d",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0017",
+      "path": "16.wav",
+      "sha256": "9a4c744cc9da355f44b77dfb20c535d20f87391f94d5798d082f25d539ddb7a7",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0018",
+      "path": "17.wav",
+      "sha256": "3b72002d222e2557d9510b29fd60d38079e40386dd71f340dc79219eeb739514",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0019",
+      "path": "18.wav",
+      "sha256": "10f6cd89ea75e46c64bf083a132d22e9275a850d15b098225ddbcf9de91d41b5",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0020",
+      "path": "19.wav",
+      "sha256": "a786e0e7cb3d0e4d0b85c4c399ed267177023571445acb4fe6fab7a6f557f618",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0021",
+      "path": "20.wav",
+      "sha256": "b1b3861d991363eb5d39564cc9cdb47f34fc2e8cfa32f60e0fc65836f566fce4",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0022",
+      "path": "21.wav",
+      "sha256": "1a43945d6ad688908f55d785a9e838ec3d3ce3817befa9c0884bf95ebf63075d",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0023",
+      "path": "22.wav",
+      "sha256": "07c3807231004b38dab008f25a97bb616d3e292423ec7f49a52b0427de60c7e2",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0024",
+      "path": "23.wav",
+      "sha256": "9f65f9a222b17b81ec27fe35bbc472554ba4105453e472cf2c1020dfc14247bd",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0025",
+      "path": "24.wav",
+      "sha256": "08844bfb979ce8240f332032a4b86bed89703dcdb0379087e9747db278eb60dd",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0026",
+      "path": "25.wav",
+      "sha256": "8078ca0f578ecf55cf8f203096ba254c0be9a4778aa919bdfaa5a70bbf415c97",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0027",
+      "path": "26.wav",
+      "sha256": "3cd806b5bd91041877cb8448c1d950e8bbb9edad71889296a03f1956e1c51efe",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0028",
+      "path": "27.wav",
+      "sha256": "594015e3ab1e8034df09034758b8d1c6eb0d89a85ebae899c1c191cf14d92ce3",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0029",
+      "path": "28.wav",
+      "sha256": "aaa314e0c14cd565d9d5b760850cd062f8e5cf6a2d2fda21e94ebca040b55573",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0030",
+      "path": "29.wav",
+      "sha256": "ec22bcc9f7c84b7102f64f48e137648748fa2ab0b2aa24e1928a9b3df274e9cc",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0031",
+      "path": "30.wav",
+      "sha256": "7639e8368a8fb6f7c05d86f3f97eee68f60e6ea8025de1bc9ea200d30afda31d",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0032",
+      "path": "31.wav",
+      "sha256": "209ff141d5f38222d39b0c177d11271cb0fdf38ae0f03bb72305eb3f77543cab",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0033",
+      "path": "32.wav",
+      "sha256": "aa96729745b527e5a323cbac385080c3f3897eda5a7c5d8708042385e30b935d",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0034",
+      "path": "33.wav",
+      "sha256": "37095ceba5dd38b89a7f50568c8a56aa4a5095c98f68b4dcdfe36d8f16767acf",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0035",
+      "path": "34.wav",
+      "sha256": "e13ab047b162a48d720d0e10d539c2c633e0a4f4e90e2b84d0bcf6ce1e58d8ca",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0036",
+      "path": "35.wav",
+      "sha256": "eb560a8121d352338f01105594cf025bfd4c6561ae6eb54bec5b03be63ba47a5",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134686-0037",
+      "path": "36.wav",
+      "sha256": "8b160c9198bde2e6ca1234f840fd997d80bff1f869ab818815ddf558f92f4218",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134686",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134691-0000",
+      "path": "37.wav",
+      "sha256": "455936e30f7106ce792fe867cb1868e210cbe7eb87d7531d6b731da0f3fc9f19",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134691",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134691-0001",
+      "path": "38.wav",
+      "sha256": "8dd3a119fa980b10e35a1f2e9f1378ef9deccaac5486c82ffc575c9baa69f2e2",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134691",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134691-0002",
+      "path": "39.wav",
+      "sha256": "b2b3f9df4e88a51a0086aa71973917355774decba3e89abbe9b1d5b2bef19182",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134691",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134691-0003",
+      "path": "40.wav",
+      "sha256": "0da69975524be09520d86a09ff2e4d37fcc36af8300941df8e8ef8f9063752e0",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134691",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134691-0004",
+      "path": "41.wav",
+      "sha256": "f994617c4f7e88356cabc66857b0aec256a3e76ca6ff8024e16a3a49c62962b3",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134691",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134691-0005",
+      "path": "42.wav",
+      "sha256": "c7d983c1bb54bc01465773eed080be967dcb6b4f42ecb5ded79aa0eab1713a7c",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134691",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134691-0006",
+      "path": "43.wav",
+      "sha256": "8e63c8390b598e99fab7bae0831325bc78a9c51a32866d07c70e1fed12fd5028",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134691",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134691-0007",
+      "path": "44.wav",
+      "sha256": "4d757a880cfef7d3a1fb96207de21a26740c8201bccfea76881299a8afa5ef02",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134691",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134691-0008",
+      "path": "45.wav",
+      "sha256": "778baf03478f6331b71e0cdd1336ec041cbaa2bc754f364a50349c79f413f60c",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134691",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134691-0009",
+      "path": "46.wav",
+      "sha256": "18c17f108c9d62353c6b0bf6a880f5e24e041514af5b60fb9f844344f20a8111",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134691",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134691-0010",
+      "path": "47.wav",
+      "sha256": "b18d4010e5c33bb244d794e31ae19b38d644354615a91a0cd5bbea7f897f25f6",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134691",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134691-0011",
+      "path": "48.wav",
+      "sha256": "eff275cb9a7015e1b82d1221e82a671349740399b3ee82f84c9c7624c461386c",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134691",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134691-0012",
+      "path": "49.wav",
+      "sha256": "1cdf1d64c16725a4fb84499cf7226c18f9817e8371c94f4b559a7b8341083755",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134691",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134691-0013",
+      "path": "50.wav",
+      "sha256": "fccb8dd12f6aa93d3b199bd8a0369955b9028877cf48f189aff0b68593c860d2",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134691",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134691-0014",
+      "path": "51.wav",
+      "sha256": "f0d6588290b0212c009a95e98b237198b0696bbc8708557846f05079291c6cdf",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134691",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134691-0015",
+      "path": "52.wav",
+      "sha256": "7b919cf72286daf56989f0d162833d9d59859cfae388936b66d6cf2d2c7e1ad1",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134691",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134691-0016",
+      "path": "53.wav",
+      "sha256": "cf86b1c683f667e2654a73dab0b72d218e8ea7beefb49786a4095bb7c3a207d0",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134691",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134691-0017",
+      "path": "54.wav",
+      "sha256": "4e99c84d14cdecd4d8235736ef9126bbabafa7b8b43d598ae8cc80f3223d51fb",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134691",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134691-0018",
+      "path": "55.wav",
+      "sha256": "f90670c422324fe38bfe2efa967422f639048b9e8f2463fb7c22ae897a3fc80d",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134691",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134691-0019",
+      "path": "56.wav",
+      "sha256": "ad581416e65e0160630748bc2659a27c3cd28405541615fd166e2ae218fb6844",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134691",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134691-0020",
+      "path": "57.wav",
+      "sha256": "1d486998d5e45f8372962b2ebdc3a6cfbedba62f0eb01d4b8ca8540a2cddc7b8",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134691",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134691-0021",
+      "path": "58.wav",
+      "sha256": "3c64270c606e831b619b966f4ae6b1728291a4cb0c3180659abaab81b8d32466",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134691",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134691-0022",
+      "path": "59.wav",
+      "sha256": "6bd200548edced04025726014eaf43af1d46f2a6d7e2f07d646685602f2413f2",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134691",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134691-0023",
+      "path": "60.wav",
+      "sha256": "43f3f5fcb65849b8add1ce69a66831e80e78d625ddfc83f61f13549f4918ba64",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134691",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134691-0024",
+      "path": "61.wav",
+      "sha256": "73d9b1130144e4b62e68684593da424f3f1a00043d1406b1d74d7a70dfcf044a",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134691",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1089-134691-0025",
+      "path": "62.wav",
+      "sha256": "8a98016ce9a9b8e63fd39c8684c964cb785f2f60a37a1a5d6b40c3f493e4f85b",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1089",
+        "chapter": "134691",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0000",
+      "path": "63.wav",
+      "sha256": "7103ea9b2746ea371e053c5e44aa65e3d69fdc84194e4af12722cd72a721c822",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0001",
+      "path": "64.wav",
+      "sha256": "4b89ed324dfced1b32da500fe3d3a4b063a1dfc0971d3a72146b1aca29b22ebd",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0002",
+      "path": "65.wav",
+      "sha256": "6c0e8d4545ddf2585782dbc521a1e93bf72035ea951ed653a111203542269b26",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0003",
+      "path": "66.wav",
+      "sha256": "30b3d095e882780ac02bf1717f57609835abbb9012bb4ca3f7295fd322ca7da7",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0004",
+      "path": "67.wav",
+      "sha256": "4c3d62ac2eb47034f14e258d66b22dbd9ca8e5f409a4a50d0929fc825f740e45",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0005",
+      "path": "68.wav",
+      "sha256": "d71bc07715b59eabcebec31f8d5df9f8e266b048340e62d4368939ed381ce5b9",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0006",
+      "path": "69.wav",
+      "sha256": "5adecaafbbcbf2bcb0184836f25fa84b921494e1ba33ef092ab3ec0fc3b06d78",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0007",
+      "path": "70.wav",
+      "sha256": "400fb9f91c3c7ea8b2ddd9f48be035f980773f3fad1b40115b986b90dd234010",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0008",
+      "path": "71.wav",
+      "sha256": "850ed999201fa02f00ca222c3a1772391e2d7d67784a28879caa6bc84720d8b1",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0009",
+      "path": "72.wav",
+      "sha256": "92d39666b7c6343fc7db5faec865d6cdc360e02799bcdbf95599bf014d2a6cf9",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0010",
+      "path": "73.wav",
+      "sha256": "f0ba1d597a718a89e2906bd2173cf77d968efe5deee9248bd7cd71debafc3194",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0011",
+      "path": "74.wav",
+      "sha256": "22eb3f7b432d8543c9d598162f8641e34bb997691b5b0e0deb94e4a58aea956f",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0012",
+      "path": "75.wav",
+      "sha256": "2b90462ae239b1f92628a3d54bda07fbb08d0f4cbf9a70a7589a56c724fb2b78",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0013",
+      "path": "76.wav",
+      "sha256": "c9c452105230a90f747b69b41fdfc6d380a7e292a9993409c6452879f61e0f06",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0014",
+      "path": "77.wav",
+      "sha256": "e98ec82c870dc65543521abebae12e23e545378402c01721f4781229e81e6d13",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0015",
+      "path": "78.wav",
+      "sha256": "e7d8e1fd584bd58b27a6b55257cdbe62e28c57d7f6a4a6beb06b5c1bcf039b05",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0016",
+      "path": "79.wav",
+      "sha256": "83d22d0c84da5395f97a7330eb25c8c1869d8cac2e7f4c18f78f5db1065e02b0",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0017",
+      "path": "80.wav",
+      "sha256": "3f9328f5bcc0337e14fdd3e00a0280b3ed8360ed249bb98d9ece41737f88bed0",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0018",
+      "path": "81.wav",
+      "sha256": "d27d04a47ef454f1f50a2a62556d1a18aae526fe7b9c5be9f3c33ecba715e055",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0019",
+      "path": "82.wav",
+      "sha256": "92a4061d72f31c62d7d99814205b340735a6f3172ac1877c9a28628be123b1c7",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0020",
+      "path": "83.wav",
+      "sha256": "6788f014d764d108a00bf34ecf335c2461f18ab29db2c75618e7fb0fe44c37a7",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0021",
+      "path": "84.wav",
+      "sha256": "0c5850b188ddaa6fee1dc786bb49f339aae3d9cf83e392a9248e7d88c74b0962",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0022",
+      "path": "85.wav",
+      "sha256": "92032baeb3491fb4b94cd848992b528ec0e21e470f8daa69687673f42ce3b673",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0023",
+      "path": "86.wav",
+      "sha256": "7cd2c4529ebd209e07a7fa35822527384f7fe14e921b3d964620356dfeaab9c1",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0024",
+      "path": "87.wav",
+      "sha256": "5336f5c14764c0277198d612f1800a832cd3c0a81f17eaeacfaa02fe6e46dfc2",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0025",
+      "path": "88.wav",
+      "sha256": "462e00b99f275c8dd71cbcb8b056fc5b17e7f3019cdb10a7a7b6a75434d31437",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0026",
+      "path": "89.wav",
+      "sha256": "30b62ca17ecb4d35c59851ebf3f911463b926bfdd75a650a712deedd39380c8c",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0027",
+      "path": "90.wav",
+      "sha256": "b21bed45e7655e0e4ecaa996b40b89e8845476623595e16a9f7571092a5ea164",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0028",
+      "path": "91.wav",
+      "sha256": "5c17f9520ddae316beed4cfb08e4248a812719af7d802ced9eab6824684b2d2e",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0029",
+      "path": "92.wav",
+      "sha256": "7c26dd27425e63fbb7daab52f5ce26c57829930bae4defd28bcaa504210c5ebe",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0030",
+      "path": "93.wav",
+      "sha256": "bf0a84571b50203a06af0900b0a8be0719b2d50e8801f56661d03ee0ed5956e6",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0031",
+      "path": "94.wav",
+      "sha256": "4088e4ce1f1752e8b38a5b83f7f50c7a7d87a93db181d032c63217d957feb4ea",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0032",
+      "path": "95.wav",
+      "sha256": "0545296825dd2a816f2d134558d9484b2e7c2cd8d37d0b7773c4879b57f26f22",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0033",
+      "path": "96.wav",
+      "sha256": "afd51f7fd81a1391f9eb615f384d892ab228b1b77db5e26ca076fda7783b1862",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0034",
+      "path": "97.wav",
+      "sha256": "5038f17eadeb56a915699eb3a6956b08876af2c48754257fb357422fe6f743aa",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0035",
+      "path": "98.wav",
+      "sha256": "0d010c00fc32f03b2809b30ffd7f0609bd2a226dc4fb48c464382d7dda6fe417",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    },
+    {
+      "id": "1188-133604-0036",
+      "path": "99.wav",
+      "sha256": "861653fc461df0eb759cc3aabeaa03f197af5590bad69c3e097dd7107451e478",
+      "split": "test-clean",
+      "tags": {
+        "speaker": "1188",
+        "chapter": "133604",
+        "ground_truth": "negative-transcript"
+      },
+      "expected": []
+    }
+  ]
+}

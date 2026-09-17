@@ -1,0 +1,24 @@
+[backend]
+kind = "audiocpp"
+runtime = "default"
+device = "cpu"
+threads = 2
+fallback = "error"
+library = "/usr/lib/omawake/libaudiocpp.so.0.1.0"
+[model]
+name = "moonshine-streaming-tiny-q8_0-silero-v6.2.1"
+directory = "/home/jacob/.local/share/omawake/models/moonshine-streaming-tiny-q8_0-silero-v6.2.1"
+verifier = "moonshine-streaming-tiny-q8_0.gguf"
+vad = "silero_vad_16k.safetensors"
+sample_rate = 16000
+[[wake_words]]
+id = "light-up"
+phrase = "light up"
+enabled = true
+command = ["false"]
+
+[[wake_words]]
+id="computer"
+phrase="computer"
+enabled=true
+command=["false"]

@@ -10,3 +10,5 @@ The release gate and corpus method are defined in
 Current release evidence:
 
 - [`v0.0.1-rc.3 local and GB10 results`](results/2026-09-15-rc3/RESULTS.md)
+
+- [Default-model corpus checks](results/2026-09-16-default-corpus/RESULTS.md)

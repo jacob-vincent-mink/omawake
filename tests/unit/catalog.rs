@@ -7,7 +7,7 @@ fn catalog_pins_a_complete_originally_sourced_profile() {
     let spec = model(DEFAULT_MODEL_ID).unwrap();
     assert_eq!(backends().len(), 3);
     assert!(backends().iter().all(|backend| backend.built));
-    assert_eq!(models().len(), 2);
+    assert_eq!(models().len(), 4);
     assert_eq!(spec.backend, "audiocpp");
     assert_eq!(spec.license, "MIT");
     assert_eq!(spec.license_status, "verified");
@@ -112,4 +112,100 @@ fn default_and_activation_are_the_qualified_audio_cpp_profile() {
     assert_eq!(accelerated.backend.device, "cpu");
     assert!(accelerated.backend.library.as_os_str().is_empty());
     assert!(accelerated.backend.library_dirs.is_empty());
+}
+
+#[test]
+fn every_backend_has_a_complete_default_and_rejects_foreign_formats() {
+    for (backend, runtime, devices) in [
+        ("audiocpp", Runtime::Default, vec!["cpu", "auto"]),
+        ("audiocpp", Runtime::Cuda, vec!["gpu"]),
+        ("audiocpp", Runtime::Vulkan, vec!["gpu"]),
+        ("audiocpp", Runtime::Hip, vec!["gpu"]),
+        (
+            "openvino-genai",
+            Runtime::Openvino,
+            vec!["cpu", "gpu", "npu"],
+        ),
+        ("whispercpp", Runtime::Default, vec!["cpu"]),
+    ] {
+        for device in devices {
+            let spec = default_model(backend, runtime, device).unwrap();
+            assert!(spec.downloadable);
+            assert!(spec.assets.iter().any(|asset| asset.path == spec.vad));
+            assert!(
+                spec.verifier == "." || spec.assets.iter().any(|asset| asset.path == spec.verifier)
+            );
+            for other in models().iter().filter(|other| other.backend != backend) {
+                assert!(!other.compatible_with(backend, runtime, device));
+            }
+        }
+    }
+    for (backend, runtime, device) in [
+        ("missing", Runtime::Default, "cpu"),
+        ("whispercpp", Runtime::Cuda, "gpu"),
+        ("audiocpp", Runtime::Openvino, "cpu"),
+        ("openvino-genai", Runtime::Default, "cpu"),
+        ("whispercpp", Runtime::Default, "npu"),
+    ] {
+        assert!(default_model(backend, runtime, device).is_err());
+    }
+    let whisper = model(WHISPER_MODEL_ID).unwrap();
+    assert_eq!(whisper.total_size(), 148_849_309);
+    assert!(whisper.assets[0].url.contains(WHISPER_REVISION));
+    assert!(whisper.assets[1].url.contains(WHISPER_VAD_REVISION));
+}
+
+#[test]
+fn whisper_activation_preserves_its_provider_and_defaults_follow_the_backend() {
+    let mut config = Config::default();
+    config.backend.kind = "whispercpp".into();
+    config.backend.library = "/opt/whisper/libwhisper.so".into();
+    config
+        .backend
+        .options
+        .insert("audiocpp.asr_family".into(), "stale".into());
+    let spec = setup_model(&config).unwrap();
+    assert_eq!(spec.id, WHISPER_MODEL_ID);
+    spec.activate(&mut config);
+    assert_eq!(
+        config.backend.library,
+        PathBuf::from("/opt/whisper/libwhisper.so")
+    );
+    assert!(!config.backend.options.contains_key("audiocpp.asr_family"));
+    assert_eq!(setup_model(&config).unwrap().id, WHISPER_MODEL_ID);
+    config.backend.kind = "openvino-genai".into();
+    config.backend.runtime = Runtime::Openvino;
+    config.backend.device = "npu".into();
+    assert_eq!(setup_model(&config).unwrap().id, OPENVINO_MODEL_ID);
+    let before = serde_json::to_value(model(DEFAULT_MODEL_ID).unwrap()).unwrap();
+    assert!(before.get("name").is_none());
+    assert!(before.get("asr_family").is_none());
+}
+
+#[test]
+fn multilingual_openvino_profile_is_pinned_and_claims_only_spanish() {
+    let spec = model(OPENVINO_MULTILINGUAL_MODEL_ID).unwrap();
+    assert_eq!(spec.backend, "openvino-genai");
+    assert!(spec.multilingual);
+    assert_eq!(spec.languages, &["es"]);
+    assert!(spec.source_url.contains("openai/whisper-base"));
+    assert!(
+        spec.converted_source_url
+            .contains("OpenVINO/whisper-base-int8-ov")
+    );
+    assert_eq!(spec.assets.len(), 12);
+    assert!(
+        spec.assets
+            .iter()
+            .all(|asset| !asset.url.contains("base.en"))
+    );
+    let encoder = spec
+        .assets
+        .iter()
+        .find(|a| a.path == "openvino_encoder_model.bin")
+        .unwrap();
+    assert_eq!(encoder.size, 23_097_456);
+    // Spanish is the only curated language claim; other tokens are accepted
+    // by the engine but are not qualified.
+    assert!(!spec.languages.contains(&"fr"));
 }

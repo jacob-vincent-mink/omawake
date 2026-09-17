@@ -1,0 +1,31 @@
+[backend]
+kind = "openvino-genai"
+runtime = "openvino"
+device = "gpu"
+threads = 2
+fallback = "error"
+device_id = 0
+library = "/home/jacob/.local/opt/openvino_genai_ubuntu24_2026.3.1.0_x86_64/runtime/lib/intel64/libopenvino_genai_c.so"
+library_dirs = ["/home/jacob/.local/opt/openvino_genai_ubuntu24_2026.3.1.0_x86_64/runtime/lib/intel64"]
+
+[backend.options]
+
+[model]
+name = "whisper-base.en-int8-ov-silero-v6.2.1"
+directory = ""
+verifier = "."
+vad = "silero_vad_16k.safetensors"
+sample_rate = 16000
+
+
+[[wake_words]]
+id = "light-up"
+phrase = "light up"
+enabled = true
+command = ["false"]
+
+[[wake_words]]
+id="computer"
+phrase="computer"
+enabled=true
+command=["false"]

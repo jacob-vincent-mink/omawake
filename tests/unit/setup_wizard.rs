@@ -172,7 +172,7 @@ fn menu_renders_metadata_and_processes_arrow_enter_and_cancel() {
     assert!(rendered.contains("Runtime"));
     assert!(rendered.contains("CUDA"));
     assert!(rendered.contains("Unavailable in this build"));
-    assert!(rendered.contains("\r\n      "));
+    assert!(plain_terminal_output(rendered.as_bytes()).contains("\r\n      "));
     assert_no_bare_line_feeds(rendered.as_bytes());
 
     let mut events = VecDeque::from([key(KeyCode::Char('q'))]);
@@ -196,6 +196,10 @@ fn guided_setup_metadata_covers_modes_runtimes_devices_and_review() {
     assert_eq!(setup_mode(1), SetupMode::Runtime);
     assert_eq!(setup_mode(2), SetupMode::Model);
     assert_eq!(setup_mode(3), SetupMode::Check);
+    assert_eq!(setup_mode(4), SetupMode::Audio);
+    assert_eq!(modes[4].label, "Audio");
+    assert_eq!(setup_mode(5), SetupMode::Onboard);
+    assert_eq!(modes[5].label, "Teach a wake word");
 
     let cpu_only = runtime_items(&cpu_loadable);
     assert!(cpu_only[0].enabled);
@@ -351,6 +355,8 @@ fn guided_flows_map_scripted_choices_and_preserve_preferences() {
         SetupMode::Runtime,
         SetupMode::Model,
         SetupMode::Check,
+        SetupMode::Audio,
+        SetupMode::Onboard,
     ]
     .into_iter()
     .enumerate()
@@ -511,4 +517,59 @@ fn terminal_entry_points_fail_cleanly_without_a_tty() {
     );
     assert!(confirm_apply(Runtime::Default, "cpu", "model", false).is_err());
     assert!(confirm_runtime_apply(Runtime::Default, "cpu", None).is_err());
+}
+
+fn plain_terminal_output(output: &[u8]) -> String {
+    let mut text = String::new();
+    let mut escape = false;
+    for character in String::from_utf8_lossy(output).chars() {
+        if character == '\x1b' {
+            escape = true;
+        } else if escape {
+            if character.is_ascii_alphabetic() {
+                escape = false;
+            }
+        } else {
+            text.push(character);
+        }
+    }
+    text
+}
+
+#[test]
+fn viewport_keeps_selection_visible_without_overflow_on_resize() {
+    use unicode_width::UnicodeWidthStr;
+    let items = (0..100)
+        .map(|n| {
+            MenuItem::available(
+                format!("Choice {n}"),
+                "Long details with Unicode 运行时 and many words to wrap across a narrow terminal.",
+            )
+        })
+        .collect::<Vec<_>>();
+    for (width, height) in [(24, 8), (80, 24), (12, 4), (4, 2), (1, 1)] {
+        for selected in [0, 50, 99] {
+            let mut output = Vec::new();
+            render_at_size(
+                &mut output,
+                "Choose a model",
+                "Navigate the installed and downloadable catalog.",
+                &items,
+                selected,
+                width,
+                height,
+            )
+            .unwrap();
+            let text = plain_terminal_output(&output);
+            assert!(
+                text.split("\r\n").count() <= height,
+                "{width}x{height}: {text:?}"
+            );
+            assert!(text.split("\r\n").all(|line| line.width() < width));
+            if width >= 24 {
+                assert!(text.contains(&format!("› Choice {selected}")), "{text:?}");
+            }
+            assert_no_bare_line_feeds(&output);
+        }
+    }
 }

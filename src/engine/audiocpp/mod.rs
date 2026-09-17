@@ -29,10 +29,18 @@ use crate::phrase::{PhraseMatcher, normalize_tokens, record_transcript};
 const AUDIOCPP_ABI_0_1_0: u32 = 1 << 8;
 const WORKER_IO_TIMEOUT: Duration = Duration::from_secs(30);
 // Converted GGUF: audio-cpp/audio.cpp-gguf@6d5436fc85f7a20c2e9f4e472b7f3a532f686444.
-// Original MIT model: moonshine-ai/moonshine-streaming-tiny@f8e9dfd8c562c257c151a907b7b7f2fe8ff8511a.
+// Original MIT models: moonshine-ai/moonshine-streaming-tiny@f8e9dfd8c562c257c151a907b7b7f2fe8ff8511a,
+// moonshine-ai/moonshine-streaming-small@f8e9dfd8c562c257c151a907b7b7f2fe8ff8511a,
+// moonshine-ai/moonshine-streaming-medium@f8e9dfd8c562c257c151a907b7b7f2fe8ff8511a.
 const MOONSHINE_TINY_BYTES: u64 = 60_407_904;
 const MOONSHINE_TINY_SHA256: &str =
     "e9a342a07327f4e1745874f137f45350697e91699a91e4eb2ac60c223718f8c3";
+const MOONSHINE_SMALL_BYTES: u64 = 300_621_248;
+const MOONSHINE_SMALL_SHA256: &str =
+    "61036888fbc8fc685ef49ff075f1eaa7d1a68bf03dbc3ef80bc12189022c44e3";
+const MOONSHINE_MEDIUM_BYTES: u64 = 315_583_648;
+const MOONSHINE_MEDIUM_SHA256: &str =
+    "cc242a59dd7aa3cf9f688a68b52f7e22e93ab19fa1a71a38927d316ad1b349dd";
 const SILERO_VAD_BYTES: u64 = 1_239_748;
 // Author-published MIT artifact: snakers4/silero-vad@7e30209a3e901f9842f81b225f3e93d8199902b1.
 const SILERO_VAD_SHA256: &str = "c59271c284ae9c8335d795d60e0bfdb71aaaceec578d9bd9ffc1b8153c319ea1";
@@ -47,6 +55,7 @@ pub(crate) fn probe_provider(config: &Config, paths: &AppPaths) -> Result<(PathB
     }
     let library = discover_provider(config, paths)?;
     let api = AudioCppApi::load(&library)?;
+    crate::provider_families::require(&api._library, &["moonshine_asr", "silero_vad"])?;
     let version = unsafe { (api.build_version)() };
     let version = if version.is_null() {
         format!("audio.cpp ABI 0.1.0 (requested {backend}:{device})")
@@ -70,6 +79,7 @@ pub(crate) fn discover_provider(config: &Config, paths: &AppPaths) -> Result<Pat
 
 struct AsrProfile {
     family: &'static str,
+    variant: &'static str,
     file_name: &'static str,
     bytes: u64,
     sha256: &'static str,
@@ -78,11 +88,32 @@ struct AsrProfile {
 
 const MOONSHINE_TINY: AsrProfile = AsrProfile {
     family: "moonshine_asr",
+    variant: "tiny",
     file_name: "moonshine-streaming-tiny-q8_0.gguf",
     bytes: MOONSHINE_TINY_BYTES,
     sha256: MOONSHINE_TINY_SHA256,
     label: "Moonshine Streaming Tiny Q8_0",
 };
+
+const MOONSHINE_SMALL: AsrProfile = AsrProfile {
+    family: "moonshine_asr",
+    variant: "small",
+    file_name: "moonshine-streaming-small-q8_0.gguf",
+    bytes: MOONSHINE_SMALL_BYTES,
+    sha256: MOONSHINE_SMALL_SHA256,
+    label: "Moonshine Streaming Small Q8_0",
+};
+
+const MOONSHINE_MEDIUM: AsrProfile = AsrProfile {
+    family: "moonshine_asr",
+    variant: "medium",
+    file_name: "moonshine-streaming-medium-q8_0.gguf",
+    bytes: MOONSHINE_MEDIUM_BYTES,
+    sha256: MOONSHINE_MEDIUM_SHA256,
+    label: "Moonshine Streaming Medium Q8_0",
+};
+
+const ASR_PROFILES: [&AsrProfile; 3] = [&MOONSHINE_TINY, &MOONSHINE_SMALL, &MOONSHINE_MEDIUM];
 
 pub(super) struct AudioCppBackend {
     worker: RefCell<Worker>,
@@ -173,12 +204,25 @@ fn asr_profile(config: &Config) -> Result<&'static AsrProfile> {
         .get("audiocpp.asr_family")
         .map(String::as_str)
         .unwrap_or(MOONSHINE_TINY.family);
-    match family {
-        "moonshine_asr" => Ok(&MOONSHINE_TINY),
-        _ => bail!(
+    if family != "moonshine_asr" {
+        bail!(
             "audio.cpp ASR family {family:?} is not qualified; currently supported: moonshine_asr"
-        ),
+        );
     }
+    let variant = config
+        .backend
+        .options
+        .get("audiocpp.asr_variant")
+        .map(String::as_str)
+        .unwrap_or(MOONSHINE_TINY.variant);
+    ASR_PROFILES
+        .into_iter()
+        .find(|profile| profile.variant == variant)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "audio.cpp ASR variant {variant:?} is not pinned; currently supported: tiny, small, medium"
+            )
+        })
 }
 
 fn transcripts_to_detections(
@@ -1496,6 +1540,11 @@ pub(crate) mod tests {
     int audiocpp_registry_create(const char *json, void **out) {
     (void) json; *out = malloc(1); return *out ? 0 : 1;
     }
+size_t audiocpp_registry_family_count(const void *registry) { (void)registry; return 2; }
+int audiocpp_registry_family(const void *registry, size_t index, const char **out) {
+    (void)registry; static const char *names[] = {"moonshine_asr", "silero_vad"};
+    if (index >= 2) return 1; *out = names[index]; return 0;
+}
     void audiocpp_registry_free(void *value) { free(value); }
     int audiocpp_model_load(void *registry, const char *path, const void *config,
                         const void *options, void **out) {
@@ -1608,7 +1657,7 @@ pub(crate) mod tests {
         return 0;
     }
     if (openvino) {
-        write_response("{\"type\":\"ready\",\"evidence\":{\"profile_id\":\"whisper-base.en-int8-ov\",\"languages\":[\"en\"],\"multilingual\":false,\"runtime_build\":\"fake\",\"runtime_description\":\"fake\",\"requested_device\":\"CPU\",\"available_device\":\"CPU\",\"full_device_name\":\"Fake CPU\",\"device_architecture\":\"fake\",\"driver_version\":\"fake\",\"static_pipeline\":false,\"pipeline_load_milliseconds\":1.0,\"cache_directory\":\"/tmp\",\"cache_files\":0,\"cache_bytes\":0,\"genai_library\":\"fake\",\"core_library\":\"fake\"}}");
+        write_response("{\"type\":\"ready\",\"evidence\":{\"profile_id\":\"whisper-base.en-int8-ov\",\"languages\":[\"en\"],\"language\":\"\",\"multilingual\":false,\"runtime_build\":\"fake\",\"runtime_description\":\"fake\",\"requested_device\":\"CPU\",\"available_device\":\"CPU\",\"full_device_name\":\"Fake CPU\",\"device_architecture\":\"fake\",\"driver_version\":\"fake\",\"static_pipeline\":false,\"pipeline_load_milliseconds\":1.0,\"cache_directory\":\"/tmp\",\"cache_files\":0,\"cache_bytes\":0,\"genai_library\":\"fake\",\"core_library\":\"fake\"}}");
     } else {
         write_response("{\"type\":\"ready\",\"version\":\"safe fake worker\"}");
     }
@@ -1725,6 +1774,8 @@ pub(crate) mod tests {
     #[test]
     fn transcript_conversion_uses_whole_phrase_matcher() {
         let matcher = PhraseMatcher::compile(&[WakeWord {
+            engine: None,
+            enrollment: None,
             id: "lights".into(),
             phrase: "light up".into(),
             aliases: Vec::new(),
@@ -1800,12 +1851,33 @@ pub(crate) mod tests {
     #[test]
     fn asr_profile_is_an_explicit_curated_extension_point() {
         let mut config = Config::default();
-        assert_eq!(asr_profile(&config).unwrap().family, "moonshine_asr");
+        assert_eq!(asr_profile(&config).unwrap().variant, "tiny");
         config
             .backend
             .options
             .insert("audiocpp.asr_family".into(), "moonshine_asr".into());
         assert_eq!(asr_profile(&config).unwrap().label, MOONSHINE_TINY.label);
+        config
+            .backend
+            .options
+            .insert("audiocpp.asr_variant".into(), "small".into());
+        assert_eq!(asr_profile(&config).unwrap().label, MOONSHINE_SMALL.label);
+        config
+            .backend
+            .options
+            .insert("audiocpp.asr_variant".into(), "medium".into());
+        assert_eq!(asr_profile(&config).unwrap().label, MOONSHINE_MEDIUM.label);
+        config
+            .backend
+            .options
+            .insert("audiocpp.asr_variant".into(), "base".into());
+        assert!(
+            asr_profile(&config)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("is not pinned")
+        );
         config
             .backend
             .options
@@ -2236,6 +2308,8 @@ pub(crate) mod tests {
         let backend = AudioCppBackend {
             worker: RefCell::new(Worker::spawn(spec).unwrap()),
             matcher: PhraseMatcher::compile(&[WakeWord {
+                engine: None,
+                enrollment: None,
                 id: "greeting".into(),
                 phrase: "hello oma".into(),
                 aliases: Vec::new(),

@@ -1,0 +1,172 @@
+{
+  "schema_version": 1,
+  "corpus": {
+    "id": "librispeech-light-up-lovely-child-forever-positives",
+    "version": "openslr-12-test-clean+test-other",
+    "license_spdx": "CC-BY-4.0",
+    "source": "https://www.openslr.org/12"
+  },
+  "matching": {
+    "early_tolerance_ms": 250,
+    "late_tolerance_ms": 750
+  },
+  "clips": [
+    {
+      "id": "1089-134686-0002",
+      "path": "1089-134686-0002.wav",
+      "sha256": "dfb54074469700446b889a622230fb6d918a19f3e6cb90afeb62d0ec98651c01",
+      "split": "positive-librispeech",
+      "tags": {
+        "ground_truth": "reference-transcript"
+      },
+      "expected": [
+        {
+          "keyword_id": "light-up"
+        }
+      ]
+    },
+    {
+      "id": "1221-135766-0001",
+      "path": "1221-135766-0001.wav",
+      "sha256": "19cfcf141db2f71de563525ed0a9b673f6aa51208e974f9c765a159789cddc2c",
+      "split": "positive-librispeech",
+      "tags": {
+        "ground_truth": "reference-transcript"
+      },
+      "expected": [
+        {
+          "keyword_id": "lovely-child"
+        },
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "2830-3979-0012",
+      "path": "2830-3979-0012.wav",
+      "sha256": "1a75d6cdf314c9bdc7f0d55ed91a59882f57d835b2a64148b30dee443657dd61",
+      "split": "positive-librispeech",
+      "tags": {
+        "ground_truth": "reference-transcript"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "2961-961-0010",
+      "path": "2961-961-0010.wav",
+      "sha256": "95b8b4e547bf7f0c78ad50a82794838190525298b8eee056d5474c0183228b7d",
+      "split": "positive-librispeech",
+      "tags": {
+        "ground_truth": "reference-transcript"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "5484-24318-0019",
+      "path": "5484-24318-0019.wav",
+      "sha256": "b40369fd57296bd37223f685402a205d18b6883c0e5e0589b731b4a6e83428ec",
+      "split": "positive-librispeech",
+      "tags": {
+        "ground_truth": "reference-transcript"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "5639-40744-0035",
+      "path": "5639-40744-0035.wav",
+      "sha256": "6c1136edbc00572c892e2b3df6b95b5ae52ce51a54dfb2147d1cc3b9f453304d",
+      "split": "positive-librispeech",
+      "tags": {
+        "ground_truth": "reference-transcript"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "5764-299665-0019",
+      "path": "5764-299665-0019.wav",
+      "sha256": "f4ee1151b1edf05557514223653cb636ff8ebd0b983efe88db8a05562b1503d5",
+      "split": "positive-librispeech",
+      "tags": {
+        "ground_truth": "reference-transcript"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "5764-299665-0089",
+      "path": "5764-299665-0089.wav",
+      "sha256": "84338ec469ad1f93b906dc9b506aaeb2c72a143b0ed8f53c44e699ad30f25121",
+      "split": "positive-librispeech",
+      "tags": {
+        "ground_truth": "reference-transcript"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "6128-63240-0023",
+      "path": "6128-63240-0023.wav",
+      "sha256": "f3647daac9547ce471fbf7196b32c29e57923a308d322292deabc02515399d75",
+      "split": "positive-librispeech",
+      "tags": {
+        "ground_truth": "reference-transcript"
+      },
+      "expected": [
+        {
+          "keyword_id": "light-up"
+        }
+      ]
+    },
+    {
+      "id": "7902-96591-0020",
+      "path": "7902-96591-0020.wav",
+      "sha256": "dddd703c5b66d27201937825e499253d0dbfda60381b7f3ee0e2354b35a2958d",
+      "split": "positive-librispeech",
+      "tags": {
+        "ground_truth": "reference-transcript"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    },
+    {
+      "id": "8555-292519-0005",
+      "path": "8555-292519-0005.wav",
+      "sha256": "6b7a596ebaef14ca53c7e96dd1f009afaef2d0bf08faa0dc692de2595bc31580",
+      "split": "positive-librispeech",
+      "tags": {
+        "ground_truth": "reference-transcript"
+      },
+      "expected": [
+        {
+          "keyword_id": "forever"
+        }
+      ]
+    }
+  ]
+}

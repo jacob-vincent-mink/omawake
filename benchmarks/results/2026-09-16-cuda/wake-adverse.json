@@ -1,0 +1,2212 @@
+{
+  "evaluation": {
+    "application_version": "0.0.2",
+    "backend": {
+      "backend_kind": "audiocpp",
+      "effective_runtime": "cuda",
+      "fallback_used": false,
+      "placement_evidence": "audio.cpp created explicit CUDA sessions",
+      "placement_verified": true,
+      "requested_device": "gpu",
+      "requested_runtime": "cuda"
+    },
+    "evaluation": "omawake-phrase-verifier-accuracy",
+    "files": [
+      {
+        "audio_duration_milliseconds": 6625.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 357.35739700000005,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "light-up",
+            "start_ms": null
+          }
+        ],
+        "id": "1089-134686-0002-clean",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "light-up",
+            "prediction_index": 0
+          }
+        ],
+        "path": "1089-134686-0002-clean.wav",
+        "predictions": [
+          {
+            "keyword_id": "light-up",
+            "observed_end_ms": 65.99999964237213,
+            "observed_start_ms": 65.99999964237213,
+            "timestamps": [],
+            "tokens": [
+              "light",
+              "up"
+            ]
+          }
+        ],
+        "real_time_factor": 0.053940739169811326,
+        "split": "clean",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "clean",
+          "source_sha256": "dfb54074469700446b889a622230fb6d918a19f3e6cb90afeb62d0ec98651c01"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 6625.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 91.220833,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "light-up",
+            "start_ms": null
+          }
+        ],
+        "id": "1089-134686-0002-white-noise-10db",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "light-up",
+            "prediction_index": 0
+          }
+        ],
+        "path": "1089-134686-0002-white-noise-10db.wav",
+        "predictions": [
+          {
+            "keyword_id": "light-up",
+            "observed_end_ms": 34.00000184774399,
+            "observed_start_ms": 34.00000184774399,
+            "timestamps": [],
+            "tokens": [
+              "light",
+              "up"
+            ]
+          }
+        ],
+        "real_time_factor": 0.013769182339622642,
+        "split": "white-noise-10db",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "white-noise-10db",
+          "source_sha256": "dfb54074469700446b889a622230fb6d918a19f3e6cb90afeb62d0ec98651c01"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 6625.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 91.359058,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "light-up",
+            "start_ms": null
+          }
+        ],
+        "id": "1089-134686-0002-white-noise-0db",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "light-up",
+            "prediction_index": 0
+          }
+        ],
+        "path": "1089-134686-0002-white-noise-0db.wav",
+        "predictions": [
+          {
+            "keyword_id": "light-up",
+            "observed_end_ms": 65.99999964237213,
+            "observed_start_ms": 65.99999964237213,
+            "timestamps": [],
+            "tokens": [
+              "light",
+              "up"
+            ]
+          }
+        ],
+        "real_time_factor": 0.013790046490566038,
+        "split": "white-noise-0db",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "white-noise-0db",
+          "source_sha256": "dfb54074469700446b889a622230fb6d918a19f3e6cb90afeb62d0ec98651c01"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 6865.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 99.241152,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "light-up",
+            "start_ms": null
+          }
+        ],
+        "id": "1089-134686-0002-echo-120-240ms",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "light-up",
+            "prediction_index": 0
+          }
+        ],
+        "path": "1089-134686-0002-echo-120-240ms.wav",
+        "predictions": [
+          {
+            "keyword_id": "light-up",
+            "observed_end_ms": 65.99999964237213,
+            "observed_start_ms": 65.99999964237213,
+            "timestamps": [],
+            "tokens": [
+              "light",
+              "up"
+            ]
+          }
+        ],
+        "real_time_factor": 0.01445610371449381,
+        "split": "echo-120-240ms",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "echo-120-240ms",
+          "source_sha256": "dfb54074469700446b889a622230fb6d918a19f3e6cb90afeb62d0ec98651c01"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 16715.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 2,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 227.818202,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "lovely-child",
+            "start_ms": null
+          },
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "1221-135766-0001-clean",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "lovely-child",
+            "prediction_index": 0
+          },
+          {
+            "end_error_ms": null,
+            "expected_index": 1,
+            "keyword_id": "forever",
+            "prediction_index": 1
+          }
+        ],
+        "path": "1221-135766-0001-clean.wav",
+        "predictions": [
+          {
+            "keyword_id": "lovely-child",
+            "observed_end_ms": 2.0000000949949026,
+            "observed_start_ms": 2.0000000949949026,
+            "timestamps": [],
+            "tokens": [
+              "lovely",
+              "child"
+            ]
+          },
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 2.0000000949949026,
+            "observed_start_ms": 2.0000000949949026,
+            "timestamps": [],
+            "tokens": [
+              "forever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.013629566377505236,
+        "split": "clean",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "clean",
+          "source_sha256": "19cfcf141db2f71de563525ed0a9b673f6aa51208e974f9c765a159789cddc2c"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 16715.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 1,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 245.399533,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "lovely-child",
+            "start_ms": null
+          },
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "1221-135766-0001-white-noise-10db",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 1,
+            "keyword_id": "forever",
+            "prediction_index": 0
+          }
+        ],
+        "path": "1221-135766-0001-white-noise-10db.wav",
+        "predictions": [
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 2.0000000949949026,
+            "observed_start_ms": 2.0000000949949026,
+            "timestamps": [],
+            "tokens": [
+              "forever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.014681395931797786,
+        "split": "white-noise-10db",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "white-noise-10db",
+          "source_sha256": "19cfcf141db2f71de563525ed0a9b673f6aa51208e974f9c765a159789cddc2c"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 16715.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 1,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 224.364243,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "lovely-child",
+            "start_ms": null
+          },
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "1221-135766-0001-white-noise-0db",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 1,
+            "keyword_id": "forever",
+            "prediction_index": 0
+          }
+        ],
+        "path": "1221-135766-0001-white-noise-0db.wav",
+        "predictions": [
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 2.0000000949949026,
+            "observed_start_ms": 2.0000000949949026,
+            "timestamps": [],
+            "tokens": [
+              "forever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.013422928088543224,
+        "split": "white-noise-0db",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "white-noise-0db",
+          "source_sha256": "19cfcf141db2f71de563525ed0a9b673f6aa51208e974f9c765a159789cddc2c"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 16955.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 1,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 224.355188,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "lovely-child",
+            "start_ms": null
+          },
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "1221-135766-0001-echo-120-240ms",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 1,
+            "keyword_id": "forever",
+            "prediction_index": 0
+          }
+        ],
+        "path": "1221-135766-0001-echo-120-240ms.wav",
+        "predictions": [
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 2.0000000949949026,
+            "observed_start_ms": 2.0000000949949026,
+            "timestamps": [],
+            "tokens": [
+              "forever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.013232390917133588,
+        "split": "echo-120-240ms",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "echo-120-240ms",
+          "source_sha256": "19cfcf141db2f71de563525ed0a9b673f6aa51208e974f9c765a159789cddc2c"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 3625.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 52.356133,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "2830-3979-0012-clean",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "forever",
+            "prediction_index": 0
+          }
+        ],
+        "path": "2830-3979-0012-clean.wav",
+        "predictions": [
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 194.0000057220459,
+            "observed_start_ms": 194.0000057220459,
+            "timestamps": [],
+            "tokens": [
+              "forever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.014443071172413792,
+        "split": "clean",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "clean",
+          "source_sha256": "1a75d6cdf314c9bdc7f0d55ed91a59882f57d835b2a64148b30dee443657dd61"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 3625.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 50.884115,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "2830-3979-0012-white-noise-10db",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "forever",
+            "prediction_index": 0
+          }
+        ],
+        "path": "2830-3979-0012-white-noise-10db.wav",
+        "predictions": [
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 194.0000057220459,
+            "observed_start_ms": 194.0000057220459,
+            "timestamps": [],
+            "tokens": [
+              "forever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.014036997241379311,
+        "split": "white-noise-10db",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "white-noise-10db",
+          "source_sha256": "1a75d6cdf314c9bdc7f0d55ed91a59882f57d835b2a64148b30dee443657dd61"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 3625.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 52.495606,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "2830-3979-0012-white-noise-0db",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "forever",
+            "prediction_index": 0
+          }
+        ],
+        "path": "2830-3979-0012-white-noise-0db.wav",
+        "predictions": [
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 194.0000057220459,
+            "observed_start_ms": 194.0000057220459,
+            "timestamps": [],
+            "tokens": [
+              "forever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.01448154648275862,
+        "split": "white-noise-0db",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "white-noise-0db",
+          "source_sha256": "1a75d6cdf314c9bdc7f0d55ed91a59882f57d835b2a64148b30dee443657dd61"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 3865.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 56.037917,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "2830-3979-0012-echo-120-240ms",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "forever",
+            "prediction_index": 0
+          }
+        ],
+        "path": "2830-3979-0012-echo-120-240ms.wav",
+        "predictions": [
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 194.0000057220459,
+            "observed_start_ms": 194.0000057220459,
+            "timestamps": [],
+            "tokens": [
+              "forever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.014498814230271669,
+        "split": "echo-120-240ms",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "echo-120-240ms",
+          "source_sha256": "1a75d6cdf314c9bdc7f0d55ed91a59882f57d835b2a64148b30dee443657dd61"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 7830.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 106.105901,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "2961-961-0010-clean",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "forever",
+            "prediction_index": 0
+          }
+        ],
+        "path": "2961-961-0010-clean.wav",
+        "predictions": [
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 1824.0000009536743,
+            "observed_start_ms": 1824.0000009536743,
+            "timestamps": [],
+            "tokens": [
+              "for",
+              "ever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.013551200638569605,
+        "split": "clean",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "clean",
+          "source_sha256": "95b8b4e547bf7f0c78ad50a82794838190525298b8eee056d5474c0183228b7d"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 7830.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 101.342101,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "2961-961-0010-white-noise-10db",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "forever",
+            "prediction_index": 0
+          }
+        ],
+        "path": "2961-961-0010-white-noise-10db.wav",
+        "predictions": [
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 194.0000057220459,
+            "observed_start_ms": 194.0000057220459,
+            "timestamps": [],
+            "tokens": [
+              "forever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.01294279706257982,
+        "split": "white-noise-10db",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "white-noise-10db",
+          "source_sha256": "95b8b4e547bf7f0c78ad50a82794838190525298b8eee056d5474c0183228b7d"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 7830.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 1,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 108.009986,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "2961-961-0010-white-noise-0db",
+        "matches": [],
+        "path": "2961-961-0010-white-noise-0db.wav",
+        "predictions": [],
+        "real_time_factor": 0.013794378799489145,
+        "split": "white-noise-0db",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "white-noise-0db",
+          "source_sha256": "95b8b4e547bf7f0c78ad50a82794838190525298b8eee056d5474c0183228b7d"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 8070.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 108.502802,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "2961-961-0010-echo-120-240ms",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "forever",
+            "prediction_index": 0
+          }
+        ],
+        "path": "2961-961-0010-echo-120-240ms.wav",
+        "predictions": [
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 194.0000057220459,
+            "observed_start_ms": 194.0000057220459,
+            "timestamps": [],
+            "tokens": [
+              "for",
+              "ever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.013445204708798016,
+        "split": "echo-120-240ms",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "echo-120-240ms",
+          "source_sha256": "95b8b4e547bf7f0c78ad50a82794838190525298b8eee056d5474c0183228b7d"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 21440.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 305.820066,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "5484-24318-0019-clean",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "forever",
+            "prediction_index": 0
+          }
+        ],
+        "path": "5484-24318-0019-clean.wav",
+        "predictions": [
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 0.0,
+            "observed_start_ms": 0.0,
+            "timestamps": [],
+            "tokens": [
+              "for",
+              "ever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.014263995615671642,
+        "split": "clean",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "clean",
+          "source_sha256": "b40369fd57296bd37223f685402a205d18b6883c0e5e0589b731b4a6e83428ec"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 21440.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 295.41495699999996,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "5484-24318-0019-white-noise-10db",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "forever",
+            "prediction_index": 0
+          }
+        ],
+        "path": "5484-24318-0019-white-noise-10db.wav",
+        "predictions": [
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 0.0,
+            "observed_start_ms": 0.0,
+            "timestamps": [],
+            "tokens": [
+              "forever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.01377868269589552,
+        "split": "white-noise-10db",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "white-noise-10db",
+          "source_sha256": "b40369fd57296bd37223f685402a205d18b6883c0e5e0589b731b4a6e83428ec"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 21440.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 280.996625,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "5484-24318-0019-white-noise-0db",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "forever",
+            "prediction_index": 0
+          }
+        ],
+        "path": "5484-24318-0019-white-noise-0db.wav",
+        "predictions": [
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 34.00000184774399,
+            "observed_start_ms": 34.00000184774399,
+            "timestamps": [],
+            "tokens": [
+              "forever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.013106185867537314,
+        "split": "white-noise-0db",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "white-noise-0db",
+          "source_sha256": "b40369fd57296bd37223f685402a205d18b6883c0e5e0589b731b4a6e83428ec"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 21680.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 1,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 299.967142,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "5484-24318-0019-echo-120-240ms",
+        "matches": [],
+        "path": "5484-24318-0019-echo-120-240ms.wav",
+        "predictions": [],
+        "real_time_factor": 0.01383612278597786,
+        "split": "echo-120-240ms",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "echo-120-240ms",
+          "source_sha256": "b40369fd57296bd37223f685402a205d18b6883c0e5e0589b731b4a6e83428ec"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 17520.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 238.851168,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "5639-40744-0035-clean",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "forever",
+            "prediction_index": 0
+          }
+        ],
+        "path": "5639-40744-0035-clean.wav",
+        "predictions": [
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 1440.000057220459,
+            "observed_start_ms": 1440.000057220459,
+            "timestamps": [],
+            "tokens": [
+              "forever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.013633057534246576,
+        "split": "clean",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "clean",
+          "source_sha256": "6c1136edbc00572c892e2b3df6b95b5ae52ce51a54dfb2147d1cc3b9f453304d"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 17520.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 234.403831,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "5639-40744-0035-white-noise-10db",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "forever",
+            "prediction_index": 0
+          }
+        ],
+        "path": "5639-40744-0035-white-noise-10db.wav",
+        "predictions": [
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 34.00000184774399,
+            "observed_start_ms": 34.00000184774399,
+            "timestamps": [],
+            "tokens": [
+              "forever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.013379214098173517,
+        "split": "white-noise-10db",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "white-noise-10db",
+          "source_sha256": "6c1136edbc00572c892e2b3df6b95b5ae52ce51a54dfb2147d1cc3b9f453304d"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 17520.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 1,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 237.27542,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "5639-40744-0035-white-noise-0db",
+        "matches": [],
+        "path": "5639-40744-0035-white-noise-0db.wav",
+        "predictions": [],
+        "real_time_factor": 0.013543117579908675,
+        "split": "white-noise-0db",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "white-noise-0db",
+          "source_sha256": "6c1136edbc00572c892e2b3df6b95b5ae52ce51a54dfb2147d1cc3b9f453304d"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 17760.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 233.246341,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "5639-40744-0035-echo-120-240ms",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "forever",
+            "prediction_index": 0
+          }
+        ],
+        "path": "5639-40744-0035-echo-120-240ms.wav",
+        "predictions": [
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 0.0,
+            "observed_start_ms": 0.0,
+            "timestamps": [],
+            "tokens": [
+              "forever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.013133239921171172,
+        "split": "echo-120-240ms",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "echo-120-240ms",
+          "source_sha256": "6c1136edbc00572c892e2b3df6b95b5ae52ce51a54dfb2147d1cc3b9f453304d"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 5125.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 66.657409,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "5764-299665-0019-clean",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "forever",
+            "prediction_index": 0
+          }
+        ],
+        "path": "5764-299665-0019-clean.wav",
+        "predictions": [
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 0.0,
+            "observed_start_ms": 0.0,
+            "timestamps": [],
+            "tokens": [
+              "forever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.013006323707317071,
+        "split": "clean",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "clean",
+          "source_sha256": "f4ee1151b1edf05557514223653cb636ff8ebd0b983efe88db8a05562b1503d5"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 5125.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 71.227706,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "5764-299665-0019-white-noise-10db",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "forever",
+            "prediction_index": 0
+          }
+        ],
+        "path": "5764-299665-0019-white-noise-10db.wav",
+        "predictions": [
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 0.0,
+            "observed_start_ms": 0.0,
+            "timestamps": [],
+            "tokens": [
+              "forever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.013898088975609756,
+        "split": "white-noise-10db",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "white-noise-10db",
+          "source_sha256": "f4ee1151b1edf05557514223653cb636ff8ebd0b983efe88db8a05562b1503d5"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 5125.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 69.99412000000001,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "5764-299665-0019-white-noise-0db",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "forever",
+            "prediction_index": 0
+          }
+        ],
+        "path": "5764-299665-0019-white-noise-0db.wav",
+        "predictions": [
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 0.0,
+            "observed_start_ms": 0.0,
+            "timestamps": [],
+            "tokens": [
+              "forever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.013657389268292686,
+        "split": "white-noise-0db",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "white-noise-0db",
+          "source_sha256": "f4ee1151b1edf05557514223653cb636ff8ebd0b983efe88db8a05562b1503d5"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 5365.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 73.675327,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "5764-299665-0019-echo-120-240ms",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "forever",
+            "prediction_index": 0
+          }
+        ],
+        "path": "5764-299665-0019-echo-120-240ms.wav",
+        "predictions": [
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 0.0,
+            "observed_start_ms": 0.0,
+            "timestamps": [],
+            "tokens": [
+              "forever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.013732586579683133,
+        "split": "echo-120-240ms",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "echo-120-240ms",
+          "source_sha256": "f4ee1151b1edf05557514223653cb636ff8ebd0b983efe88db8a05562b1503d5"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 4205.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 58.054193,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "5764-299665-0089-clean",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "forever",
+            "prediction_index": 0
+          }
+        ],
+        "path": "5764-299665-0089-clean.wav",
+        "predictions": [
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 97.99999743700027,
+            "observed_start_ms": 97.99999743700027,
+            "timestamps": [],
+            "tokens": [
+              "forever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.013805991200951249,
+        "split": "clean",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "clean",
+          "source_sha256": "84338ec469ad1f93b906dc9b506aaeb2c72a143b0ed8f53c44e699ad30f25121"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 4205.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 60.952854,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "5764-299665-0089-white-noise-10db",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "forever",
+            "prediction_index": 0
+          }
+        ],
+        "path": "5764-299665-0089-white-noise-10db.wav",
+        "predictions": [
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 97.99999743700027,
+            "observed_start_ms": 97.99999743700027,
+            "timestamps": [],
+            "tokens": [
+              "forever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.01449532794292509,
+        "split": "white-noise-10db",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "white-noise-10db",
+          "source_sha256": "84338ec469ad1f93b906dc9b506aaeb2c72a143b0ed8f53c44e699ad30f25121"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 4205.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 1,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 63.349163,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "5764-299665-0089-white-noise-0db",
+        "matches": [],
+        "path": "5764-299665-0089-white-noise-0db.wav",
+        "predictions": [],
+        "real_time_factor": 0.015065199286563614,
+        "split": "white-noise-0db",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "white-noise-0db",
+          "source_sha256": "84338ec469ad1f93b906dc9b506aaeb2c72a143b0ed8f53c44e699ad30f25121"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 4445.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 1,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 63.846924,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "5764-299665-0089-echo-120-240ms",
+        "matches": [],
+        "path": "5764-299665-0089-echo-120-240ms.wav",
+        "predictions": [],
+        "real_time_factor": 0.014363762429696288,
+        "split": "echo-120-240ms",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "echo-120-240ms",
+          "source_sha256": "84338ec469ad1f93b906dc9b506aaeb2c72a143b0ed8f53c44e699ad30f25121"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 15910.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 219.481818,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "light-up",
+            "start_ms": null
+          }
+        ],
+        "id": "6128-63240-0023-clean",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "light-up",
+            "prediction_index": 0
+          }
+        ],
+        "path": "6128-63240-0023-clean.wav",
+        "predictions": [
+          {
+            "keyword_id": "light-up",
+            "observed_end_ms": 7010.000228881836,
+            "observed_start_ms": 7010.000228881836,
+            "timestamps": [],
+            "tokens": [
+              "light",
+              "up"
+            ]
+          }
+        ],
+        "real_time_factor": 0.013795211690760529,
+        "split": "clean",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "clean",
+          "source_sha256": "f3647daac9547ce471fbf7196b32c29e57923a308d322292deabc02515399d75"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 15910.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 220.590892,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "light-up",
+            "start_ms": null
+          }
+        ],
+        "id": "6128-63240-0023-white-noise-10db",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "light-up",
+            "prediction_index": 0
+          }
+        ],
+        "path": "6128-63240-0023-white-noise-10db.wav",
+        "predictions": [
+          {
+            "keyword_id": "light-up",
+            "observed_end_ms": 10975.99983215332,
+            "observed_start_ms": 10975.99983215332,
+            "timestamps": [],
+            "tokens": [
+              "light",
+              "up"
+            ]
+          }
+        ],
+        "real_time_factor": 0.01386492093023256,
+        "split": "white-noise-10db",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "white-noise-10db",
+          "source_sha256": "f3647daac9547ce471fbf7196b32c29e57923a308d322292deabc02515399d75"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 15910.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 225.220213,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "light-up",
+            "start_ms": null
+          }
+        ],
+        "id": "6128-63240-0023-white-noise-0db",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "light-up",
+            "prediction_index": 0
+          }
+        ],
+        "path": "6128-63240-0023-white-noise-0db.wav",
+        "predictions": [
+          {
+            "keyword_id": "light-up",
+            "observed_end_ms": 10911.999702453611,
+            "observed_start_ms": 10911.999702453611,
+            "timestamps": [],
+            "tokens": [
+              "light",
+              "up"
+            ]
+          }
+        ],
+        "real_time_factor": 0.014155890194846008,
+        "split": "white-noise-0db",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "white-noise-0db",
+          "source_sha256": "f3647daac9547ce471fbf7196b32c29e57923a308d322292deabc02515399d75"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 16149.999999999998,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 203.784283,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "light-up",
+            "start_ms": null
+          }
+        ],
+        "id": "6128-63240-0023-echo-120-240ms",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "light-up",
+            "prediction_index": 0
+          }
+        ],
+        "path": "6128-63240-0023-echo-120-240ms.wav",
+        "predictions": [
+          {
+            "keyword_id": "light-up",
+            "observed_end_ms": 7104.000091552734,
+            "observed_start_ms": 7104.000091552734,
+            "timestamps": [],
+            "tokens": [
+              "light",
+              "up"
+            ]
+          }
+        ],
+        "real_time_factor": 0.012618221857585142,
+        "split": "echo-120-240ms",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "echo-120-240ms",
+          "source_sha256": "f3647daac9547ce471fbf7196b32c29e57923a308d322292deabc02515399d75"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 8780.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 115.086079,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "7902-96591-0020-clean",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "forever",
+            "prediction_index": 0
+          }
+        ],
+        "path": "7902-96591-0020-clean.wav",
+        "predictions": [
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 257.999986410141,
+            "observed_start_ms": 257.999986410141,
+            "timestamps": [],
+            "tokens": [
+              "for",
+              "ever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.013107753872437358,
+        "split": "clean",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "clean",
+          "source_sha256": "dddd703c5b66d27201937825e499253d0dbfda60381b7f3ee0e2354b35a2958d"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 8780.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 115.497504,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "7902-96591-0020-white-noise-10db",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "forever",
+            "prediction_index": 0
+          }
+        ],
+        "path": "7902-96591-0020-white-noise-10db.wav",
+        "predictions": [
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 321.9999969005585,
+            "observed_start_ms": 321.9999969005585,
+            "timestamps": [],
+            "tokens": [
+              "for",
+              "ever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.013154613211845105,
+        "split": "white-noise-10db",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "white-noise-10db",
+          "source_sha256": "dddd703c5b66d27201937825e499253d0dbfda60381b7f3ee0e2354b35a2958d"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 8780.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 1,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 122.433614,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "7902-96591-0020-white-noise-0db",
+        "matches": [],
+        "path": "7902-96591-0020-white-noise-0db.wav",
+        "predictions": [],
+        "real_time_factor": 0.013944602961275624,
+        "split": "white-noise-0db",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "white-noise-0db",
+          "source_sha256": "dddd703c5b66d27201937825e499253d0dbfda60381b7f3ee0e2354b35a2958d"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 9020.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 1,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 117.110115,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "7902-96591-0020-echo-120-240ms",
+        "matches": [],
+        "path": "7902-96591-0020-echo-120-240ms.wav",
+        "predictions": [],
+        "real_time_factor": 0.012983383037694014,
+        "split": "echo-120-240ms",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "echo-120-240ms",
+          "source_sha256": "dddd703c5b66d27201937825e499253d0dbfda60381b7f3ee0e2354b35a2958d"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 9575.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 122.011501,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "8555-292519-0005-clean",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "forever",
+            "prediction_index": 0
+          }
+        ],
+        "path": "8555-292519-0005-clean.wav",
+        "predictions": [
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 3584.0001106262207,
+            "observed_start_ms": 3584.0001106262207,
+            "timestamps": [],
+            "tokens": [
+              "forever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.01274271550913838,
+        "split": "clean",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "clean",
+          "source_sha256": "6b7a596ebaef14ca53c7e96dd1f009afaef2d0bf08faa0dc692de2595bc31580"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 9575.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 120.735322,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "8555-292519-0005-white-noise-10db",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "forever",
+            "prediction_index": 0
+          }
+        ],
+        "path": "8555-292519-0005-white-noise-10db.wav",
+        "predictions": [
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 3553.999900817871,
+            "observed_start_ms": 3553.999900817871,
+            "timestamps": [],
+            "tokens": [
+              "forever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.01260943310704961,
+        "split": "white-noise-10db",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "white-noise-10db",
+          "source_sha256": "6b7a596ebaef14ca53c7e96dd1f009afaef2d0bf08faa0dc692de2595bc31580"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 9575.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 1,
+          "false_positives": 0,
+          "true_positives": 0,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 125.685092,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "8555-292519-0005-white-noise-0db",
+        "matches": [],
+        "path": "8555-292519-0005-white-noise-0db.wav",
+        "predictions": [],
+        "real_time_factor": 0.013126380365535248,
+        "split": "white-noise-0db",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "white-noise-0db",
+          "source_sha256": "6b7a596ebaef14ca53c7e96dd1f009afaef2d0bf08faa0dc692de2595bc31580"
+        },
+        "wrong_id_prediction_indices": []
+      },
+      {
+        "audio_duration_milliseconds": 9815.0,
+        "counts": {
+          "duplicate_predictions": 0,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "true_positives": 1,
+          "wrong_id_predictions": 0
+        },
+        "duplicate_prediction_indices": [],
+        "elapsed_milliseconds": 124.892002,
+        "expected": [
+          {
+            "end_ms": null,
+            "keyword_id": "forever",
+            "start_ms": null
+          }
+        ],
+        "id": "8555-292519-0005-echo-120-240ms",
+        "matches": [
+          {
+            "end_error_ms": null,
+            "expected_index": 0,
+            "keyword_id": "forever",
+            "prediction_index": 0
+          }
+        ],
+        "path": "8555-292519-0005-echo-120-240ms.wav",
+        "predictions": [
+          {
+            "keyword_id": "forever",
+            "observed_end_ms": 3776.000022888184,
+            "observed_start_ms": 3776.000022888184,
+            "timestamps": [],
+            "tokens": [
+              "forever"
+            ]
+          }
+        ],
+        "real_time_factor": 0.012724605399898116,
+        "split": "echo-120-240ms",
+        "tags": {
+          "ground_truth": "reference-transcript",
+          "kind": "generated-corruption-not-real-room",
+          "recipe": "echo-120-240ms",
+          "source_sha256": "6b7a596ebaef14ca53c7e96dd1f009afaef2d0bf08faa0dc692de2595bc31580"
+        },
+        "wrong_id_prediction_indices": []
+      }
+    ],
+    "inputs": {
+      "config_sha256": "69d5ba7cf2913c41d24d192035a6e0e22cfdbf457eaabd1762d3b00831908429",
+      "corpus": {
+        "id": "librispeech-light-up-lovely-child-forever-positives-generated-adverse-v1",
+        "license_spdx": "CC-BY-4.0",
+        "source": "https://www.openslr.org/12",
+        "version": "openslr-12-test-clean+test-other"
+      },
+      "enabled_keyword_ids": [
+        "forever",
+        "light-up",
+        "lovely-child"
+      ],
+      "manifest_sha256": "865df8381634f0e7fb3e807b0f61ec8c9f8126e07f0bc4c0363b3baaf028124c",
+      "matching": {
+        "early_tolerance_ms": 250,
+        "late_tolerance_ms": 750
+      },
+      "model_directory": "/tmp/omawake-rc3-cuda-final/data/omawake/models/moonshine-streaming-tiny-q8_0-silero-v6.2.1",
+      "model_name": "moonshine-streaming-tiny-q8_0-silero-v6.2.1"
+    },
+    "model_load_milliseconds": 635.1802250000001,
+    "per_keyword": {
+      "forever": {
+        "duplicate_predictions": 0,
+        "expected_events": 36,
+        "f1": 0.8750000000000001,
+        "false_activations": 0,
+        "false_activations_per_hour": null,
+        "false_negatives": 8,
+        "false_positives": 0,
+        "negative_audio_hours": 0.0,
+        "precision": 1.0,
+        "predictions": 28,
+        "recall": 0.7777777777777778,
+        "true_positives": 28,
+        "wrong_id_predictions": 0
+      },
+      "light-up": {
+        "duplicate_predictions": 0,
+        "expected_events": 8,
+        "f1": 1.0,
+        "false_activations": 0,
+        "false_activations_per_hour": null,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "negative_audio_hours": 0.0,
+        "precision": 1.0,
+        "predictions": 8,
+        "recall": 1.0,
+        "true_positives": 8,
+        "wrong_id_predictions": 0
+      },
+      "lovely-child": {
+        "duplicate_predictions": 0,
+        "expected_events": 4,
+        "f1": 0.4,
+        "false_activations": 0,
+        "false_activations_per_hour": null,
+        "false_negatives": 3,
+        "false_positives": 0,
+        "negative_audio_hours": 0.0,
+        "precision": 1.0,
+        "predictions": 1,
+        "recall": 0.25,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      }
+    },
+    "prediction_fingerprint": "95fe63a284670553e1837a9f65e40b7d96fc5773901163c27e3302e55f84c130",
+    "schema_version": 1,
+    "summary": {
+      "duplicate_predictions": 0,
+      "expected_events": 48,
+      "f1": 0.8705882352941177,
+      "false_activations": 0,
+      "false_activations_per_hour": null,
+      "false_negatives": 11,
+      "false_positives": 0,
+      "negative_audio_hours": 0.0,
+      "precision": 1.0,
+      "predictions": 37,
+      "recall": 0.7708333333333334,
+      "true_positives": 37,
+      "wrong_id_predictions": 0
+    },
+    "timing": {
+      "aggregate_real_time_factor": 0.01415793544614863,
+      "files": 44,
+      "p50_file_milliseconds": 117.110115,
+      "p95_file_milliseconds": 299.967142,
+      "total_audio_milliseconds": 472040.0,
+      "total_elapsed_milliseconds": 6683.111848
+    }
+  },
+  "resources": {
+    "command": [
+      "/tmp/oma-model-qualification-F1DZcy/omawake/target/release/omawake",
+      "--config",
+      "/tmp/oma-model-qualification-F1DZcy/wake-adverse.toml",
+      "evaluate",
+      "/tmp/oma-model-qualification-F1DZcy/wake-adverse/manifest.json"
+    ],
+    "sample_period_seconds": 0.2,
+    "power": {
+      "status": "unavailable",
+      "reason": "[Errno 2] No such file or directory: '/sys/class/powercap/intel-rapl:0/energy_uj'"
+    },
+    "peak_group_rss_bytes": 669319168,
+    "peak_group_members": 3,
+    "rss_definition": "sum of resident pages across the process group; shared pages may be counted twice",
+    "initial_load_average": [
+      0.6484375,
+      0.42236328125,
+      0.22314453125
+    ],
+    "wall_seconds": 7.629895316960756,
+    "exit_code": 0,
+    "user_cpu_seconds": 4.615012,
+    "system_cpu_seconds": 5.46813,
+    "max_process_rss_kib": 671624,
+    "final_load_average": [
+      0.8564453125,
+      0.474609375,
+      0.24267578125
+    ]
+  }
+}

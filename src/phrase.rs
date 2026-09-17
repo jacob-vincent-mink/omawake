@@ -1,12 +1,35 @@
 //! Provider-independent matching of verifier transcripts to configured phrases.
 
 use anyhow::{Result, bail};
+use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, Ordering};
 use unicode_normalization::UnicodeNormalization;
 
 use crate::config::WakeWord;
 
 static SHOW_TRANSCRIPTS: AtomicBool = AtomicBool::new(false);
+
+thread_local! {
+    static OBSERVED_TRANSCRIPTS: RefCell<Option<Vec<String>>> = const { RefCell::new(None) };
+}
+
+/// Collect transcripts from a single-engine observation without scraping logs.
+/// The guard restores the previous observer on errors and unwinding as well.
+pub(crate) fn capture_transcripts<T>(
+    operation: impl FnOnce() -> Result<T>,
+) -> Result<(T, Vec<String>)> {
+    struct Restore(Option<Vec<String>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            OBSERVED_TRANSCRIPTS.with(|slot| *slot.borrow_mut() = self.0.take());
+        }
+    }
+    let _restore = Restore(OBSERVED_TRANSCRIPTS.with(|slot| slot.replace(Some(Vec::new()))));
+    let output = operation()?;
+    let transcripts =
+        OBSERVED_TRANSCRIPTS.with(|slot| slot.borrow_mut().take().unwrap_or_default());
+    Ok((output, transcripts))
+}
 
 pub(crate) struct TranscriptDiagnosticsGuard(bool);
 
@@ -15,6 +38,14 @@ pub(crate) fn enable_transcript_diagnostics() -> TranscriptDiagnosticsGuard {
 }
 
 pub(crate) fn record_transcript(transcript: &str) {
+    OBSERVED_TRANSCRIPTS.with(|slot| {
+        if let Some(transcripts) = slot.borrow_mut().as_mut()
+            && transcripts.len() < 128
+            && transcript.len() <= 4096
+        {
+            transcripts.push(transcript.to_owned());
+        }
+    });
     if SHOW_TRANSCRIPTS.load(Ordering::Relaxed) {
         eprintln!("verifier transcript: {transcript:?}");
     }

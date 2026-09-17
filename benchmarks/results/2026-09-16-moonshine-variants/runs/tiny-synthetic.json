@@ -1,0 +1,2999 @@
+{
+  "application_version": "0.0.2",
+  "backend": {
+    "backend_kind": "audiocpp",
+    "effective_runtime": "default",
+    "fallback_used": false,
+    "placement_evidence": "audio.cpp created explicit CPU Silero and ASR sessions",
+    "placement_verified": true,
+    "requested_device": "cpu",
+    "requested_runtime": "default"
+  },
+  "evaluation": "omawake-phrase-verifier-accuracy",
+  "files": [
+    {
+      "audio_duration_milliseconds": 2442.25,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 69.716646,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_GB_020",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "0.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 129.99999523162842,
+          "observed_start_ms": 129.99999523162842,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.02854607267888218,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_GB-alan-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2372.625,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 68.634399,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_GB_021",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "1.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 162.00000047683716,
+          "observed_start_ms": 162.00000047683716,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.0289276219377272,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_GB-alan-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2302.9375,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 67.22014399999999,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_GB_022",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "2.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 129.99999523162842,
+          "observed_start_ms": 129.99999523162842,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.02918887030151708,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_GB-alan-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2268.125,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 65.114645,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_GB_023",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "3.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 129.99999523162842,
+          "observed_start_ms": 129.99999523162842,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.028708578671810415,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_GB-alan-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2419.0625,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 67.666881,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_GB_024",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "4.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 129.99999523162842,
+          "observed_start_ms": 129.99999523162842,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.02797235747319468,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_GB-alan-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2314.5625,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 61.881264,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_GB_025",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "5.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 129.99999523162842,
+          "observed_start_ms": 129.99999523162842,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.026735620230605137,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_GB-alan-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2291.3125,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 67.258665,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_GB_026",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "6.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 129.99999523162842,
+          "observed_start_ms": 129.99999523162842,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.029353772128419844,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_GB-alan-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2279.75,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 63.135576,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_GB_027",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "7.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 129.99999523162842,
+          "observed_start_ms": 129.99999523162842,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.027694078736703587,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_GB-alan-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2302.9375,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 64.143677,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_GB_028",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "8.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 129.99999523162842,
+          "observed_start_ms": 129.99999523162842,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.02785298211523326,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_GB-alan-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2337.75,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 64.87808100000001,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_GB_029",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "9.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 162.00000047683716,
+          "observed_start_ms": 162.00000047683716,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.027752360603144052,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_GB-alan-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2268.125,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 63.195966000000006,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_GB_030",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "10.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 129.99999523162842,
+          "observed_start_ms": 129.99999523162842,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.027862646899972445,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_GB-alan-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2302.9375,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 61.496739000000005,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_GB_031",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "11.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 129.99999523162842,
+          "observed_start_ms": 129.99999523162842,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.026703607457866315,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_GB-alan-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2453.875,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 67.116343,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_GB_032",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "12.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 129.99999523162842,
+          "observed_start_ms": 129.99999523162842,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.02735116621669808,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_GB-alan-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2419.0625,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 67.63419599999999,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_GB_033",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "13.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 129.99999523162842,
+          "observed_start_ms": 129.99999523162842,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.02795884604056323,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_GB-alan-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2326.1875,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 64.067404,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_GB_034",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "14.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 129.99999523162842,
+          "observed_start_ms": 129.99999523162842,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.02754180563690588,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_GB-alan-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2384.1875,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 67.76284000000001,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_GB_035",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "15.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 129.99999523162842,
+          "observed_start_ms": 129.99999523162842,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.02842177471360789,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_GB-alan-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2326.1875,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 66.372608,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_GB_036",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "16.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 129.99999523162842,
+          "observed_start_ms": 129.99999523162842,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.02853278508288777,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_GB-alan-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2268.125,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 63.533334,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_GB_037",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "17.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 162.00000047683716,
+          "observed_start_ms": 162.00000047683716,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.028011390024800215,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_GB-alan-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2453.875,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 68.41997099999999,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_GB_038",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "18.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 129.99999523162842,
+          "observed_start_ms": 129.99999523162842,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.027882419031124237,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_GB-alan-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2349.375,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 67.299767,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_GB_039",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "19.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 129.99999523162842,
+          "observed_start_ms": 129.99999523162842,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.028645817291832937,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_GB-alan-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2093.9375,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 1,
+        "false_positives": 0,
+        "true_positives": 0,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 57.39764,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_000",
+      "matches": [],
+      "path": "20.wav",
+      "predictions": [],
+      "real_time_factor": 0.027411343461779543,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-lessac-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2140.4375,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 59.885389999999994,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_001",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "21.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 129.99999523162842,
+          "observed_start_ms": 129.99999523162842,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.02797810727946973,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-lessac-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2175.25,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 60.378206,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_002",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "22.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 97.99999743700027,
+          "observed_start_ms": 97.99999743700027,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.027756904263877714,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-lessac-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2082.375,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 59.368169,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_003",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "23.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 129.99999523162842,
+          "observed_start_ms": 129.99999523162842,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.028509835644396422,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-lessac-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2059.125,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 59.183711,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_004",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "24.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 97.99999743700027,
+          "observed_start_ms": 97.99999743700027,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.028742165240089844,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-lessac-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2128.8125,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 60.527623000000006,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_005",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "25.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 97.99999743700027,
+          "observed_start_ms": 97.99999743700027,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.028432575907929893,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-lessac-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2186.875,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 60.663563,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_006",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "26.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 97.99999743700027,
+          "observed_start_ms": 97.99999743700027,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.0277398401829094,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-lessac-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2093.9375,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 59.487305,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_007",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "27.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 97.99999743700027,
+          "observed_start_ms": 97.99999743700027,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.028409303047488284,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-lessac-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2163.625,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 61.816014,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_008",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "28.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 97.99999743700027,
+          "observed_start_ms": 97.99999743700027,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.02857057669420533,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-lessac-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2024.3125,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 60.991811,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_009",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "29.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 97.99999743700027,
+          "observed_start_ms": 97.99999743700027,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.03012964203896384,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-lessac-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2117.1875,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 62.227325,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_010",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "30.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 97.99999743700027,
+          "observed_start_ms": 97.99999743700027,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.02939150405904059,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-lessac-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2175.25,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 64.535949,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_011",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "31.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 97.99999743700027,
+          "observed_start_ms": 97.99999743700027,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.029668290541317092,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-lessac-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2163.625,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 64.14654,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_012",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "32.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 97.99999743700027,
+          "observed_start_ms": 97.99999743700027,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.02964771621699694,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-lessac-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2117.1875,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 60.87867,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_013",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "33.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 97.99999743700027,
+          "observed_start_ms": 97.99999743700027,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.028754500959409592,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-lessac-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2070.75,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 57.48235,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_014",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "34.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 97.99999743700027,
+          "observed_start_ms": 97.99999743700027,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.02775919352891465,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-lessac-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2035.9375,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 58.27798,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_015",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "35.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 97.99999743700027,
+          "observed_start_ms": 97.99999743700027,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.028624640982348425,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-lessac-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2082.375,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 58.759852,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_016",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "36.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 97.99999743700027,
+          "observed_start_ms": 97.99999743700027,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.028217709106188846,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-lessac-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2012.6875,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 57.514259,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_017",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "37.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 97.99999743700027,
+          "observed_start_ms": 97.99999743700027,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.028575851442412193,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-lessac-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2128.8125,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 65.63348099999999,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_018",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "38.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 97.99999743700027,
+          "observed_start_ms": 97.99999743700027,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.030831029505886492,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-lessac-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2128.8125,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 61.326293,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_019",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "39.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 97.99999743700027,
+          "observed_start_ms": 97.99999743700027,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.028807747511817035,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-lessac-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2221.6875,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 62.018976,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_040",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "40.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 65.99999964237213,
+          "observed_start_ms": 65.99999964237213,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.027915256308549245,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-amy-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2140.4375,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 60.358264,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_041",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "41.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 65.99999964237213,
+          "observed_start_ms": 65.99999964237213,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.028199031272812217,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-amy-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2093.9375,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 59.265467,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_042",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "42.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 65.99999964237213,
+          "observed_start_ms": 65.99999964237213,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.0283033600573083,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-amy-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2210.0625,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 62.264587000000006,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_043",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "43.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 65.99999964237213,
+          "observed_start_ms": 65.99999964237213,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.028173224512881425,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-amy-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2198.4375,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 64.221366,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_044",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "44.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 65.99999964237213,
+          "observed_start_ms": 65.99999964237213,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.02921227735607676,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-amy-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2163.625,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 59.407521,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_045",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "45.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 65.99999964237213,
+          "observed_start_ms": 65.99999964237213,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.027457401814085156,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-amy-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2210.0625,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 67.480665,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_046",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "46.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 65.99999964237213,
+          "observed_start_ms": 65.99999964237213,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.030533374056163572,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-amy-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2186.875,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 71.49126799999999,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_047",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "47.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 65.99999964237213,
+          "observed_start_ms": 65.99999964237213,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.03269106281794798,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-amy-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2163.625,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 78.07888799999999,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_048",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "48.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 65.99999964237213,
+          "observed_start_ms": 65.99999964237213,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.03608707054133687,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-amy-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2221.6875,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 79.70366299999999,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_049",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "49.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 65.99999964237213,
+          "observed_start_ms": 65.99999964237213,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.03587528083945199,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-amy-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2291.3125,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 83.013087,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_050",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "50.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 65.99999964237213,
+          "observed_start_ms": 65.99999964237213,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.03622949161234009,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-amy-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2128.8125,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 77.425466,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_051",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "51.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 65.99999964237213,
+          "observed_start_ms": 65.99999964237213,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.036370260884883,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-amy-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2105.5625,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 75.885057,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_052",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "52.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 65.99999964237213,
+          "observed_start_ms": 65.99999964237213,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.03604027759802903,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-amy-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2117.1875,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 62.17024,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_053",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "53.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 65.99999964237213,
+          "observed_start_ms": 65.99999964237213,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.029364541402214023,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-amy-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2117.1875,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 61.916072,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_054",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "54.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 65.99999964237213,
+          "observed_start_ms": 65.99999964237213,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.02924449157195572,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-amy-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2117.1875,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 75.61797800000001,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_055",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "55.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 65.99999964237213,
+          "observed_start_ms": 65.99999964237213,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.035716240531365316,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-amy-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2093.9375,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 76.961401,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_056",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "56.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 65.99999964237213,
+          "observed_start_ms": 65.99999964237213,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.03675439262155627,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-amy-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2210.0625,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 79.271777,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_057",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "57.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 65.99999964237213,
+          "observed_start_ms": 65.99999964237213,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.03586856797036283,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-amy-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2210.0625,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 72.755295,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_058",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "58.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 65.99999964237213,
+          "observed_start_ms": 65.99999964237213,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.03292001696784593,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-amy-medium"
+      },
+      "wrong_id_prediction_indices": []
+    },
+    {
+      "audio_duration_milliseconds": 2140.4375,
+      "counts": {
+        "duplicate_predictions": 0,
+        "false_negatives": 0,
+        "false_positives": 0,
+        "true_positives": 1,
+        "wrong_id_predictions": 0
+      },
+      "duplicate_prediction_indices": [],
+      "elapsed_milliseconds": 64.068646,
+      "expected": [
+        {
+          "end_ms": null,
+          "keyword_id": "hey-jarvis",
+          "start_ms": null
+        }
+      ],
+      "id": "pos_en_US_059",
+      "matches": [
+        {
+          "end_error_ms": null,
+          "expected_index": 0,
+          "keyword_id": "hey-jarvis",
+          "prediction_index": 0
+        }
+      ],
+      "path": "59.wav",
+      "predictions": [
+        {
+          "keyword_id": "hey-jarvis",
+          "observed_end_ms": 65.99999964237213,
+          "observed_start_ms": 65.99999964237213,
+          "timestamps": [],
+          "tokens": [
+            "hey",
+            "jarvis"
+          ]
+        }
+      ],
+      "real_time_factor": 0.02993250024819692,
+      "split": "positive-piper-synthetic",
+      "tags": {
+        "generator": "piper-1.8",
+        "phrase": "Hey Jarvis",
+        "voice": "en_US-amy-medium"
+      },
+      "wrong_id_prediction_indices": []
+    }
+  ],
+  "inputs": {
+    "config_sha256": "3251d4e96cd01c801f39243c3db16815a28e38f8acc8d4b83af99166d7519c12",
+    "corpus": {
+      "id": "gb10-piper-hey-jarvis-positives",
+      "license_spdx": "generated-see-source-voice-licenses",
+      "source": "/home/jacob/kws-spike/scripts/make_positives.py",
+      "version": "seed-42-2026-09-15"
+    },
+    "enabled_keyword_ids": [
+      "hey-jarvis"
+    ],
+    "manifest_sha256": "6c222113c4d413a6695aa87fdf17aed707bd18d6aceb1e7f28d8e63827f0af27",
+    "matching": {
+      "early_tolerance_ms": 250,
+      "late_tolerance_ms": 750
+    },
+    "model_directory": "/home/jacob/.models/moonshine/tiny",
+    "model_name": "moonshine-streaming-tiny-q8_0-silero-v6.2.1"
+  },
+  "model_load_milliseconds": 117.18566,
+  "per_keyword": {
+    "hey-jarvis": {
+      "duplicate_predictions": 0,
+      "expected_events": 60,
+      "f1": 0.991596638655462,
+      "false_activations": 0,
+      "false_activations_per_hour": null,
+      "false_negatives": 1,
+      "false_positives": 0,
+      "negative_audio_hours": 0.0,
+      "precision": 1.0,
+      "predictions": 59,
+      "recall": 0.9833333333333332,
+      "true_positives": 59,
+      "wrong_id_predictions": 0
+    }
+  },
+  "prediction_fingerprint": "d94b3311a79b5d8be04149d52dd4408819403089cfa3a4b94123eb238d5d014e",
+  "schema_version": 1,
+  "summary": {
+    "duplicate_predictions": 0,
+    "expected_events": 60,
+    "f1": 0.991596638655462,
+    "false_activations": 0,
+    "false_activations_per_hour": null,
+    "false_negatives": 1,
+    "false_positives": 0,
+    "negative_audio_hours": 0.0,
+    "precision": 1.0,
+    "predictions": 59,
+    "recall": 0.9833333333333332,
+    "true_positives": 59,
+    "wrong_id_predictions": 0
+  },
+  "timing": {
+    "aggregate_real_time_factor": 0.029608814966004385,
+    "files": 60,
+    "p50_file_milliseconds": 64.067404,
+    "p95_file_milliseconds": 78.07888799999999,
+    "total_audio_milliseconds": 132406.75,
+    "total_elapsed_milliseconds": 3920.406961000001
+  }
+}

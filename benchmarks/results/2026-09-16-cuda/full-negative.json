@@ -1,0 +1,125 @@
+{
+  "application_version": "0.0.2",
+  "backend": {
+    "backend_kind": "audiocpp",
+    "effective_runtime": "cuda",
+    "fallback_used": false,
+    "placement_evidence": "audio.cpp created explicit CUDA sessions",
+    "placement_verified": true,
+    "requested_device": "gpu",
+    "requested_runtime": "cuda"
+  },
+  "evaluation": "omawake-phrase-verifier-accuracy",
+  "inputs": {
+    "config_sha256": "7aebd6f6c4787919a39f4fbbbf5948f2fedb13e5a14189e7127d3958b4847874",
+    "corpus": {
+      "id": "librispeech-test-clean-test-other-negative-light-up",
+      "license_spdx": "CC-BY-4.0",
+      "source": "https://www.openslr.org/12",
+      "version": "openslr-12-test-clean+test-other"
+    },
+    "enabled_keyword_ids": [
+      "computer",
+      "light-up"
+    ],
+    "manifest_sha256": "2f7af0535b6c46b5f635b9dab84569bb93135ce004bcd4ebc937267025ac19a8",
+    "matching": {
+      "early_tolerance_ms": 250,
+      "late_tolerance_ms": 750
+    },
+    "model_directory": "/tmp/omawake-rc3-cuda-final/data/omawake/models/moonshine-streaming-tiny-q8_0-silero-v6.2.1",
+    "model_name": "moonshine-streaming-tiny-q8_0-silero-v6.2.1"
+  },
+  "model_load_milliseconds": 582.109137,
+  "per_keyword": {
+    "computer": {
+      "duplicate_predictions": 0,
+      "expected_events": 0,
+      "f1": null,
+      "false_activations": 0,
+      "false_activations_per_hour": 0.0,
+      "false_negatives": 0,
+      "false_positives": 0,
+      "negative_audio_hours": 10.738754375000006,
+      "precision": null,
+      "predictions": 0,
+      "recall": null,
+      "true_positives": 0,
+      "wrong_id_predictions": 0
+    },
+    "light-up": {
+      "duplicate_predictions": 0,
+      "expected_events": 0,
+      "f1": null,
+      "false_activations": 0,
+      "false_activations_per_hour": 0.0,
+      "false_negatives": 0,
+      "false_positives": 0,
+      "negative_audio_hours": 10.738754375000006,
+      "precision": null,
+      "predictions": 0,
+      "recall": null,
+      "true_positives": 0,
+      "wrong_id_predictions": 0
+    }
+  },
+  "prediction_fingerprint": "83e91f477b3fe409e46efd74acc8e54624544b8345ad20602bac3c2dfaf256d0",
+  "schema_version": 1,
+  "summary": {
+    "duplicate_predictions": 0,
+    "expected_events": 0,
+    "f1": null,
+    "false_activations": 0,
+    "false_activations_per_hour": 0.0,
+    "false_negatives": 0,
+    "false_positives": 0,
+    "negative_audio_hours": 10.738754375000006,
+    "precision": null,
+    "predictions": 0,
+    "recall": null,
+    "true_positives": 0,
+    "wrong_id_predictions": 0
+  },
+  "timing": {
+    "aggregate_real_time_factor": 0.014135440904015997,
+    "files": 5557,
+    "p50_file_milliseconds": 79.418997,
+    "p95_file_milliseconds": 226.498332,
+    "total_audio_milliseconds": 38659515.75,
+    "total_elapsed_milliseconds": 546469.3002620006
+  },
+  "file_count": 5557,
+  "raw_report_sha256": "90884eb112a8eb14adec885e98fa52264d6699660d8c7989837d8d77d2939f27",
+  "resources": {
+    "command": [
+      "/tmp/oma-model-qualification-F1DZcy/omawake/target/release/omawake",
+      "--config",
+      "/tmp/oma-model-qualification-F1DZcy/wake-negative.toml",
+      "evaluate",
+      "/tmp/oma-model-qualification-F1DZcy/full-negative/manifest.json"
+    ],
+    "sample_period_seconds": 0.2,
+    "power": {
+      "status": "unavailable",
+      "reason": "[Errno 2] No such file or directory: '/sys/class/powercap/intel-rapl:0/energy_uj'"
+    },
+    "peak_group_rss_bytes": 734113792,
+    "peak_group_members": 3,
+    "rss_definition": "sum of resident pages across the process group; shared pages may be counted twice",
+    "initial_load_average": [
+      0.46240234375,
+      0.41943359375,
+      0.3125
+    ],
+    "wall_seconds": 556.265252000012,
+    "exit_code": 0,
+    "user_cpu_seconds": 338.051504,
+    "system_cpu_seconds": 386.478656,
+    "max_process_rss_kib": 687224,
+    "final_load_average": [
+      1.2314453125,
+      1.31591796875,
+      0.865234375
+    ]
+  }
+}
