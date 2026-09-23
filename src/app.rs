@@ -1114,10 +1114,16 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
             } else if uninstall {
                 app_setup::systemd::uninstall(paths)
             } else {
+                if !app_setup::systemd::is_active() {
+                    app_setup::systemd::ensure_no_direct_daemon(paths)?;
+                }
                 let original = config_snapshot(config_path)?;
                 let result = (|| {
+                    let repair_invalid = app_setup::config_recovery(config_path)?.is_some();
                     let config = app_setup::ensure_config(config_path)?;
-                    config.save(config_path)?;
+                    if repair_invalid {
+                        config.save(config_path)?;
+                    }
                     let path = app_setup::systemd::install(paths, config_path, !no_start)?;
                     println!("installed: {}", path.display());
                     Ok(())
@@ -2496,10 +2502,14 @@ fn managed_service_active_for_config(
     let reservation = if managed_running || audio_reservation_held {
         None
     } else {
-        Some(
-            bind_daemon_instance(paths)
-                .context("stop the running Omawake daemon before editing its configuration")?,
-        )
+        let held = bind_daemon_instance(paths)
+            .context("stop the running Omawake daemon before editing its configuration")?;
+        if crate::daemon_instance::socket_targets_config(paths)? == Some(true) {
+            bail!(
+                "a running Omawake daemon is not managed for this configuration; run `omawake stop` before editing, then start it again to apply the change"
+            );
+        }
+        Some(held)
     };
     Ok(ConfigEditState {
         managed_running,
@@ -2516,16 +2526,6 @@ fn managed_service_active_for_config_with(
     if service_active && !managed_running {
         bail!(
             "a running Omawake daemon is not managed for this configuration; stop its user service before editing, then restart it to apply the change"
-        );
-    }
-    // The control socket is shared by every config in this runtime directory.
-    // For custom configs, the per-config daemon lock above identifies ownership.
-    if !managed_running
-        && paths.config_file == AppPaths::discover().config_file
-        && connect_control_socket(&socket_path(paths)).is_ok()
-    {
-        bail!(
-            "a running Omawake daemon is not managed for this configuration; run `omawake stop` before editing, then start it again to apply the change"
         );
     }
     if managed_running && setup_home::manual_pause_state(paths)? == Some(true) {
@@ -3363,6 +3363,7 @@ fn run_loaded_daemon(
             &config.model.name,
             &config.model.language,
         );
+        details["config_path"] = json!(&paths.config_file);
         attach_engine_groups(&mut details, detector);
         control
             .borrow_mut()

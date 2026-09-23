@@ -300,6 +300,9 @@ pub(super) fn manual_pause_state(paths: &AppPaths) -> Result<Option<bool>> {
         }
         Err(error) => return Err(error).context("read daemon pause state before setup"),
     };
+    if !crate::daemon_instance::response_targets_config(&response, paths)? {
+        return Ok(None);
+    }
     match response.result {
         ResultPayload::State { details, .. } => details
             .pointer("/pause/manual")
@@ -332,6 +335,13 @@ fn with_daemon_paused<T>(paths: &AppPaths, work: impl FnOnce() -> Result<T>) -> 
         Ok(mut stream) => {
             stream.set_read_timeout(Some(Duration::from_secs(10)))?;
             stream.set_write_timeout(Some(Duration::from_secs(10)))?;
+            let status = request_over_stream(&mut stream, Command::Status)
+                .context("identify the daemon before audio setup")?;
+            if !crate::daemon_instance::response_targets_config(&status, paths)? {
+                reservation = Some(AudioSetupReservation::new(paths).context(
+                    "stop the running Omawake daemon before recording or testing audio",
+                )?);
+            }
             match request_over_stream(&mut stream, Command::HoldPause)
                 .context("wait for the daemon to release its microphone")?
                 .result

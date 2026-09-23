@@ -297,6 +297,7 @@ fn setup_home_recognition_holds_a_manually_launched_daemon_pause_in_a_real_pty()
     fs::create_dir_all(&run_dir).unwrap();
     let listener = UnixListener::bind(run_dir.join("control.sock")).unwrap();
     listener.set_nonblocking(true).unwrap();
+    let server_config = config_path.clone();
     let server = thread::spawn(move || {
         let deadline = Instant::now() + Duration::from_secs(8);
         let accept = || loop {
@@ -317,6 +318,11 @@ fn setup_home_recognition_holds_a_manually_launched_daemon_pause_in_a_real_pty()
             .set_read_timeout(Some(Duration::from_secs(8)))
             .unwrap();
         let mut line = String::new();
+        BufReader::new(&mut stream).read_line(&mut line).unwrap();
+        let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(request["type"], "status");
+        writeln!(stream, "{}", serde_json::json!({"protocol":1,"id":request["id"],"type":"state","state":"paused","details":{"config_path":server_config,"pause":{"manual":true,"owners":0}}})).unwrap();
+        line.clear();
         BufReader::new(&mut stream).read_line(&mut line).unwrap();
         let request: serde_json::Value = serde_json::from_str(&line).unwrap();
         assert_eq!(request["type"], "hold_pause");
@@ -610,15 +616,20 @@ fn setup_home_refuses_to_disable_a_word_in_a_direct_daemon_without_reloading_it(
     let run_dir = root.join("run/omawake");
     fs::create_dir_all(&run_dir).unwrap();
     let listener = UnixListener::bind(run_dir.join("control.sock")).unwrap();
+    let server_config = config_path.clone();
     let server = thread::spawn(move || {
         let (mut status, _) = listener.accept().unwrap();
         let mut line = String::new();
         BufReader::new(&mut status).read_line(&mut line).unwrap();
         let request: serde_json::Value = serde_json::from_str(&line).unwrap();
         assert_eq!(request["type"], "status");
-        writeln!(status, "{}", serde_json::json!({"protocol":1,"id":request["id"],"type":"state","state":"armed","details":{"pause":{"manual":false,"owners":0}}})).unwrap();
+        writeln!(status, "{}", serde_json::json!({"protocol":1,"id":request["id"],"type":"state","state":"armed","details":{"config_path":server_config,"pause":{"manual":false,"owners":0}}})).unwrap();
         let (mut probe, _) = listener.accept().unwrap();
-        assert_eq!(probe.read(&mut [0_u8]).unwrap(), 0);
+        line.clear();
+        BufReader::new(&mut probe).read_line(&mut line).unwrap();
+        let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(request["type"], "status");
+        writeln!(probe, "{}", serde_json::json!({"protocol":1,"id":request["id"],"type":"state","state":"armed","details":{"config_path":server_config,"pause":{"manual":false,"owners":0}}})).unwrap();
     });
     let (status, terminal) = run_setup_pty(&root, &[b"j\r", b"\r", b"jjj\r", b"\r", b"q"]);
     server.join().unwrap();
@@ -654,6 +665,7 @@ fn setup_home_refuses_config_restart_while_manually_paused() {
     let run_dir = root.join("run/omawake");
     fs::create_dir_all(&run_dir).unwrap();
     let listener = UnixListener::bind(run_dir.join("control.sock")).unwrap();
+    let server_config = config_path.clone();
     let server = thread::spawn(move || {
         for (expected, manual) in [("status", true), ("status", true), ("pause", true)] {
             let (mut stream, _) = listener.accept().unwrap();
@@ -661,7 +673,7 @@ fn setup_home_refuses_config_restart_while_manually_paused() {
             BufReader::new(&mut stream).read_line(&mut line).unwrap();
             let request: serde_json::Value = serde_json::from_str(&line).unwrap();
             assert_eq!(request["type"], expected);
-            writeln!(stream, "{}", serde_json::json!({"protocol":1,"id":request["id"],"type":"state","state":if manual {"paused"} else {"armed"},"details":{"pause":{"manual":manual,"owners":0}}})).unwrap();
+            writeln!(stream, "{}", serde_json::json!({"protocol":1,"id":request["id"],"type":"state","state":if manual {"paused"} else {"armed"},"details":{"config_path":server_config,"pause":{"manual":manual,"owners":0}}})).unwrap();
         }
     });
     let (status, terminal) =
@@ -703,6 +715,7 @@ fn setup_home_applies_a_word_edit_to_an_active_managed_service() {
     let run_dir = root.join("run/omawake");
     fs::create_dir_all(&run_dir).unwrap();
     let listener = UnixListener::bind(run_dir.join("control.sock")).unwrap();
+    let server_config = config_path.clone();
     let server = thread::spawn(move || {
         for _ in 0..2 {
             let (mut stream, _) = listener.accept().unwrap();
@@ -710,7 +723,7 @@ fn setup_home_applies_a_word_edit_to_an_active_managed_service() {
             BufReader::new(&mut stream).read_line(&mut line).unwrap();
             let request: serde_json::Value = serde_json::from_str(&line).unwrap();
             assert_eq!(request["type"], "status");
-            writeln!(stream, "{}", serde_json::json!({"protocol":1,"id":request["id"],"type":"state","state":"armed","details":{"pause":{"manual":false,"owners":0}}})).unwrap();
+            writeln!(stream, "{}", serde_json::json!({"protocol":1,"id":request["id"],"type":"state","state":"armed","details":{"config_path":server_config,"pause":{"manual":false,"owners":0}}})).unwrap();
         }
     });
     let (status, terminal) = run_setup_pty(
@@ -1444,6 +1457,27 @@ fn successful_explicit_setup_repairs_invalid_config_and_failure_restores_it() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn service_install_preserves_an_existing_symlinked_config() {
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    let target = root.join("saved-config.toml");
+    Config::default().save(&target).unwrap();
+    fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(&target, &config_path).unwrap();
+    let fake = fake_systemctl(&root, 0);
+    let output = run_with_path(&root, &["setup", "systemd", "--no-start"], &fake);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(
+        fs::symlink_metadata(&config_path)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(fs::read_link(&config_path).unwrap(), target);
+}
+
 #[test]
 fn config_commands_cover_supported_keys_and_errors() {
     let root = sandbox();
@@ -1549,7 +1583,16 @@ fn cli_config_and_wake_word_edits_refresh_only_the_active_default_service() {
     Config::default().save(&custom).unwrap();
     let runtime = root.join("run/omawake");
     fs::create_dir_all(&runtime).unwrap();
-    let _unrelated_socket = UnixListener::bind(runtime.join("control.sock")).unwrap();
+    let unrelated_socket = UnixListener::bind(runtime.join("control.sock")).unwrap();
+    let default_config = config_path.clone();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = unrelated_socket.accept().unwrap();
+        let mut line = String::new();
+        BufReader::new(&mut stream).read_line(&mut line).unwrap();
+        let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(request["type"], "status");
+        writeln!(stream, "{}", serde_json::json!({"protocol":1,"id":request["id"],"type":"state","state":"armed","details":{"config_path":default_config}})).unwrap();
+    });
     let custom_edit = run_with_path(
         &root,
         &[
@@ -1562,8 +1605,37 @@ fn cli_config_and_wake_word_edits_refresh_only_the_active_default_service() {
         ],
         &active,
     );
+    server.join().unwrap();
     assert!(custom_edit.status.success(), "{}", stderr(&custom_edit));
     assert_eq!(fs::read_to_string(root.join("systemctl.log")).unwrap(), "");
+}
+
+#[cfg(unix)]
+#[test]
+fn default_config_edit_ignores_an_unrelated_custom_daemon_socket() {
+    let root = sandbox();
+    let default_config = root.join("config/omawake/config.toml");
+    Config::default().save(&default_config).unwrap();
+    let custom_config = root.join("custom.toml");
+    Config::default().save(&custom_config).unwrap();
+    let runtime = root.join("run/omawake");
+    fs::create_dir_all(&runtime).unwrap();
+    let listener = UnixListener::bind(runtime.join("control.sock")).unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut line = String::new();
+        BufReader::new(&mut stream).read_line(&mut line).unwrap();
+        let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(request["type"], "status");
+        writeln!(stream, "{}", serde_json::json!({"protocol":1,"id":request["id"],"type":"state","state":"armed","details":{"config_path":custom_config}})).unwrap();
+    });
+    let edit = run(&root, &["config", "set", "daemon.queue_capacity", "4"]);
+    server.join().unwrap();
+    assert!(edit.status.success(), "{}", stderr(&edit));
+    assert_eq!(
+        Config::load(&default_config).unwrap().daemon.queue_capacity,
+        4
+    );
 }
 
 #[test]
@@ -2858,6 +2930,31 @@ fn daemon_recovers_a_pinned_microphone_and_keeps_controls_responsive() {
         Config::load(&custom_config).unwrap().daemon.queue_capacity,
         4
     );
+    let alternate_socket = root.join("alternate-run/omawake/control.sock");
+    fs::create_dir_all(alternate_socket.parent().unwrap()).unwrap();
+    let unrelated_listener = UnixListener::bind(&alternate_socket).unwrap();
+    let unrelated_owner = custom_config.clone();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = unrelated_listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut line = String::new();
+        BufReader::new(&mut stream).read_line(&mut line).unwrap();
+        let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(request["type"], "status");
+        writeln!(stream, "{}", serde_json::json!({"protocol":1,"id":request["id"],"type":"state","state":"armed","details":{"config_path":unrelated_owner}})).unwrap();
+        assert_eq!(stream.read(&mut [0_u8]).unwrap(), 0);
+    });
+    let (other_socket_status, other_socket_terminal) = run_setup_pty_with_runtime(
+        &root,
+        &root.join("alternate-run"),
+        &[b"jjjjjj\r", b"\r", b"q"],
+    );
+    server.join().unwrap();
+    fs::remove_file(&alternate_socket).unwrap();
+    assert!(other_socket_status.success());
+    assert!(other_socket_terminal.contains("another Omawake daemon is already"));
     let (teaching_status, teaching) = run_setup_pty(&root, &[b"jj\r", b"\r", b"q"]);
     assert!(teaching_status.success());
     assert!(teaching.contains("Setup action failed"));

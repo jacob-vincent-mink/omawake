@@ -381,14 +381,12 @@ pub(crate) fn ensure_no_direct_daemon(paths: &AppPaths) -> Result<()> {
                 std::io::ErrorKind::NotFound
                     | std::io::ErrorKind::ConnectionRefused
                     | std::io::ErrorKind::ConnectionReset
-            ) =>
-        {
-            let _reservation = crate::daemon_instance::reserve(paths)
-                .context("stop the running Omawake daemon before starting the user service")?;
-            Ok(())
-        }
-        Err(error) => Err(error).context("check for a directly launched Omawake daemon"),
+            ) => {}
+        Err(error) => return Err(error).context("check for a directly launched Omawake daemon"),
     }
+    let _reservation = crate::daemon_instance::reserve(paths)
+        .context("stop the running Omawake daemon before starting the user service")?;
+    Ok(())
 }
 
 /// Stop the Omawake user unit installed by setup.
