@@ -170,7 +170,10 @@ fn has_managed_template(contents: &str, config: Option<&Path>) -> bool {
 }
 
 fn config_arg_targets_path(argument: &str, config: &Path) -> bool {
-    if argument == quote(config) {
+    let Some(unit_config) = unquote_path(argument) else {
+        return false;
+    };
+    if unit_config == config {
         return true;
     }
     let absolute = if config.is_absolute() {
@@ -181,31 +184,46 @@ fn config_arg_targets_path(argument: &str, config: &Path) -> bool {
             Err(_) => return false,
         }
     };
-    argument == quote(&absolute)
-        || fs::canonicalize(config).is_ok_and(|resolved| argument == quote(&resolved))
+    unit_config == absolute
+        || fs::canonicalize(&unit_config)
+            .ok()
+            .zip(fs::canonicalize(config).ok())
+            .is_some_and(|(unit, selected)| unit == selected)
 }
 
 fn valid_quoted_argument(argument: &str) -> bool {
-    let Some(inner) = argument
+    unquote_path(argument).is_some()
+}
+
+fn unquote_path(argument: &str) -> Option<PathBuf> {
+    let inner = argument
         .strip_prefix('"')
-        .and_then(|value| value.strip_suffix('"'))
-    else {
-        return false;
-    };
+        .and_then(|value| value.strip_suffix('"'))?;
     let mut chars = inner.chars();
+    let mut unescaped = String::new();
     while let Some(character) = chars.next() {
         match character {
             '\\' => {
-                if !matches!(chars.next(), Some('\\' | '"' | 'n' | 'r' | 't')) {
-                    return false;
-                }
+                unescaped.push(match chars.next()? {
+                    '\\' => '\\',
+                    '"' => '"',
+                    'n' => '\n',
+                    'r' => '\r',
+                    't' => '\t',
+                    _ => return None,
+                });
             }
-            '"' | '\n' | '\r' | '\t' => return false,
-            '%' if chars.next() != Some('%') => return false,
-            _ => {}
+            '"' | '\n' | '\r' | '\t' => return None,
+            '%' => {
+                if chars.next() != Some('%') {
+                    return None;
+                }
+                unescaped.push('%');
+            }
+            _ => unescaped.push(character),
         }
     }
-    true
+    Some(unescaped.into())
 }
 
 pub fn install(paths: &AppPaths, config: &Path, start: bool) -> Result<PathBuf> {

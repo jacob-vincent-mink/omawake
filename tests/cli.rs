@@ -1557,6 +1557,15 @@ fn custom_config_outside_xdg_uses_the_same_user_service_menu() {
     assert!(install.status.success(), "{}", stderr(&install));
     let unit = root.join("config/systemd/user/omawake.service");
     assert!(unit.is_file());
+    let launcher = run_with_path(
+        &root,
+        &["--config", custom.to_str().unwrap(), "setup", "menu"],
+        &fake,
+    );
+    assert!(launcher.status.success(), "{}", stderr(&launcher));
+    let desktop =
+        fs::read_to_string(root.join("data/applications/omawake-settings.desktop")).unwrap();
+    assert!(desktop.contains(&format!(" --config \"{}\" setup", custom.display())));
     let inactive = fake_systemctl(&root, 3);
     let systemctl = root.join("test-bin/systemctl");
     fs::copy(inactive.join("systemctl"), &systemctl).unwrap();
@@ -1748,6 +1757,48 @@ fn relative_config_path_edits_the_same_active_service() {
     assert!(
         calls.contains("--user try-restart omawake.service"),
         "{calls}"
+    );
+}
+
+#[test]
+fn service_installed_with_dot_path_accepts_the_absolute_config() {
+    let root = sandbox();
+    let custom = root.join("custom.toml");
+    Config::default().save(&custom).unwrap();
+    let dotted = root.join("./custom.toml");
+    let fake = fake_systemctl(&root, 0);
+    let install = run_with_path(
+        &root,
+        &[
+            "--config",
+            dotted.to_str().unwrap(),
+            "setup",
+            "systemd",
+            "--no-start",
+        ],
+        &fake,
+    );
+    assert!(install.status.success(), "{}", stderr(&install));
+    let unit = fs::read_to_string(root.join("config/systemd/user/omawake.service")).unwrap();
+    assert!(unit.contains("/./custom.toml"));
+    let edit = run_with_path(
+        &root,
+        &[
+            "--config",
+            custom.to_str().unwrap(),
+            "config",
+            "set",
+            "daemon.queue_capacity",
+            "4",
+        ],
+        &fake,
+    );
+    assert!(edit.status.success(), "{}", stderr(&edit));
+    assert_eq!(Config::load(&custom).unwrap().daemon.queue_capacity, 4);
+    assert!(
+        fs::read_to_string(root.join("systemctl.log"))
+            .unwrap()
+            .contains("--user try-restart omawake.service")
     );
 }
 

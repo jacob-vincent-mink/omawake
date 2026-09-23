@@ -25,6 +25,10 @@ fn launcher_path_falls_back_and_uninstall_is_idempotent() {
             .lines()
             .any(|line| line.starts_with("Exec=") && line.ends_with(" setup"))
     );
+    assert!(contents.contains(&format!(
+        " --config \"{}\" setup",
+        desktop_exec_path(&std::env::current_dir().unwrap().join("config.toml"))
+    )));
     status(&isolated).unwrap();
     uninstall(&isolated).unwrap();
     assert!(!installed.exists());

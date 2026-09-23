@@ -39,6 +39,19 @@ fn generated_unit_owns_only_its_exact_config_argument() {
 }
 
 #[test]
+fn generated_unit_recognizes_equivalent_existing_config_spellings() {
+    let paths = service_test_paths();
+    fs::create_dir_all(paths.config_file.parent().unwrap()).unwrap();
+    fs::write(&paths.config_file, b"config").unwrap();
+    let with_dot = paths.config_file.parent().unwrap().join("./config.toml");
+    let unit = generate(Path::new("/usr/bin/omawake"), &with_dot);
+    assert!(has_managed_template(&unit, Some(&paths.config_file)));
+    let other = paths.config_file.with_file_name("other.toml");
+    fs::write(&other, b"other").unwrap();
+    assert!(!has_managed_template(&unit, Some(&other)));
+}
+
+#[test]
 fn unit_uses_absolute_binary_and_config() {
     let unit = generate(Path::new("/opt/oma speak"), Path::new("/tmp/config.toml"));
     assert!(unit.contains("ExecStart=\"/opt/oma speak\" --config \"/tmp/config.toml\" daemon"));

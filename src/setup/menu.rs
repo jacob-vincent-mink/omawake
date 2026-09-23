@@ -16,9 +16,15 @@ pub fn launcher_path(paths: &AppPaths) -> PathBuf {
 
 pub fn install(paths: &AppPaths) -> Result<PathBuf> {
     let binary = std::env::current_exe()?.canonicalize()?;
+    let config = if paths.config_file.is_absolute() {
+        paths.config_file.clone()
+    } else {
+        std::env::current_dir()?.join(&paths.config_file)
+    };
     let contents = format!(
-        "[Desktop Entry]\nType=Application\nName=Omawake Setup\nComment=Configure wake words and the background service\nExec=\"{}\" setup\nTerminal=true\nCategories=Settings;\nKeywords=voice;wake word;speech;\n",
-        desktop_exec_path(&binary)
+        "[Desktop Entry]\nType=Application\nName=Omawake Setup\nComment=Configure wake words and the background service\nExec=\"{}\" --config \"{}\" setup\nTerminal=true\nCategories=Settings;\nKeywords=voice;wake word;speech;\n",
+        desktop_exec_path(&binary),
+        desktop_exec_path(&config)
     );
     let path = launcher_path(paths);
     write_atomic(&path, contents.as_bytes())?;
