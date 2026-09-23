@@ -7,10 +7,14 @@ mod training;
 
 use crate::setup::wizard::MenuItem;
 
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
+use std::os::linux::net::SocketAddrExt;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
+use std::os::unix::net::SocketAddr;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command as ProcessCommand, ExitCode, Stdio};
@@ -3262,8 +3266,40 @@ fn run_daemon_with_shutdown(
     paths: &AppPaths,
     shutdown_requested: Arc<AtomicBool>,
 ) -> Result<()> {
+    let _singleton = bind_daemon_instance(paths)?;
     let detector = Detector::load(config, paths)?;
     run_loaded_daemon(&detector, config, paths, shutdown_requested)
+}
+
+fn bind_daemon_instance(paths: &AppPaths) -> Result<UnixListener> {
+    let config = fs::canonicalize(&paths.config_file).unwrap_or_else(|_| {
+        if paths.config_file.is_absolute() {
+            paths.config_file.clone()
+        } else {
+            std::env::current_dir()
+                .unwrap_or_else(|_| PathBuf::from("."))
+                .join(&paths.config_file)
+        }
+    });
+    let digest = Sha256::digest(config.as_os_str().as_bytes());
+    let suffix: String = digest
+        .iter()
+        .take(16)
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    let user = unsafe { libc::geteuid() };
+    let name = format!("omawake-daemon-{user}-{suffix}");
+    let address = SocketAddr::from_abstract_name(name.as_bytes())?;
+    UnixListener::bind_addr(&address).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::AddrInUse {
+            anyhow::anyhow!(
+                "another Omawake daemon is already running for {}",
+                config.display()
+            )
+        } else {
+            error.into()
+        }
+    })
 }
 
 fn run_loaded_daemon(

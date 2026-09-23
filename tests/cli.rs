@@ -2749,6 +2749,28 @@ fn daemon_recovers_a_pinned_microphone_and_keeps_controls_responsive() {
         "pipewire:test-mic"
     );
     assert_eq!(unavailable["details"]["audio"]["available"], false);
+    let second = Command::new("timeout")
+        .args([
+            "5s",
+            env!("CARGO_BIN_EXE_omawake"),
+            "--config",
+            config_path.to_str().unwrap(),
+            "daemon",
+        ])
+        .env("XDG_RUNTIME_DIR", root.join("alternate-run"))
+        .env("XDG_CONFIG_HOME", root.join("config"))
+        .env("XDG_DATA_HOME", root.join("data"))
+        .env("XDG_CACHE_HOME", root.join("cache"))
+        .env("XDG_STATE_HOME", root.join("state"))
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(!second.status.success());
+    assert!(
+        stderr(&second).contains("already running"),
+        "{}",
+        stderr(&second)
+    );
     assert!(run(&root, &["pause"]).status.success());
     wait_state("paused");
     assert!(run(&root, &["resume"]).status.success());

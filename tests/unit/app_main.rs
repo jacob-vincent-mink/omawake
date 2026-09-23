@@ -6,6 +6,24 @@ use std::io::Cursor;
 use crate::engine::{WakeWordBackend, WakeWordStream};
 
 #[test]
+fn daemon_instance_lock_spans_runtime_directories_for_the_same_config() {
+    let first = test_paths("daemon-instance-cross-runtime");
+    Config::default().save(&first.config_file).unwrap();
+    let mut second = first.clone();
+    second.runtime_dir = first.runtime_dir.join("alternate");
+    let owner = bind_daemon_instance(&first).unwrap();
+    let error = bind_daemon_instance(&second).unwrap_err();
+    assert!(error.to_string().contains("already running"));
+
+    let mut other_config = second.clone();
+    other_config.config_file = first.config_file.with_file_name("other.toml");
+    let independent = bind_daemon_instance(&other_config).unwrap();
+    drop(independent);
+    drop(owner);
+    bind_daemon_instance(&second).unwrap();
+}
+
+#[test]
 fn guided_service_preflight_rejects_a_running_unmanaged_unit() {
     let paths = test_paths("guided-unmanaged-service");
     let config_path = &paths.config_file;

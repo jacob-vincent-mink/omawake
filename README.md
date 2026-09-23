@@ -100,6 +100,8 @@ launching an action and reopens it after the configured cooldown. Actions are
 started in the background with detached standard streams and reaped when they
 exit, so a long-running command cannot block detection. Actions do not pass
 through a shell.
+Only one daemon per user can run for a configuration file, even when processes use
+different `XDG_RUNTIME_DIR` values.
 
 ```bash
 omawake wake-word add --id computer --phrase Computer -- notify-send "Wake word heard"
