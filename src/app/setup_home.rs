@@ -321,6 +321,7 @@ fn is_missing_socket(kind: io::ErrorKind) -> bool {
 }
 
 fn with_daemon_paused<T>(paths: &AppPaths, work: impl FnOnce() -> Result<T>) -> Result<T> {
+    let mut reservation = None;
     let hold = match connect_control_socket(&socket_path(paths)) {
         Ok(mut stream) => {
             stream.set_read_timeout(Some(Duration::from_secs(10)))?;
@@ -341,6 +342,10 @@ fn with_daemon_paused<T>(paths: &AppPaths, work: impl FnOnce() -> Result<T>) -> 
                 !app_setup::systemd::active_state()?,
                 "an Omawake systemd service is active but its control socket is unavailable; stop it before recording or testing"
             );
+            reservation = Some(
+                bind_daemon_instance(paths)
+                    .context("stop the running Omawake daemon before recording or testing audio")?,
+            );
             None
         }
         Err(error) => {
@@ -349,6 +354,7 @@ fn with_daemon_paused<T>(paths: &AppPaths, work: impl FnOnce() -> Result<T>) -> 
     };
     let result = work();
     drop(hold);
+    drop(reservation);
     result
 }
 

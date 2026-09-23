@@ -3271,35 +3271,44 @@ fn run_daemon_with_shutdown(
     run_loaded_daemon(&detector, config, paths, shutdown_requested)
 }
 
-fn bind_daemon_instance(paths: &AppPaths) -> Result<UnixListener> {
-    let config = fs::canonicalize(&paths.config_file).unwrap_or_else(|_| {
-        if paths.config_file.is_absolute() {
-            paths.config_file.clone()
-        } else {
-            std::env::current_dir()
-                .unwrap_or_else(|_| PathBuf::from("."))
-                .join(&paths.config_file)
-        }
-    });
-    let digest = Sha256::digest(config.as_os_str().as_bytes());
-    let suffix: String = digest
-        .iter()
-        .take(16)
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
+fn bind_daemon_instance(paths: &AppPaths) -> Result<Vec<UnixListener>> {
+    // Keep the spelling of the config path locked even if an atomic save replaces
+    // a symlink. Also lock its resolved target so aliases cannot launch a second
+    // daemon before that replacement.
+    let path = if paths.config_file.is_absolute() {
+        paths.config_file.clone()
+    } else {
+        std::env::current_dir()?.join(&paths.config_file)
+    };
+    let mut identities = vec![path.clone()];
+    if let Ok(resolved) = fs::canonicalize(&path) {
+        identities.push(resolved);
+    }
+    identities.sort();
+    identities.dedup();
     let user = unsafe { libc::geteuid() };
-    let name = format!("omawake-daemon-{user}-{suffix}");
-    let address = SocketAddr::from_abstract_name(name.as_bytes())?;
-    UnixListener::bind_addr(&address).map_err(|error| {
-        if error.kind() == std::io::ErrorKind::AddrInUse {
-            anyhow::anyhow!(
-                "another Omawake daemon is already running for {}",
-                config.display()
-            )
-        } else {
-            error.into()
-        }
-    })
+    let mut listeners = Vec::with_capacity(identities.len());
+    for identity in identities {
+        let digest = Sha256::digest(identity.as_os_str().as_bytes());
+        let suffix: String = digest
+            .iter()
+            .take(16)
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        let name = format!("omawake-daemon-{user}-{suffix}");
+        let address = SocketAddr::from_abstract_name(name.as_bytes())?;
+        listeners.push(UnixListener::bind_addr(&address).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::AddrInUse {
+                anyhow::anyhow!(
+                    "another Omawake daemon is already running for {}",
+                    path.display()
+                )
+            } else {
+                error.into()
+            }
+        })?);
+    }
+    Ok(listeners)
 }
 
 fn run_loaded_daemon(

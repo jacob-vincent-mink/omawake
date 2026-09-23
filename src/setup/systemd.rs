@@ -3,7 +3,7 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 
 use crate::paths::AppPaths;
 const UNIT: &str = "omawake.service";
@@ -228,29 +228,31 @@ pub fn install(paths: &AppPaths, config: &Path, start: bool) -> Result<PathBuf> 
         Ok(())
     })();
     if let Err(error) = result {
-        let restored = match previous {
-            Some(bytes) => write_atomic(&path, &bytes),
-            None => match fs::remove_file(&path) {
-                Ok(()) => Ok(()),
-                Err(remove) if remove.kind() == std::io::ErrorKind::NotFound => Ok(()),
-                Err(remove) => Err(remove.into()),
-            },
-        }
-        .and_then(|()| systemctl(["daemon-reload"]))
-        .and_then(|()| {
+        let restored = (|| {
+            if restart_attempted {
+                systemctl(["stop", UNIT]).context("stop service before restoring its unit")?;
+                ensure!(
+                    !active_state()?,
+                    "service is still active; leave its unit installed for recovery"
+                );
+            }
+            match previous {
+                Some(bytes) => write_atomic(&path, &bytes),
+                None => match fs::remove_file(&path) {
+                    Ok(()) => Ok(()),
+                    Err(remove) if remove.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                    Err(remove) => Err(remove.into()),
+                },
+            }?;
+            systemctl(["daemon-reload"])?;
             if enable_attempted {
-                systemctl([if was_enabled { "enable" } else { "disable" }, UNIT])
-            } else {
-                Ok(())
+                systemctl([if was_enabled { "enable" } else { "disable" }, UNIT])?;
             }
-        })
-        .and_then(|()| {
             if was_active && restart_attempted {
-                restart()
-            } else {
-                Ok(())
+                restart()?;
             }
-        });
+            Ok(())
+        })();
         return match restored {
             Ok(()) => Err(error),
             Err(restore) => Err(error.context(format!(

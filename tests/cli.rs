@@ -145,6 +145,15 @@ fn stderr(output: &Output) -> String {
 
 #[cfg(unix)]
 fn run_setup_pty(root: &Path, keys: &[&[u8]]) -> (std::process::ExitStatus, String) {
+    run_setup_pty_with_runtime(root, &root.join("run"), keys)
+}
+
+#[cfg(unix)]
+fn run_setup_pty_with_runtime(
+    root: &Path,
+    runtime: &Path,
+    keys: &[&[u8]],
+) -> (std::process::ExitStatus, String) {
     let binary = env!("CARGO_BIN_EXE_omawake");
     assert!(!binary.contains(['\'', '"', ' ']));
     let transcript = root.join("setup.typescript");
@@ -159,7 +168,7 @@ fn run_setup_pty(root: &Path, keys: &[&[u8]]) -> (std::process::ExitStatus, Stri
         .env("XDG_DATA_HOME", root.join("data"))
         .env("XDG_CACHE_HOME", root.join("cache"))
         .env("XDG_STATE_HOME", root.join("state"))
-        .env("XDG_RUNTIME_DIR", root.join("run"))
+        .env("XDG_RUNTIME_DIR", runtime)
         .env("TERM", "xterm-256color")
         .env("PATH", test_path(root))
         .env("OMAWAKE_SYSTEMCTL_LOG", root.join("systemctl.log"))
@@ -1747,7 +1756,8 @@ if [ "$2" = show ]; then
 fi
 printf '%s\n' "$*" >> "$OMAWAKE_SYSTEMCTL_LOG"
 case "$2" in
-  is-active|is-enabled|restart) exit 1 ;;
+  is-active) exit 3 ;;
+  is-enabled|restart) exit 1 ;;
 esac
 exit 0
 "#,
@@ -1759,8 +1769,49 @@ exit 0
     let calls = fs::read_to_string(root.join("systemctl.log")).unwrap();
     assert!(calls.contains("--user enable omawake.service"), "{calls}");
     assert!(calls.contains("--user restart omawake.service"), "{calls}");
+    assert!(calls.contains("--user stop omawake.service"), "{calls}");
     assert!(calls.contains("--user disable omawake.service"), "{calls}");
     assert!(!calls.contains("disable --now"), "{calls}");
+}
+
+#[test]
+fn failed_fresh_service_install_stops_the_started_unit_before_removing_it() {
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    Config::default().save(&config_path).unwrap();
+    let unit = root.join("config/systemd/user/omawake.service");
+    let fake = fake_systemctl(&root, 0);
+    fs::write(
+        fake.join("systemctl"),
+        r#"#!/bin/sh
+if [ "$2" = show ]; then
+  case "$5" in
+    FragmentPath) printf '%s\n' "$OMAWAKE_TEST_LOCAL_FRAGMENT" ;;
+    DropInPaths) printf '\n' ;;
+    NeedDaemonReload) printf 'no\n' ;;
+  esac
+  exit 0
+fi
+printf '%s\n' "$*" >> "$OMAWAKE_SYSTEMCTL_LOG"
+case "$2" in
+  is-active) test -f "$OMAWAKE_SYSTEMCTL_LOG.active" && exit 0; exit 3 ;;
+  is-enabled) exit 1 ;;
+  restart) touch "$OMAWAKE_SYSTEMCTL_LOG.active"; exit 1 ;;
+  stop) rm -f "$OMAWAKE_SYSTEMCTL_LOG.active"; exit 0 ;;
+esac
+exit 0
+"#,
+    )
+    .unwrap();
+    let output = run_with_path(&root, &["setup", "systemd"], &fake);
+    assert!(!output.status.success());
+    assert!(!unit.exists());
+    assert!(!root.join("systemctl.log.active").exists());
+    let calls = fs::read_to_string(root.join("systemctl.log")).unwrap();
+    let restart = calls.find("--user restart omawake.service").unwrap();
+    let stop = calls.find("--user stop omawake.service").unwrap();
+    let disable = calls.find("--user disable omawake.service").unwrap();
+    assert!(restart < stop && stop < disable, "{calls}");
 }
 
 #[test]
@@ -2771,6 +2822,14 @@ fn daemon_recovers_a_pinned_microphone_and_keeps_controls_responsive() {
         "{}",
         stderr(&second)
     );
+    let (setup_status, terminal) = run_setup_pty_with_runtime(
+        &root,
+        &root.join("alternate-run"),
+        &[b"jjjjjj\r", b"\r", b"q"],
+    );
+    assert!(setup_status.success());
+    assert!(terminal.contains("stop the running Omawake daemon before recording"));
+    assert!(terminal.contains("another Omawake daemon is already"));
     assert!(run(&root, &["pause"]).status.success());
     wait_state("paused");
     assert!(run(&root, &["resume"]).status.success());

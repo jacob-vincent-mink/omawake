@@ -24,6 +24,33 @@ fn daemon_instance_lock_spans_runtime_directories_for_the_same_config() {
 }
 
 #[test]
+fn daemon_instance_lock_survives_atomic_save_of_a_symlinked_config() {
+    let mut paths = test_paths("daemon-instance-symlink-save");
+    let target = paths.config_file.with_file_name("target.toml");
+    Config::default().save(&target).unwrap();
+    std::os::unix::fs::symlink(&target, &paths.config_file).unwrap();
+    let owner = bind_daemon_instance(&paths).unwrap();
+    let mut target_paths = paths.clone();
+    target_paths.config_file = target;
+    assert!(
+        bind_daemon_instance(&target_paths)
+            .unwrap_err()
+            .to_string()
+            .contains("already running")
+    );
+    Config::default().save(&paths.config_file).unwrap();
+    paths.runtime_dir = paths.runtime_dir.join("alternate");
+    assert!(
+        bind_daemon_instance(&paths)
+            .unwrap_err()
+            .to_string()
+            .contains("already running")
+    );
+    drop(owner);
+    bind_daemon_instance(&paths).unwrap();
+}
+
+#[test]
 fn guided_service_preflight_rejects_a_running_unmanaged_unit() {
     let paths = test_paths("guided-unmanaged-service");
     let config_path = &paths.config_file;
