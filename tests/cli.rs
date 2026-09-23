@@ -285,7 +285,7 @@ fn setup_home_teaching_can_be_cancelled_without_changing_a_word_in_a_real_pty() 
 
 #[cfg(unix)]
 #[test]
-fn setup_home_teaching_holds_a_manually_launched_daemon_pause_in_a_real_pty() {
+fn setup_home_recognition_holds_a_manually_launched_daemon_pause_in_a_real_pty() {
     if Command::new("script").arg("--version").output().is_err() {
         return;
     }
@@ -312,17 +312,11 @@ fn setup_home_teaching_holds_a_manually_launched_daemon_pause_in_a_real_pty() {
                 Err(error) => panic!("accept daemon control connection: {error}"),
             }
         };
-        let mut status = accept();
-        let mut line = String::new();
-        BufReader::new(&mut status).read_line(&mut line).unwrap();
-        let request: serde_json::Value = serde_json::from_str(&line).unwrap();
-        assert_eq!(request["type"], "status");
-        writeln!(status, "{}", serde_json::json!({"protocol":1,"id":request["id"],"type":"state","state":"paused","details":{"pause":{"manual":true,"owners":0}}})).unwrap();
         let mut stream = accept();
         stream
             .set_read_timeout(Some(Duration::from_secs(8)))
             .unwrap();
-        line.clear();
+        let mut line = String::new();
         BufReader::new(&mut stream).read_line(&mut line).unwrap();
         let request: serde_json::Value = serde_json::from_str(&line).unwrap();
         assert_eq!(request["type"], "hold_pause");
@@ -334,18 +328,12 @@ fn setup_home_teaching_holds_a_manually_launched_daemon_pause_in_a_real_pty() {
             0,
             "pause hold was not released"
         );
-        let mut status = accept();
-        line.clear();
-        BufReader::new(&mut status).read_line(&mut line).unwrap();
-        let request: serde_json::Value = serde_json::from_str(&line).unwrap();
-        assert_eq!(request["type"], "pause");
-        writeln!(status, "{}", serde_json::json!({"protocol":1,"id":request["id"],"type":"state","state":"paused","details":{"pause":{"manual":true,"owners":0}}})).unwrap();
     });
-    let (status, terminal) = run_setup_pty(&root, &[b"jj\r", b"", b"", b"q", b"\r", b"q"]);
+    let (status, terminal) = run_setup_pty(&root, &[b"jjjjjj\r", b"\r", b"q"]);
     server.join().unwrap();
     assert!(status.success());
-    assert!(terminal.contains("Wake-word onboarding"));
-    assert!(terminal.contains("onboarding cancelled"));
+    assert!(terminal.contains("Try recognition (5 seconds)"));
+    assert!(terminal.contains("Setup action failed"));
     assert_eq!(fs::read(&config_path).unwrap(), original);
     assert!(!root.join("systemctl.log").exists());
 }
@@ -1559,6 +1547,9 @@ fn cli_config_and_wake_word_edits_refresh_only_the_active_default_service() {
     fs::write(root.join("systemctl.log"), "").unwrap();
     let custom = root.join("custom.toml");
     Config::default().save(&custom).unwrap();
+    let runtime = root.join("run/omawake");
+    fs::create_dir_all(&runtime).unwrap();
+    let _unrelated_socket = UnixListener::bind(runtime.join("control.sock")).unwrap();
     let custom_edit = run_with_path(
         &root,
         &[
@@ -2845,6 +2836,56 @@ fn daemon_recovers_a_pinned_microphone_and_keeps_controls_responsive() {
     assert!(!edit.status.success());
     assert!(stderr(&edit).contains("another Omawake daemon is already"));
     assert_eq!(fs::read(&config_path).unwrap(), before_edit);
+    let custom_config = root.join("custom.toml");
+    Config::default().save(&custom_config).unwrap();
+    let unrelated_edit = run(
+        &root,
+        &[
+            "--config",
+            custom_config.to_str().unwrap(),
+            "config",
+            "set",
+            "daemon.queue_capacity",
+            "4",
+        ],
+    );
+    assert!(
+        unrelated_edit.status.success(),
+        "{}",
+        stderr(&unrelated_edit)
+    );
+    assert_eq!(
+        Config::load(&custom_config).unwrap().daemon.queue_capacity,
+        4
+    );
+    let (teaching_status, teaching) = run_setup_pty(&root, &[b"jj\r", b"\r", b"q"]);
+    assert!(teaching_status.success());
+    assert!(teaching.contains("Setup action failed"));
+    assert!(!teaching.contains("Wake-word onboarding"));
+    assert_eq!(fs::read(&config_path).unwrap(), before_edit);
+    let unit = root.join("config/systemd/user/omawake.service");
+    fs::create_dir_all(unit.parent().unwrap()).unwrap();
+    fs::write(
+        &unit,
+        omawake::setup::systemd::generate(Path::new(env!("CARGO_BIN_EXE_omawake")), &config_path),
+    )
+    .unwrap();
+    let fake = fake_systemctl(&root, 3);
+    let systemctl = root.join("test-bin/systemctl");
+    fs::copy(fake.join("systemctl"), &systemctl).unwrap();
+    fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o755)).unwrap();
+    let (service_status, service) = run_setup_pty_with_runtime(
+        &root,
+        &root.join("alternate-run"),
+        &[b"jjjjjjj\r", b"\r", b"\r", b"q", b"q"],
+    );
+    assert!(service_status.success());
+    assert!(service.contains("stop the running Omawake daemon before starting"));
+    assert!(
+        !fs::read_to_string(root.join("systemctl.log"))
+            .unwrap()
+            .contains("--user start omawake.service")
+    );
     assert!(run(&root, &["pause"]).status.success());
     wait_state("paused");
     assert!(run(&root, &["resume"]).status.success());

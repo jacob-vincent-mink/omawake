@@ -370,7 +370,7 @@ pub fn start(paths: &AppPaths) -> Result<()> {
     )
 }
 
-fn ensure_no_direct_daemon(paths: &AppPaths) -> Result<()> {
+pub(crate) fn ensure_no_direct_daemon(paths: &AppPaths) -> Result<()> {
     match UnixStream::connect(paths.socket()) {
         Ok(_) => bail!(
             "a directly launched Omawake daemon is running; run `omawake stop` before starting the user service"
@@ -383,6 +383,8 @@ fn ensure_no_direct_daemon(paths: &AppPaths) -> Result<()> {
                     | std::io::ErrorKind::ConnectionReset
             ) =>
         {
+            let _reservation = crate::daemon_instance::reserve(paths)
+                .context("stop the running Omawake daemon before starting the user service")?;
             Ok(())
         }
         Err(error) => Err(error).context("check for a directly launched Omawake daemon"),
