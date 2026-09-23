@@ -154,15 +154,28 @@ fn run_setup_pty_with_runtime(
     runtime: &Path,
     keys: &[&[u8]],
 ) -> (std::process::ExitStatus, String) {
+    run_setup_pty_with_config(root, runtime, None, keys)
+}
+
+#[cfg(unix)]
+fn run_setup_pty_with_config(
+    root: &Path,
+    runtime: &Path,
+    config: Option<&Path>,
+    keys: &[&[u8]],
+) -> (std::process::ExitStatus, String) {
     let binary = env!("CARGO_BIN_EXE_omawake");
     assert!(!binary.contains(['\'', '"', ' ']));
+    let command = if let Some(config) = config {
+        let config = config.to_str().unwrap();
+        assert!(!config.contains(['\'', '"', ' ']));
+        format!("stty rows 24 cols 100 && {binary} --config {config} setup")
+    } else {
+        format!("stty rows 24 cols 100 && {binary} setup")
+    };
     let transcript = root.join("setup.typescript");
     let mut child = Command::new("script")
-        .args([
-            "-fqec",
-            &format!("stty rows 24 cols 100 && {binary} setup"),
-            transcript.to_str().unwrap(),
-        ])
+        .args(["-fqec", &command, transcript.to_str().unwrap()])
         .env("HOME", root)
         .env("XDG_CONFIG_HOME", root.join("config"))
         .env("XDG_DATA_HOME", root.join("data"))
@@ -1523,6 +1536,42 @@ fn failed_service_install_restores_an_invalid_symlinked_config() {
     assert_eq!(fs::read(&config_path).unwrap(), invalid);
 }
 
+#[cfg(unix)]
+#[test]
+fn custom_config_outside_xdg_uses_the_same_user_service_menu() {
+    let root = sandbox();
+    let custom = root.join("custom.toml");
+    Config::default().save(&custom).unwrap();
+    let fake = fake_systemctl(&root, 0);
+    let install = run_with_path(
+        &root,
+        &[
+            "--config",
+            custom.to_str().unwrap(),
+            "setup",
+            "systemd",
+            "--no-start",
+        ],
+        &fake,
+    );
+    assert!(install.status.success(), "{}", stderr(&install));
+    let unit = root.join("config/systemd/user/omawake.service");
+    assert!(unit.is_file());
+    let inactive = fake_systemctl(&root, 3);
+    let systemctl = root.join("test-bin/systemctl");
+    fs::copy(inactive.join("systemctl"), &systemctl).unwrap();
+    fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o755)).unwrap();
+    let (status, terminal) = run_setup_pty_with_config(
+        &root,
+        &root.join("run"),
+        Some(&custom),
+        &[b"jjjjjjj\r", b"q", b"q"],
+    );
+    assert!(status.success());
+    assert!(terminal.contains("Start service"));
+    assert!(!terminal.contains("managed outside setup"));
+}
+
 #[test]
 fn config_commands_cover_supported_keys_and_errors() {
     let root = sandbox();
@@ -1653,6 +1702,53 @@ fn cli_config_and_wake_word_edits_refresh_only_the_active_default_service() {
     server.join().unwrap();
     assert!(custom_edit.status.success(), "{}", stderr(&custom_edit));
     assert_eq!(fs::read_to_string(root.join("systemctl.log")).unwrap(), "");
+}
+
+#[test]
+fn relative_config_path_edits_the_same_active_service() {
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    Config::default().save(&config_path).unwrap();
+    let unit = root.join("config/systemd/user/omawake.service");
+    fs::create_dir_all(unit.parent().unwrap()).unwrap();
+    fs::write(
+        &unit,
+        omawake::setup::systemd::generate(Path::new(env!("CARGO_BIN_EXE_omawake")), &config_path),
+    )
+    .unwrap();
+    let fake = fake_systemctl(&root, 0);
+    let edit = Command::new(env!("CARGO_BIN_EXE_omawake"))
+        .args([
+            "--config",
+            "config/omawake/config.toml",
+            "config",
+            "set",
+            "daemon.queue_capacity",
+            "4",
+        ])
+        .current_dir(&root)
+        .env("HOME", &root)
+        .env("XDG_CONFIG_HOME", root.join("config"))
+        .env("XDG_DATA_HOME", root.join("data"))
+        .env("XDG_CACHE_HOME", root.join("cache"))
+        .env("XDG_STATE_HOME", root.join("state"))
+        .env("XDG_RUNTIME_DIR", root.join("run"))
+        .env("OMAWAKE_SYSTEMCTL_LOG", root.join("systemctl.log"))
+        .env("OMAWAKE_TEST_FRAGMENT", &unit)
+        .env("OMAWAKE_TEST_LOCAL_FRAGMENT", &unit)
+        .env("OMAWAKE_TEST_DROPINS", "")
+        .env("OMAWAKE_TEST_NEED_RELOAD", "no")
+        .env("PATH", fake)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(edit.status.success(), "{}", stderr(&edit));
+    assert_eq!(Config::load(&config_path).unwrap().daemon.queue_capacity, 4);
+    let calls = fs::read_to_string(root.join("systemctl.log")).unwrap();
+    assert!(
+        calls.contains("--user try-restart omawake.service"),
+        "{calls}"
+    );
 }
 
 #[cfg(unix)]
@@ -2784,6 +2880,7 @@ fn threshold_and_history_commands_are_explicit_private_and_reversible() {
     );
     let paths = omawake::paths::AppPaths {
         config_file: config_file.clone(),
+        config_home: root.join("config"),
         data_dir: root.join("data/omawake"),
         cache_dir: root.join("cache/omawake"),
         state_dir: root.join("state/omawake"),

@@ -729,6 +729,7 @@ fn test_paths(name: &str) -> AppPaths {
     let root = crate::test_support::unique_directory("main", name);
     AppPaths {
         config_file: root.join("config/config.toml"),
+        config_home: root.to_path_buf(),
         data_dir: root.join("data"),
         cache_dir: root.join("cache"),
         state_dir: root.join("state"),

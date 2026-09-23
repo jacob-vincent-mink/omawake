@@ -4,6 +4,7 @@ use super::*;
 fn launcher_path_falls_back_and_uninstall_is_idempotent() {
     let paths = AppPaths {
         config_file: "config.toml".into(),
+        config_home: ".".into(),
         data_dir: "/".into(),
         cache_dir: "cache".into(),
         state_dir: "state".into(),

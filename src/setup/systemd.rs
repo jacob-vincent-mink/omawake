@@ -10,12 +10,7 @@ const UNIT: &str = "omawake.service";
 const MANAGED_MARKER: &str = "# Managed by Omawake setup\n";
 
 pub fn service_path(paths: &AppPaths) -> PathBuf {
-    paths
-        .config_file
-        .parent()
-        .and_then(Path::parent)
-        .unwrap_or_else(|| Path::new("."))
-        .join("systemd/user/omawake.service")
+    paths.config_home.join("systemd/user/omawake.service")
 }
 
 /// Decide whether the active user unit owns a configuration file. A local
@@ -158,7 +153,7 @@ fn has_managed_template(contents: &str, config: Option<&Path>) -> bool {
     };
     if !valid_quoted_argument(binary)
         || !valid_quoted_argument(config_arg)
-        || config.is_some_and(|config| config_arg != quote(config))
+        || config.is_some_and(|config| !config_arg_targets_path(config_arg, config))
     {
         return false;
     }
@@ -172,6 +167,22 @@ fn has_managed_template(contents: &str, config: Option<&Path>) -> bool {
         Path::new("/__omawake_config__"),
     );
     canonical == template || canonical == template[MANAGED_MARKER.len()..]
+}
+
+fn config_arg_targets_path(argument: &str, config: &Path) -> bool {
+    if argument == quote(config) {
+        return true;
+    }
+    let absolute = if config.is_absolute() {
+        config.to_path_buf()
+    } else {
+        match std::env::current_dir() {
+            Ok(directory) => directory.join(config),
+            Err(_) => return false,
+        }
+    };
+    argument == quote(&absolute)
+        || fs::canonicalize(config).is_ok_and(|resolved| argument == quote(&resolved))
 }
 
 fn valid_quoted_argument(argument: &str) -> bool {
@@ -200,7 +211,12 @@ fn valid_quoted_argument(argument: &str) -> bool {
 pub fn install(paths: &AppPaths, config: &Path, start: bool) -> Result<PathBuf> {
     let path = service_path(paths);
     let binary = std::env::current_exe()?.canonicalize()?;
-    let unit = generate(&binary, config);
+    let config_identity = if config.is_absolute() {
+        config.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(config)
+    };
+    let unit = generate(&binary, &config_identity);
     let previous = match fs::symlink_metadata(&path) {
         Ok(metadata) if metadata.is_file() => {
             Some(fs::read(&path).context("snapshot existing Omawake service unit")?)
@@ -225,7 +241,7 @@ pub fn install(paths: &AppPaths, config: &Path, start: bool) -> Result<PathBuf> 
     let result = (|| {
         write_atomic(&path, unit.as_bytes())?;
         systemctl(["daemon-reload"])?;
-        if !effective_targets_config(config) {
+        if !effective_targets_config(&config_identity) {
             bail!(
                 "systemd did not load the setup-managed unit, or a unit override changes its effective command"
             );

@@ -98,6 +98,7 @@ fn service_test_paths() -> AppPaths {
     ));
     AppPaths {
         config_file: root.join("config/omawake/config.toml"),
+        config_home: root.join("config"),
         data_dir: root.join("data"),
         cache_dir: root.join("cache"),
         state_dir: root.join("state"),

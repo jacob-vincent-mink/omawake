@@ -10,6 +10,7 @@ fn paths() -> AppPaths {
     ));
     AppPaths {
         config_file: root.join("config/omawake/config.toml"),
+        config_home: root.join("config"),
         data_dir: root.join("data/omawake"),
         cache_dir: root.join("cache/omawake"),
         state_dir: root.join("state/omawake"),

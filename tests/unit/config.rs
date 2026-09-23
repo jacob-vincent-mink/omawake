@@ -40,6 +40,7 @@ fn missing_save_load_and_model_paths_round_trip() {
 
     let paths = AppPaths {
         config_file: path.clone(),
+        config_home: root.to_path_buf(),
         data_dir: root.join("data"),
         cache_dir: root.join("cache"),
         state_dir: root.join("state"),

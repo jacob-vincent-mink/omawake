@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct AppPaths {
     pub config_file: PathBuf,
+    pub config_home: PathBuf,
     pub data_dir: PathBuf,
     pub cache_dir: PathBuf,
     pub state_dir: PathBuf,
@@ -39,6 +40,7 @@ impl AppPaths {
             });
         Self {
             config_file: config.join("omawake/config.toml"),
+            config_home: config,
             data_dir: data.join("omawake"),
             cache_dir: cache.join("omawake"),
             state_dir: state.join("omawake"),
