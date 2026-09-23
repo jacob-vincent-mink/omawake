@@ -1138,13 +1138,10 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
                     Ok(())
                 })();
                 if let Err(error) = result {
-                    if config_was_missing || repair_invalid {
-                        if let Some(target) = original_link {
-                            fs::remove_file(config_path)?;
-                            std::os::unix::fs::symlink(target, config_path)?;
-                        } else {
-                            restore_config_snapshot(config_path, original.as_deref())?;
-                        }
+                    if (config_was_missing || repair_invalid)
+                        && (original.is_some() || original_link.is_none())
+                    {
+                        restore_config_snapshot(config_path, original.as_deref())?;
                     }
                     return Err(error);
                 }
@@ -2428,18 +2425,19 @@ fn config_snapshot(path: &Path) -> Result<Option<Vec<u8>>> {
 }
 
 fn restore_config_snapshot(path: &Path, bytes: Option<&[u8]>) -> Result<()> {
-    let temporary = path.with_extension("toml.tmp");
+    let target = crate::config::config_write_target(path)?;
+    let temporary = target.with_extension("toml.tmp");
     match bytes {
         Some(bytes) => {
-            if let Some(parent) = path.parent() {
+            if let Some(parent) = target.parent() {
                 fs::create_dir_all(parent)?;
             }
             fs::write(&temporary, bytes)?;
-            fs::rename(&temporary, path)?;
+            fs::rename(&temporary, &target)?;
         }
         None => {
-            if path.exists() {
-                fs::remove_file(path)?;
+            if target.exists() {
+                fs::remove_file(&target)?;
             }
             if temporary.exists() {
                 fs::remove_file(temporary)?;

@@ -1804,6 +1804,50 @@ fn service_installed_with_dot_path_accepts_the_absolute_config() {
 
 #[cfg(unix)]
 #[test]
+fn editing_an_active_service_through_a_config_symlink_updates_its_target() {
+    let root = sandbox();
+    let target = root.join("service-config.toml");
+    let alias = root.join("config-alias.toml");
+    Config::default().save(&target).unwrap();
+    std::os::unix::fs::symlink(&target, &alias).unwrap();
+    let unit = root.join("config/systemd/user/omawake.service");
+    fs::create_dir_all(unit.parent().unwrap()).unwrap();
+    fs::write(
+        &unit,
+        omawake::setup::systemd::generate(Path::new(env!("CARGO_BIN_EXE_omawake")), &target),
+    )
+    .unwrap();
+    let fake = fake_systemctl(&root, 0);
+    let edit = run_with_path(
+        &root,
+        &[
+            "--config",
+            alias.to_str().unwrap(),
+            "config",
+            "set",
+            "daemon.queue_capacity",
+            "4",
+        ],
+        &fake,
+    );
+    assert!(edit.status.success(), "{}", stderr(&edit));
+    assert!(
+        fs::symlink_metadata(&alias)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(fs::read_link(&alias).unwrap(), target);
+    assert_eq!(Config::load(&target).unwrap().daemon.queue_capacity, 4);
+    assert!(
+        fs::read_to_string(root.join("systemctl.log"))
+            .unwrap()
+            .contains("--user try-restart omawake.service")
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn default_config_edit_ignores_an_unrelated_custom_daemon_socket() {
     let root = sandbox();
     let default_config = root.join("config/omawake/config.toml");

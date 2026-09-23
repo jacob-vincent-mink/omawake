@@ -56,6 +56,31 @@ fn missing_save_load_and_model_paths_round_trip() {
     assert_eq!(custom.model_directory(&paths), root.join("custom"));
 }
 
+#[cfg(unix)]
+#[test]
+fn saving_through_a_config_symlink_updates_its_target() {
+    use std::os::unix::fs::symlink;
+
+    let root = temp("symlink-save");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    let target = root.join("target.toml");
+    let alias = root.join("alias.toml");
+    Config::default().save(&target).unwrap();
+    symlink(&target, &alias).unwrap();
+    let mut edited = Config::load(&alias).unwrap();
+    edited.daemon.queue_capacity = 4;
+    edited.save(&alias).unwrap();
+    assert!(
+        fs::symlink_metadata(&alias)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(fs::read_link(&alias).unwrap(), target);
+    assert_eq!(Config::load(&target).unwrap().daemon.queue_capacity, 4);
+}
+
 #[test]
 fn malformed_and_unknown_config_is_rejected() {
     let root = temp("invalid");

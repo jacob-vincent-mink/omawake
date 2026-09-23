@@ -1338,6 +1338,42 @@ fn config_refresh_restarts_once_and_explicitly_resurrects_after_rollback() {
     assert_eq!(fs::read(&paths.config_file).unwrap(), previous_bytes);
 }
 
+#[cfg(unix)]
+#[test]
+fn failed_service_restart_restores_a_symlinked_config_target() {
+    use std::os::unix::fs::symlink;
+
+    let paths = test_paths("config-refresh-symlink-rollback");
+    let target = paths.config_file.with_file_name("target.toml");
+    let original = Config::default();
+    original.save(&target).unwrap();
+    symlink(&target, &paths.config_file).unwrap();
+    let original_bytes = fs::read(&target).unwrap();
+    let mut updated = original.clone();
+    updated.daemon.queue_capacity = 4;
+    let error = save_and_reload_active_with(
+        updated,
+        &paths.config_file,
+        true,
+        || true,
+        |_| bail!("injected restart failure"),
+        || {
+            assert_eq!(fs::read(&target).unwrap(), original_bytes);
+            Ok(())
+        },
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("reload active daemon"));
+    assert!(
+        fs::symlink_metadata(&paths.config_file)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(fs::read_link(&paths.config_file).unwrap(), target);
+    assert_eq!(fs::read(&target).unwrap(), original_bytes);
+}
+
 #[test]
 fn runtime_candidate_validation_failure_preserves_the_original_config() {
     let paths = test_paths("runtime-candidate-validation");
