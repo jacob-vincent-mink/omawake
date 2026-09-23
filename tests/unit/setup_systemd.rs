@@ -4,14 +4,14 @@ use super::*;
 fn generated_unit_owns_only_its_exact_config_argument() {
     let config = Path::new("/home/user/.config/omawake/config.toml");
     let unit = generate(Path::new("/usr/bin/omawake"), config);
-    assert!(unit_targets_config(&unit, config));
-    assert!(!unit_targets_config(
+    assert!(has_managed_template(&unit, Some(config)));
+    assert!(!has_managed_template(
         &unit,
-        Path::new("/home/user/.config/omawake/other.toml")
+        Some(Path::new("/home/user/.config/omawake/other.toml"))
     ));
-    assert!(!unit_targets_config(
+    assert!(!has_managed_template(
         "ExecStart=/usr/bin/omawake daemon\n# --config \"/home/user/.config/omawake/config.toml\"",
-        config
+        Some(config)
     ));
     let alternate = Path::new("/home/user/alternate.toml");
     let alternate_unit = generate(Path::new("/usr/bin/omawake"), alternate);
@@ -26,6 +26,15 @@ fn generated_unit_owns_only_its_exact_config_argument() {
         alternate,
         config,
         Some(&alternate_unit)
+    ));
+    let handwritten = format!(
+        "[Service]\nExecStart=/usr/bin/omawake --config {} daemon\n",
+        quote(config)
+    );
+    assert!(!targets_config_with_unit(
+        config,
+        config,
+        Some(&handwritten)
     ));
 }
 

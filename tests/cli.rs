@@ -1,6 +1,6 @@
 use std::fs;
 #[cfg(unix)]
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 #[cfg(unix)]
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
@@ -205,7 +205,7 @@ fn setup_home_teaching_can_be_cancelled_without_changing_a_word_in_a_real_pty() 
 
 #[cfg(unix)]
 #[test]
-fn setup_home_teaching_temporarily_stops_and_resumes_a_managed_service_in_a_real_pty() {
+fn setup_home_teaching_holds_a_manually_launched_daemon_pause_in_a_real_pty() {
     if Command::new("script").arg("--version").output().is_err() {
         return;
     }
@@ -213,37 +213,72 @@ fn setup_home_teaching_temporarily_stops_and_resumes_a_managed_service_in_a_real
     let config_path = root.join("config/omawake/config.toml");
     Config::default().save(&config_path).unwrap();
     let original = fs::read(&config_path).unwrap();
-    let unit = root.join("config/systemd/user/omawake.service");
-    fs::create_dir_all(unit.parent().unwrap()).unwrap();
-    fs::write(
-        &unit,
-        omawake::setup::systemd::generate(Path::new(env!("CARGO_BIN_EXE_omawake")), &config_path),
-    )
-    .unwrap();
-    let run_dir = root.join("run");
+    let run_dir = root.join("run/omawake");
     fs::create_dir_all(&run_dir).unwrap();
-    fs::write(run_dir.join("service-active"), b"").unwrap();
-    let systemctl = root.join("test-bin/systemctl");
-    fs::write(
-        &systemctl,
-        "#!/bin/sh\necho \"$*\" >> \"$OMAWAKE_SYSTEMCTL_LOG\"\ncase \"$2\" in\n  is-active) test -e \"$XDG_RUNTIME_DIR/service-active\" || exit 3 ;;\n  start) touch \"$XDG_RUNTIME_DIR/service-active\" ;;\n  stop) rm -f \"$XDG_RUNTIME_DIR/service-active\" ;;\nesac\n",
-    )
-    .unwrap();
-    fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o755)).unwrap();
-    let (status, terminal) = run_setup_pty(
-        &root,
-        &[b"jj\r", b"", b"", b"", b"", b"q", b"", b"", b"\r", b"q"],
-    );
+    let listener = UnixListener::bind(run_dir.join("control.sock")).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let server = thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(8);
+        let mut stream = loop {
+            match listener.accept() {
+                Ok((stream, _)) => break stream,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(
+                        Instant::now() < deadline,
+                        "setup did not request a daemon pause"
+                    );
+                    thread::sleep(Duration::from_millis(20));
+                }
+                Err(error) => panic!("accept daemon control connection: {error}"),
+            }
+        };
+        stream
+            .set_read_timeout(Some(Duration::from_secs(8)))
+            .unwrap();
+        let mut line = String::new();
+        BufReader::new(&mut stream).read_line(&mut line).unwrap();
+        let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(request["type"], "hold_pause");
+        let response = serde_json::json!({"protocol":1,"id":request["id"],"type":"state","state":"paused","details":{"pause":{"manual":true,"owners":1}}});
+        writeln!(stream, "{response}").unwrap();
+        let mut byte = [0];
+        assert_eq!(
+            stream.read(&mut byte).unwrap(),
+            0,
+            "pause hold was not released"
+        );
+    });
+    let (status, terminal) = run_setup_pty(&root, &[b"jj\r", b"", b"", b"q", b"\r", b"q"]);
+    server.join().unwrap();
     assert!(status.success());
     assert!(terminal.contains("Wake-word onboarding"));
     assert!(terminal.contains("onboarding cancelled"));
     assert_eq!(fs::read(&config_path).unwrap(), original);
-    assert!(unit.exists());
-    assert!(run_dir.join("service-active").exists());
-    let calls = fs::read_to_string(root.join("systemctl.log")).unwrap();
-    let stopped = calls.find("--user stop omawake.service").unwrap();
-    let started = calls.find("--user start omawake.service").unwrap();
-    assert!(stopped < started, "{calls}");
+    assert!(!root.join("systemctl.log").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_home_refuses_audio_when_service_state_or_pause_cannot_be_verified() {
+    if Command::new("script").arg("--version").output().is_err() {
+        return;
+    }
+    for exit in [0, 1] {
+        let root = sandbox();
+        let config_path = root.join("config/omawake/config.toml");
+        Config::default().save(&config_path).unwrap();
+        let systemctl = root.join("test-bin/systemctl");
+        fs::write(&systemctl, format!("#!/bin/sh\nexit {exit}\n")).unwrap();
+        fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o755)).unwrap();
+        let (status, terminal) = run_setup_pty(&root, &[b"jj\r", b"\r", b"q"]);
+        assert!(status.success());
+        assert!(terminal.contains("Setup action failed"), "{terminal}");
+        assert!(!terminal.contains("Wake-word onboarding"));
+        assert_eq!(
+            Config::load(&config_path).unwrap().wake_words[0].phrase,
+            "Computer"
+        );
+    }
 }
 
 #[cfg(unix)]
@@ -370,6 +405,52 @@ fn setup_home_edits_a_wake_phrase_in_a_real_pty() {
         Config::load(&config_path).unwrap().wake_words[0].phrase,
         "Hey computer"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_home_word_edit_does_not_restart_a_handwritten_service() {
+    if Command::new("script").arg("--version").output().is_err() {
+        return;
+    }
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    Config::default().save(&config_path).unwrap();
+    let unit = root.join("config/systemd/user/omawake.service");
+    fs::create_dir_all(unit.parent().unwrap()).unwrap();
+    let handwritten =
+        omawake::setup::systemd::generate(Path::new(env!("CARGO_BIN_EXE_omawake")), &config_path)
+            .replace("Restart=on-failure", "Restart=always");
+    fs::write(&unit, &handwritten).unwrap();
+    let systemctl = root.join("test-bin/systemctl");
+    fs::write(
+        &systemctl,
+        "#!/bin/sh\necho \"$*\" >> \"$OMAWAKE_SYSTEMCTL_LOG\"\ncase \"$2\" in\n  is-active) exit 0 ;;\nesac\n",
+    )
+    .unwrap();
+    fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o755)).unwrap();
+    let (status, terminal) = run_setup_pty(
+        &root,
+        &[
+            b"j\r",
+            b"\r",
+            b"\r",
+            b"New phrase\r",
+            b"\r",
+            b"q",
+            b"q",
+            b"q",
+        ],
+    );
+    assert!(status.success());
+    assert!(terminal.contains("Wake word saved"));
+    assert_eq!(
+        Config::load(&config_path).unwrap().wake_words[0].phrase,
+        "New phrase"
+    );
+    assert_eq!(fs::read_to_string(&unit).unwrap(), handwritten);
+    let calls = fs::read_to_string(root.join("systemctl.log")).unwrap();
+    assert!(!calls.contains("restart"), "{calls}");
 }
 
 #[cfg(unix)]

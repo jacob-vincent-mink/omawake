@@ -21,25 +21,20 @@ pub fn service_path(paths: &AppPaths) -> PathBuf {
 /// unit is authoritative; without one, packaged units use the XDG default.
 pub fn targets_config(config: &Path) -> bool {
     let defaults = AppPaths::discover();
-    match fs::read_to_string(service_path(&defaults)) {
-        Ok(contents) => targets_config_with_unit(config, &defaults.config_file, Some(&contents)),
+    match fs::symlink_metadata(service_path(&defaults)) {
+        Ok(_) => read_managed_unit(&defaults, Some(config)).is_ok(),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            targets_config_with_unit(config, &defaults.config_file, None)
+            config == defaults.config_file
         }
         Err(_) => false,
     }
 }
 
+#[cfg(test)]
 fn targets_config_with_unit(config: &Path, default_config: &Path, unit: Option<&str>) -> bool {
     unit.map_or(config == default_config, |unit| {
-        unit_targets_config(unit, config)
+        has_managed_template(unit, Some(config))
     })
-}
-
-fn unit_targets_config(unit: &str, config: &Path) -> bool {
-    let argument = format!("--config {}", quote(config));
-    unit.lines()
-        .any(|line| line.starts_with("ExecStart=") && line.contains(&argument))
 }
 
 pub fn generate(binary: &Path, config: &Path) -> String {
@@ -241,16 +236,20 @@ pub fn is_active() -> bool {
         .is_ok_and(|status| status.success())
 }
 
-fn active_state() -> Result<bool> {
+pub fn active_state() -> Result<bool> {
     let status = Command::new("systemctl")
         .args(["--user", "is-active", "--quiet", UNIT])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()
-        .context("run systemctl --user is-active")?;
+        .status();
+    let status = match status {
+        Ok(status) => status,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error).context("run systemctl --user is-active"),
+    };
     match status.code() {
         Some(0) => Ok(true),
-        Some(3) => Ok(false),
+        Some(3 | 4) => Ok(false),
         _ => bail!("systemctl --user could not determine whether {UNIT} is active"),
     }
 }

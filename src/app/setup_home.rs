@@ -189,7 +189,7 @@ pub(super) fn run(config_path: &Path, paths: &AppPaths) -> Result<()> {
 
 fn perform(action: HomeAction, config_path: &Path, paths: &AppPaths) -> Result<()> {
     match action {
-        HomeAction::Guided => with_service_paused(config_path, paths, || {
+        HomeAction::Guided => with_daemon_paused(paths, || {
             guided_all_with(
                 config_path,
                 paths,
@@ -199,15 +199,15 @@ fn perform(action: HomeAction, config_path: &Path, paths: &AppPaths) -> Result<(
             )
         }),
         HomeAction::Words => return words(config_path, paths),
-        HomeAction::Teach => with_service_paused(config_path, paths, || {
+        HomeAction::Teach => with_daemon_paused(paths, || {
             onboarding::guided(Config::load(config_path)?, config_path, paths)
         }),
-        HomeAction::Audio => with_service_paused(config_path, paths, || {
+        HomeAction::Audio => with_daemon_paused(paths, || {
             setup_audio(config_path, paths, None, false, false)
         }),
         HomeAction::Runtime => guided_runtime(config_path, paths),
         HomeAction::Model => guided_model(config_path, paths),
-        HomeAction::Test => with_service_paused(config_path, paths, || {
+        HomeAction::Test => with_daemon_paused(paths, || {
             let config = Config::load(config_path)?;
             println!("Listening for five seconds. Wake-word actions will not run.");
             let detector = Detector::load(&config, paths)?;
@@ -223,29 +223,43 @@ fn perform(action: HomeAction, config_path: &Path, paths: &AppPaths) -> Result<(
     Ok(())
 }
 
-fn with_service_paused<T>(
-    config_path: &Path,
-    paths: &AppPaths,
-    work: impl FnOnce() -> Result<T>,
-) -> Result<T> {
-    if !app_setup::systemd::is_active() {
-        return work();
-    }
-    ensure!(
-        app_setup::systemd::is_managed(paths, config_path),
-        "an unmanaged Omawake service is active; stop it before setup can record or test audio"
-    );
-    app_setup::systemd::stop(paths).context("pause the active Omawake service for setup")?;
-    let outcome = work();
-    let resume = app_setup::systemd::start(paths).context("resume the Omawake service after setup");
-    match (outcome, resume) {
-        (Ok(value), Ok(())) => Ok(value),
-        (Err(error), Ok(())) => Err(error),
-        (Ok(_), Err(error)) => Err(error),
-        (Err(error), Err(resume_error)) => Err(error).context(format!(
-            "the service also failed to resume: {resume_error:#}"
-        )),
-    }
+fn with_daemon_paused<T>(paths: &AppPaths, work: impl FnOnce() -> Result<T>) -> Result<T> {
+    let hold = match connect_control_socket(&socket_path(paths)) {
+        Ok(mut stream) => {
+            stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+            stream.set_write_timeout(Some(Duration::from_secs(10)))?;
+            match request_over_stream(&mut stream, Command::HoldPause)
+                .context("wait for the daemon to release its microphone")?
+                .result
+            {
+                ResultPayload::State { state, .. } if state == "paused" => Some(stream),
+                ResultPayload::Error { code, message } => {
+                    bail!("could not pause the running daemon: {code}: {message}")
+                }
+                _ => bail!("the running daemon did not confirm its microphone was released"),
+            }
+        }
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::NotFound
+                    | io::ErrorKind::ConnectionRefused
+                    | io::ErrorKind::ConnectionReset
+            ) =>
+        {
+            ensure!(
+                !app_setup::systemd::active_state()?,
+                "an Omawake systemd service is active but its control socket is unavailable; stop it before recording or testing"
+            );
+            None
+        }
+        Err(error) => {
+            return Err(error).context("connect to the Omawake daemon before audio setup");
+        }
+    };
+    let result = work();
+    drop(hold);
+    result
 }
 
 fn notice(title: &str, body: &str) -> Result<()> {
@@ -736,8 +750,8 @@ fn edit_word_items(word: &WakeWord) -> [MenuItem; 6] {
     [
         if trained {
             MenuItem::unavailable(
-                "Edit phrase",
-                "This word uses a trained detector. Re-enroll it to change what is spoken.",
+                "Phrase locked (trained)",
+                "Add a new wake word with the desired phrase, teach it, then remove this trained word.",
             )
         } else {
             MenuItem::available("Edit phrase", format!("Current: {}", word.phrase))

@@ -162,6 +162,7 @@ fn trained_words_do_not_offer_transcript_only_edits() {
     word.enrollment = Some(crate::enrollment::artifact::EnrollmentBinding::default());
     let items = edit_word_items(&word);
     assert!(!items[0].enabled);
+    assert!(items[0].detail.contains("Add a new wake word"));
     assert!(!items[2].enabled);
     assert!(items[1].enabled);
     assert!(items[3].enabled);
