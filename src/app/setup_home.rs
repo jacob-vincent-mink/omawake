@@ -509,6 +509,15 @@ fn service(config_path: &Path, paths: &AppPaths) -> Result<()> {
                     !app_setup::systemd::is_active(),
                     "an Omawake service is already running outside setup; stop it before installing a setup-managed unit"
                 );
+                match connect_control_socket(&socket_path(paths)) {
+                    Ok(_) => bail!(
+                        "a directly launched Omawake daemon is running; run `omawake stop` before installing the user service"
+                    ),
+                    Err(error) if is_missing_socket(error.kind()) => {}
+                    Err(error) => {
+                        return Err(error).context("check for a running Omawake daemon");
+                    }
+                }
                 ensure!(
                     config_path.is_file(),
                     "finish guided setup before installing the service"

@@ -34,22 +34,9 @@ pub fn targets_config(config: &Path) -> bool {
 /// A base file alone is insufficient because a drop-in can replace ExecStart.
 pub fn effective_targets_config(config: &Path) -> bool {
     let defaults = AppPaths::discover();
-    let Ok(fragment) = unit_property("FragmentPath") else {
+    let Some(fragment) = loaded_fragment_without_overrides() else {
         return false;
     };
-    let Ok(drop_ins) = unit_property("DropInPaths") else {
-        return false;
-    };
-    let Ok(needs_reload) = unit_property("NeedDaemonReload") else {
-        return false;
-    };
-    if !drop_ins.is_empty() || needs_reload != "no" {
-        return false;
-    }
-    let fragment = Path::new(&fragment);
-    if !fragment.is_absolute() {
-        return false;
-    }
     let local = service_path(&defaults);
     match fs::symlink_metadata(&local) {
         Ok(_) => fragment == local && read_managed_unit(&defaults, Some(config)).is_ok(),
@@ -61,6 +48,26 @@ pub fn effective_targets_config(config: &Path) -> bool {
         }
         Err(_) => false,
     }
+}
+
+fn loaded_fragment_without_overrides() -> Option<PathBuf> {
+    let Ok(fragment) = unit_property("FragmentPath") else {
+        return None;
+    };
+    let Ok(drop_ins) = unit_property("DropInPaths") else {
+        return None;
+    };
+    let Ok(needs_reload) = unit_property("NeedDaemonReload") else {
+        return None;
+    };
+    if !drop_ins.is_empty() || needs_reload != "no" {
+        return None;
+    }
+    let fragment = PathBuf::from(fragment);
+    if !fragment.is_absolute() {
+        return None;
+    }
+    Some(fragment)
 }
 
 fn unit_property(property: &str) -> Result<String> {
@@ -197,6 +204,7 @@ pub fn install(paths: &AppPaths, config: &Path, start: bool) -> Result<PathBuf> 
         read_managed_unit(paths, None)?;
     }
     let was_active = is_active();
+    let was_enabled = is_enabled();
     let mut enable_attempted = false;
     let mut restart_attempted = false;
     let result = (|| {
@@ -216,9 +224,6 @@ pub fn install(paths: &AppPaths, config: &Path, start: bool) -> Result<PathBuf> 
         Ok(())
     })();
     if let Err(error) = result {
-        if previous.is_none() && enable_attempted {
-            let _ = systemctl(["disable", "--now", UNIT]);
-        }
         let restored = match previous {
             Some(bytes) => write_atomic(&path, &bytes),
             None => match fs::remove_file(&path) {
@@ -228,6 +233,13 @@ pub fn install(paths: &AppPaths, config: &Path, start: bool) -> Result<PathBuf> 
             },
         }
         .and_then(|()| systemctl(["daemon-reload"]))
+        .and_then(|()| {
+            if enable_attempted {
+                systemctl([if was_enabled { "enable" } else { "disable" }, UNIT])
+            } else {
+                Ok(())
+            }
+        })
         .and_then(|()| {
             if was_active && restart_attempted {
                 restart()
@@ -246,6 +258,11 @@ pub fn install(paths: &AppPaths, config: &Path, start: bool) -> Result<PathBuf> 
 }
 
 pub fn uninstall(paths: &AppPaths) -> Result<()> {
+    read_managed_unit(paths, None)?;
+    let local = service_path(paths);
+    if loaded_fragment_without_overrides().as_deref() != Some(local.as_path()) {
+        bail!("refusing to uninstall an Omawake unit that systemd has overridden or not loaded");
+    }
     uninstall_with(
         paths,
         || systemctl(["disable", "--now", UNIT]),
@@ -295,18 +312,30 @@ pub fn is_active() -> bool {
         .is_ok_and(|status| status.success())
 }
 
-pub fn active_state() -> Result<bool> {
-    let status = Command::new("systemctl")
-        .args(["--user", "is-active", "--quiet", UNIT])
+fn is_enabled() -> bool {
+    Command::new("systemctl")
+        .args(["--user", "is-enabled", "--quiet", UNIT])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status();
-    let status = match status {
-        Ok(status) => status,
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+pub fn active_state() -> Result<bool> {
+    let output = Command::new("systemctl")
+        .args(["--user", "is-active", "--quiet", UNIT])
+        .stdout(Stdio::null())
+        .env("LC_ALL", "C")
+        .output();
+    let output = match output {
+        Ok(output) => output,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
         Err(error) => return Err(error).context("run systemctl --user is-active"),
     };
-    match status.code() {
+    if String::from_utf8_lossy(&output.stderr).contains("Failed to connect to bus:") {
+        return Ok(false);
+    }
+    match output.status.code() {
         Some(0) => Ok(true),
         Some(3 | 4) => Ok(false),
         _ => bail!("systemctl --user could not determine whether {UNIT} is active"),

@@ -237,6 +237,27 @@ fn setup_home_guided_flow_can_be_cancelled_before_install_in_a_real_pty() {
 
 #[cfg(unix)]
 #[test]
+fn setup_home_guided_first_run_works_without_a_systemd_user_bus() {
+    if Command::new("script").arg("--version").output().is_err() {
+        return;
+    }
+    let root = sandbox();
+    let systemctl = root.join("test-bin/systemctl");
+    fs::write(
+        &systemctl,
+        "#!/bin/sh\necho 'Failed to connect to bus: No medium found' >&2\nexit 1\n",
+    )
+    .unwrap();
+    fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o755)).unwrap();
+    let (status, terminal) = run_setup_pty(&root, &[b"\r", b"q", b"\r", b"q"]);
+    assert!(status.success(), "{terminal}");
+    assert!(terminal.contains("Inference runtime"), "{terminal}");
+    assert!(terminal.contains("Setup cancelled"));
+    assert!(!root.join("config/omawake/config.toml").exists());
+}
+
+#[cfg(unix)]
+#[test]
 fn setup_home_teaching_can_be_cancelled_without_changing_a_word_in_a_real_pty() {
     if Command::new("script").arg("--version").output().is_err() {
         return;
@@ -435,6 +456,25 @@ fn setup_home_service_install_rejects_unproved_model_in_a_real_pty() {
     assert!(terminal.contains("Service action failed"));
     assert!(terminal.contains("verify model and runtime"));
     assert_eq!(fs::read(&config_path).unwrap(), original);
+    assert!(!root.join("config/systemd/user/omawake.service").exists());
+    assert!(!root.join("systemctl.log").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_home_service_install_refuses_a_direct_daemon() {
+    if Command::new("script").arg("--version").output().is_err() {
+        return;
+    }
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    Config::default().save(&config_path).unwrap();
+    let run_dir = root.join("run/omawake");
+    fs::create_dir_all(&run_dir).unwrap();
+    let _daemon = UnixListener::bind(run_dir.join("control.sock")).unwrap();
+    let (status, terminal) = run_setup_pty(&root, &[b"jjjjjjj\r", b"\r", b"\r", b"q", b"q"]);
+    assert!(status.success(), "{terminal}");
+    assert!(terminal.contains("directly launched Omawake daemon"));
     assert!(!root.join("config/systemd/user/omawake.service").exists());
     assert!(!root.join("systemctl.log").exists());
 }
@@ -1627,8 +1667,125 @@ fn service_install_rejects_an_effective_override_without_touching_existing_servi
     let calls = fs::read_to_string(root.join("systemctl.log")).unwrap();
     assert!(calls.contains("daemon-reload"));
     for action in ["enable", "disable", "restart"] {
-        assert!(!calls.contains(action), "unexpected {action} in {calls}");
+        assert!(
+            !calls
+                .lines()
+                .any(|call| call == format!("--user {action} omawake.service")),
+            "unexpected {action} in {calls}"
+        );
     }
+}
+
+#[test]
+fn failed_reinstall_restores_a_previously_disabled_user_service() {
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    Config::default().save(&config_path).unwrap();
+    let unit = root.join("config/systemd/user/omawake.service");
+    fs::create_dir_all(unit.parent().unwrap()).unwrap();
+    let original =
+        omawake::setup::systemd::generate(Path::new(env!("CARGO_BIN_EXE_omawake")), &config_path);
+    fs::write(&unit, &original).unwrap();
+    let fake = fake_systemctl(&root, 0);
+    fs::write(
+        fake.join("systemctl"),
+        r#"#!/bin/sh
+if [ "$2" = show ]; then
+  case "$5" in
+    FragmentPath) printf '%s\n' "$OMAWAKE_TEST_LOCAL_FRAGMENT" ;;
+    DropInPaths) printf '\n' ;;
+    NeedDaemonReload) printf 'no\n' ;;
+  esac
+  exit 0
+fi
+printf '%s\n' "$*" >> "$OMAWAKE_SYSTEMCTL_LOG"
+case "$2" in
+  is-active|is-enabled|restart) exit 1 ;;
+esac
+exit 0
+"#,
+    )
+    .unwrap();
+    let output = run_with_path(&root, &["setup", "systemd"], &fake);
+    assert!(!output.status.success());
+    assert_eq!(fs::read_to_string(&unit).unwrap(), original);
+    let calls = fs::read_to_string(root.join("systemctl.log")).unwrap();
+    assert!(calls.contains("--user enable omawake.service"), "{calls}");
+    assert!(calls.contains("--user restart omawake.service"), "{calls}");
+    assert!(calls.contains("--user disable omawake.service"), "{calls}");
+    assert!(!calls.contains("disable --now"), "{calls}");
+}
+
+#[test]
+fn cli_service_uninstall_refuses_an_effective_override() {
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    Config::default().save(&config_path).unwrap();
+    let unit = root.join("config/systemd/user/omawake.service");
+    fs::create_dir_all(unit.parent().unwrap()).unwrap();
+    fs::write(
+        &unit,
+        omawake::setup::systemd::generate(Path::new(env!("CARGO_BIN_EXE_omawake")), &config_path),
+    )
+    .unwrap();
+    let fake = fake_systemctl(&root, 0);
+    fs::write(root.join("systemctl.dropins"), "/tmp/override.conf").unwrap();
+    let output = run_with_path(&root, &["setup", "systemd", "--uninstall"], &fake);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("overridden"),
+        "{}",
+        stderr(&output)
+    );
+    assert!(unit.exists());
+    assert!(!root.join("systemctl.log").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn cli_setup_all_refuses_a_running_direct_daemon_before_saving() {
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    Config::default().save(&config_path).unwrap();
+    let original = fs::read(&config_path).unwrap();
+    let run_dir = root.join("run/omawake");
+    fs::create_dir_all(&run_dir).unwrap();
+    let _daemon = UnixListener::bind(run_dir.join("control.sock")).unwrap();
+    let output = run(&root, &["setup", "all"]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("not managed"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(fs::read(&config_path).unwrap(), original);
+}
+
+#[test]
+fn cli_setup_all_refuses_an_effective_service_override_before_saving() {
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    Config::default().save(&config_path).unwrap();
+    let original = fs::read(&config_path).unwrap();
+    let unit = root.join("config/systemd/user/omawake.service");
+    fs::create_dir_all(unit.parent().unwrap()).unwrap();
+    fs::write(
+        &unit,
+        omawake::setup::systemd::generate(Path::new(env!("CARGO_BIN_EXE_omawake")), &config_path),
+    )
+    .unwrap();
+    let fake = fake_systemctl(&root, 0);
+    fs::write(root.join("systemctl.dropins"), "/tmp/override.conf").unwrap();
+    let output = run_with_path(&root, &["setup", "all"], &fake);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("not managed"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(fs::read(&config_path).unwrap(), original);
+    let calls = fs::read_to_string(root.join("systemctl.log")).unwrap();
+    assert!(!calls.contains("try-restart"), "{calls}");
 }
 
 #[test]

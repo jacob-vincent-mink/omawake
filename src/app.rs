@@ -1149,7 +1149,7 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
                 Some(id) => model_spec(id)?,
                 None => crate::catalog::setup_model(&current)?,
             };
-            let service_was_active = app_setup::systemd::is_active();
+            let service_was_active = managed_service_active_for_config(config_path, paths)?;
             install_everything(
                 spec,
                 config_path,
