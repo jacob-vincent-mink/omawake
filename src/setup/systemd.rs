@@ -30,6 +30,50 @@ pub fn targets_config(config: &Path) -> bool {
     }
 }
 
+/// Check the unit systemd actually loaded before restarting it after an edit.
+/// A base file alone is insufficient because a drop-in can replace ExecStart.
+pub fn effective_targets_config(config: &Path) -> bool {
+    let defaults = AppPaths::discover();
+    let Ok(fragment) = unit_property("FragmentPath") else {
+        return false;
+    };
+    let Ok(drop_ins) = unit_property("DropInPaths") else {
+        return false;
+    };
+    let Ok(needs_reload) = unit_property("NeedDaemonReload") else {
+        return false;
+    };
+    if !drop_ins.is_empty() || needs_reload != "no" {
+        return false;
+    }
+    let fragment = Path::new(&fragment);
+    if !fragment.is_absolute() {
+        return false;
+    }
+    let local = service_path(&defaults);
+    match fs::symlink_metadata(&local) {
+        Ok(_) => fragment == local && read_managed_unit(&defaults, Some(config)).is_ok(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            config == defaults.config_file
+                && fs::read_to_string(fragment).is_ok_and(|body| {
+                    body == include_str!("../../packaging/systemd/omawake.service")
+                })
+        }
+        Err(_) => false,
+    }
+}
+
+fn unit_property(property: &str) -> Result<String> {
+    let output = Command::new("systemctl")
+        .args(["--user", "show", UNIT, "--property", property, "--value"])
+        .output()
+        .context("inspect active Omawake user service")?;
+    if !output.status.success() {
+        bail!("systemctl could not inspect the active Omawake user service");
+    }
+    Ok(String::from_utf8(output.stdout)?.trim().to_owned())
+}
+
 #[cfg(test)]
 fn targets_config_with_unit(config: &Path, default_config: &Path, unit: Option<&str>) -> bool {
     unit.map_or(config == default_config, |unit| {
@@ -153,17 +197,26 @@ pub fn install(paths: &AppPaths, config: &Path, start: bool) -> Result<PathBuf> 
         read_managed_unit(paths, None)?;
     }
     let was_active = is_active();
+    let mut enable_attempted = false;
+    let mut restart_attempted = false;
     let result = (|| {
         write_atomic(&path, unit.as_bytes())?;
         systemctl(["daemon-reload"])?;
+        if !effective_targets_config(config) {
+            bail!(
+                "systemd did not load the setup-managed unit, or a unit override changes its effective command"
+            );
+        }
+        enable_attempted = true;
         systemctl(["enable", UNIT])?;
         if start {
+            restart_attempted = true;
             restart()?;
         }
         Ok(())
     })();
     if let Err(error) = result {
-        if previous.is_none() {
+        if previous.is_none() && enable_attempted {
             let _ = systemctl(["disable", "--now", UNIT]);
         }
         let restored = match previous {
@@ -175,7 +228,13 @@ pub fn install(paths: &AppPaths, config: &Path, start: bool) -> Result<PathBuf> 
             },
         }
         .and_then(|()| systemctl(["daemon-reload"]))
-        .and_then(|()| if was_active { restart() } else { Ok(()) });
+        .and_then(|()| {
+            if was_active && restart_attempted {
+                restart()
+            } else {
+                Ok(())
+            }
+        });
         return match restored {
             Ok(()) => Err(error),
             Err(restore) => Err(error.context(format!(

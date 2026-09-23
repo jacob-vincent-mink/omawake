@@ -59,6 +59,8 @@ hardware, provider availability, and the pending model proof separately.
 Existing manual selections stay preselected. If the optional service is
 already active, a successful focused config, runtime, model, or wake-word edit
 restarts it once; failed startup restores the previous config and daemon.
+Resume a manually paused service before editing. Setup also refuses automatic
+restarts when the effective systemd unit has unrecognized overrides.
 
 ## Build from source
 

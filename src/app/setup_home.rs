@@ -282,7 +282,7 @@ fn with_manual_pause_preserved<T>(paths: &AppPaths, work: impl FnOnce() -> Resul
     result
 }
 
-fn manual_pause_state(paths: &AppPaths) -> Result<Option<bool>> {
+pub(super) fn manual_pause_state(paths: &AppPaths) -> Result<Option<bool>> {
     let response = match request_with_timeout(paths, Command::Status) {
         Ok(response) => response,
         Err(error)
@@ -600,6 +600,10 @@ fn ensure_managed_service(paths: &AppPaths, config_path: &Path) -> Result<()> {
     ensure!(
         app_setup::systemd::is_managed(paths, config_path),
         "refusing to change an Omawake unit not managed by this setup"
+    );
+    ensure!(
+        app_setup::systemd::effective_targets_config(config_path),
+        "systemd has not loaded the setup-managed unit or has an override; review the unit and run `systemctl --user daemon-reload` before controlling it"
     );
     Ok(())
 }

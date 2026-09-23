@@ -40,7 +40,7 @@ Setup installs the optional desktop settings launcher, which opens the same setu
 
 The **Wake words & actions** screen adds phrases and lets you change the phrase, program, individual arguments, aliases, and enabled state. An active trained detector keeps its spoken phrase and does not use transcript aliases. To replace a trained phrase, add a new wake word, teach it, then remove the old one. If you launched the daemon directly, stop it with `omawake stop` before editing and start it again afterward; setup refuses edits it cannot apply to the running process.
 
-**Advanced settings** covers CPU threads, cooldown, and capture queue. Changes to an active setup-managed service restart it automatically; setup rolls back the configuration if the restart fails. Guided setup, microphone selection, teaching, and the recognition test hold the running daemon paused while recording or testing. This also works for a manually launched daemon, preserves a user's existing pause, and releases the hold if setup exits. Setup leaves unrecognized local user units alone. **Run setup checks** verifies the full installation after each step.
+**Advanced settings** covers CPU threads, cooldown, and capture queue. Changes to an active setup-managed service restart it automatically; setup rolls back the configuration if the restart fails. Resume a manually paused service before editing, then pause it again afterward. Guided setup, microphone selection, teaching, and the recognition test hold the running daemon paused while recording or testing. This also works for a manually launched daemon, preserves a user's existing pause, and releases the hold if setup exits. Setup refuses automatic restarts when the effective systemd unit has unrecognized changes or overrides. **Run setup checks** verifies the full installation after each step.
 
 These focused commands expose the same choices without the full guided flow:
 
@@ -111,6 +111,9 @@ When the optional user service is already active, successful `config`,
 Omawake restores the prior config and explicitly restarts the prior daemon if
 the updated daemon fails to start. A custom `--config` never restarts a unit
 that points at another file.
+If the service is manually paused, resume it before editing; setup will refuse
+to restart a paused service. Overrides to the effective systemd unit also block
+automatic reloads until reviewed.
 
 For names or coined words that the verifier spells inconsistently, use
 **Teach a wake word** in `omawake setup`, or run:

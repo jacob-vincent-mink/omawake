@@ -2439,10 +2439,13 @@ fn save_and_reload_active(config: Config, config_path: &Path, paths: &AppPaths) 
 }
 
 fn managed_service_active_for_config(config_path: &Path, paths: &AppPaths) -> Result<bool> {
-    let owns_service_config = app_setup::systemd::targets_config(config_path);
-    let service_active = (owns_service_config || config_path == AppPaths::discover().config_file)
+    let base_targets_config = app_setup::systemd::targets_config(config_path);
+    let service_active = (base_targets_config || config_path == AppPaths::discover().config_file)
         && app_setup::systemd::is_active();
-    managed_service_active_for_config_with(paths, service_active, owns_service_config)
+    let effective_targets_config = base_targets_config
+        && service_active
+        && app_setup::systemd::effective_targets_config(config_path);
+    managed_service_active_for_config_with(paths, service_active, effective_targets_config)
 }
 
 fn managed_service_active_for_config_with(
@@ -2459,6 +2462,11 @@ fn managed_service_active_for_config_with(
     if !managed_running && connect_control_socket(&socket_path(paths)).is_ok() {
         bail!(
             "a running Omawake daemon is not managed for this configuration; run `omawake stop` before editing, then start it again to apply the change"
+        );
+    }
+    if managed_running && setup_home::manual_pause_state(paths)? == Some(true) {
+        bail!(
+            "the running Omawake daemon is manually paused; run `omawake resume` before changing its configuration, then pause it again afterward"
         );
     }
     Ok(managed_running)

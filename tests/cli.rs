@@ -44,6 +44,19 @@ fn test_path(root: &Path) -> std::ffi::OsString {
     std::env::join_paths(paths).unwrap()
 }
 
+fn test_fragment(root: &Path) -> PathBuf {
+    let local = root.join("config/systemd/user/omawake.service");
+    if local.exists() {
+        local
+    } else {
+        root.join("packaged/omawake.service")
+    }
+}
+
+fn test_need_reload(root: &Path) -> String {
+    fs::read_to_string(root.join("systemctl.need-reload")).unwrap_or_else(|_| "no".into())
+}
+
 fn run(root: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_omawake"))
         .args(args)
@@ -53,6 +66,16 @@ fn run(root: &Path, args: &[&str]) -> Output {
         .env("XDG_CACHE_HOME", root.join("cache"))
         .env("XDG_STATE_HOME", root.join("state"))
         .env("XDG_RUNTIME_DIR", root.join("run"))
+        .env("OMAWAKE_TEST_FRAGMENT", test_fragment(root))
+        .env(
+            "OMAWAKE_TEST_LOCAL_FRAGMENT",
+            root.join("config/systemd/user/omawake.service"),
+        )
+        .env(
+            "OMAWAKE_TEST_DROPINS",
+            fs::read_to_string(root.join("systemctl.dropins")).unwrap_or_default(),
+        )
+        .env("OMAWAKE_TEST_NEED_RELOAD", test_need_reload(root))
         .env("PATH", test_path(root))
         .stdin(Stdio::null())
         .output()
@@ -63,9 +86,16 @@ fn fake_systemctl(root: &Path, exit: i32) -> PathBuf {
     let bin = root.join(format!("bin-{exit}"));
     fs::create_dir_all(&bin).unwrap();
     let program = bin.join("systemctl");
+    let packaged = root.join("packaged/omawake.service");
+    fs::create_dir_all(packaged.parent().unwrap()).unwrap();
+    fs::write(
+        &packaged,
+        include_str!("../packaging/systemd/omawake.service"),
+    )
+    .unwrap();
     fs::write(
         &program,
-        format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$OMAWAKE_SYSTEMCTL_LOG\"\nexit {exit}\n"),
+        format!("#!/bin/sh\nif [ \"$2\" = show ]; then\n  case \"$5\" in\n    FragmentPath) if [ -f \"$OMAWAKE_TEST_LOCAL_FRAGMENT\" ]; then printf '%s\\n' \"$OMAWAKE_TEST_LOCAL_FRAGMENT\"; else printf '%s\\n' \"$OMAWAKE_TEST_FRAGMENT\"; fi ;;\n    DropInPaths) printf '%s\\n' \"${{OMAWAKE_TEST_DROPINS:-}}\" ;;\n    NeedDaemonReload) printf '%s\\n' \"${{OMAWAKE_TEST_NEED_RELOAD:-no}}\" ;;\n  esac\n  exit 0\nfi\nprintf '%s\\n' \"$*\" >> \"$OMAWAKE_SYSTEMCTL_LOG\"\nexit {exit}\n"),
     )
     .unwrap();
     #[cfg(unix)]
@@ -87,6 +117,16 @@ fn run_with_path(root: &Path, args: &[&str], path: &Path) -> Output {
         .env("XDG_STATE_HOME", root.join("state"))
         .env("XDG_RUNTIME_DIR", root.join("run"))
         .env("OMAWAKE_SYSTEMCTL_LOG", root.join("systemctl.log"))
+        .env("OMAWAKE_TEST_FRAGMENT", test_fragment(root))
+        .env(
+            "OMAWAKE_TEST_LOCAL_FRAGMENT",
+            root.join("config/systemd/user/omawake.service"),
+        )
+        .env(
+            "OMAWAKE_TEST_DROPINS",
+            fs::read_to_string(root.join("systemctl.dropins")).unwrap_or_default(),
+        )
+        .env("OMAWAKE_TEST_NEED_RELOAD", test_need_reload(root))
         .env("OMAWAKE_LIBRARY_PATH", &owned_libraries)
         .env("LD_LIBRARY_PATH", &ambient_libraries)
         .env("PATH", path)
@@ -123,6 +163,16 @@ fn run_setup_pty(root: &Path, keys: &[&[u8]]) -> (std::process::ExitStatus, Stri
         .env("TERM", "xterm-256color")
         .env("PATH", test_path(root))
         .env("OMAWAKE_SYSTEMCTL_LOG", root.join("systemctl.log"))
+        .env("OMAWAKE_TEST_FRAGMENT", test_fragment(root))
+        .env(
+            "OMAWAKE_TEST_LOCAL_FRAGMENT",
+            root.join("config/systemd/user/omawake.service"),
+        )
+        .env(
+            "OMAWAKE_TEST_DROPINS",
+            fs::read_to_string(root.join("systemctl.dropins")).unwrap_or_default(),
+        )
+        .env("OMAWAKE_TEST_NEED_RELOAD", test_need_reload(root))
         .env(
             "OMAWAKE_AUDIOCPP_LIBRARY",
             root.join("missing-libaudiocpp.so"),
@@ -458,6 +508,60 @@ fn setup_home_word_edit_does_not_restart_a_handwritten_service() {
 
 #[cfg(unix)]
 #[test]
+fn setup_home_rejects_effective_service_overrides_before_editing() {
+    if Command::new("script").arg("--version").output().is_err() {
+        return;
+    }
+    for override_kind in ["drop-in", "foreign fragment", "pending daemon reload"] {
+        let root = sandbox();
+        let config_path = root.join("config/omawake/config.toml");
+        Config::default().save(&config_path).unwrap();
+        let original = fs::read(&config_path).unwrap();
+        let fake = fake_systemctl(&root, 0);
+        let systemctl = root.join("test-bin/systemctl");
+        fs::copy(fake.join("systemctl"), &systemctl).unwrap();
+        fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o755)).unwrap();
+        if override_kind != "foreign fragment" {
+            let unit = root.join("config/systemd/user/omawake.service");
+            fs::create_dir_all(unit.parent().unwrap()).unwrap();
+            fs::write(
+                &unit,
+                omawake::setup::systemd::generate(
+                    Path::new(env!("CARGO_BIN_EXE_omawake")),
+                    &config_path,
+                ),
+            )
+            .unwrap();
+            if override_kind == "drop-in" {
+                fs::write(root.join("systemctl.dropins"), "/tmp/override.conf").unwrap();
+            } else {
+                fs::write(root.join("systemctl.need-reload"), "yes").unwrap();
+            }
+        } else {
+            fs::write(
+                root.join("packaged/omawake.service"),
+                include_str!("../packaging/systemd/omawake.service").replace(
+                    "ExecStart=/usr/bin/omawake daemon",
+                    "ExecStart=/usr/bin/omawake --config /other/config.toml daemon",
+                ),
+            )
+            .unwrap();
+        }
+        let (status, terminal) =
+            run_setup_pty(&root, &[b"j\r", b"\r", b"\r", b"New phrase\r", b"\r", b"q"]);
+        assert!(status.success(), "{override_kind}: {terminal}");
+        assert!(
+            terminal.contains("not managed"),
+            "{override_kind}: {terminal}"
+        );
+        assert_eq!(fs::read(&config_path).unwrap(), original);
+        let calls = fs::read_to_string(root.join("systemctl.log")).unwrap();
+        assert!(!calls.contains("try-restart"), "{override_kind}: {calls}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn setup_home_refuses_to_disable_a_word_in_a_direct_daemon_without_reloading_it() {
     if Command::new("script").arg("--version").output().is_err() {
         return;
@@ -489,7 +593,7 @@ fn setup_home_refuses_to_disable_a_word_in_a_direct_daemon_without_reloading_it(
 
 #[cfg(unix)]
 #[test]
-fn setup_home_restores_manual_pause_after_a_managed_config_restart() {
+fn setup_home_refuses_config_restart_while_manually_paused() {
     if Command::new("script").arg("--version").output().is_err() {
         return;
     }
@@ -506,7 +610,7 @@ fn setup_home_restores_manual_pause_after_a_managed_config_restart() {
     let systemctl = root.join("test-bin/systemctl");
     fs::write(
         &systemctl,
-        "#!/bin/sh\necho \"$*\" >> \"$OMAWAKE_SYSTEMCTL_LOG\"\ncase \"$2\" in\n  is-active|try-restart) exit 0 ;;\nesac\n",
+        "#!/bin/sh\nif [ \"$2\" = show ]; then\n  case \"$5\" in\n    FragmentPath) printf '%s\\n' \"$OMAWAKE_TEST_FRAGMENT\" ;;\n    DropInPaths) printf '\\n' ;;\n    NeedDaemonReload) printf 'no\\n' ;;\n  esac\n  exit 0\nfi\necho \"$*\" >> \"$OMAWAKE_SYSTEMCTL_LOG\"\ncase \"$2\" in\n  is-active|try-restart) exit 0 ;;\nesac\n",
     )
     .unwrap();
     fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o755)).unwrap();
@@ -514,13 +618,62 @@ fn setup_home_restores_manual_pause_after_a_managed_config_restart() {
     fs::create_dir_all(&run_dir).unwrap();
     let listener = UnixListener::bind(run_dir.join("control.sock")).unwrap();
     let server = thread::spawn(move || {
-        for (expected, manual) in [("status", true), ("pause", true)] {
+        for (expected, manual) in [("status", true), ("status", true), ("pause", true)] {
             let (mut stream, _) = listener.accept().unwrap();
             let mut line = String::new();
             BufReader::new(&mut stream).read_line(&mut line).unwrap();
             let request: serde_json::Value = serde_json::from_str(&line).unwrap();
             assert_eq!(request["type"], expected);
             writeln!(stream, "{}", serde_json::json!({"protocol":1,"id":request["id"],"type":"state","state":if manual {"paused"} else {"armed"},"details":{"pause":{"manual":manual,"owners":0}}})).unwrap();
+        }
+    });
+    let (status, terminal) =
+        run_setup_pty(&root, &[b"j\r", b"\r", b"\r", b"New phrase\r", b"\r", b"q"]);
+    server.join().unwrap();
+    assert!(status.success(), "{terminal}");
+    assert!(terminal.contains("manually paused"));
+    assert_eq!(
+        Config::load(&config_path).unwrap().wake_words[0].phrase,
+        "Computer"
+    );
+    assert!(
+        !fs::read_to_string(root.join("systemctl.log"))
+            .unwrap()
+            .contains("try-restart")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_home_applies_a_word_edit_to_an_active_managed_service() {
+    if Command::new("script").arg("--version").output().is_err() {
+        return;
+    }
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    Config::default().save(&config_path).unwrap();
+    let unit = root.join("config/systemd/user/omawake.service");
+    fs::create_dir_all(unit.parent().unwrap()).unwrap();
+    fs::write(
+        &unit,
+        omawake::setup::systemd::generate(Path::new(env!("CARGO_BIN_EXE_omawake")), &config_path),
+    )
+    .unwrap();
+    let fake = fake_systemctl(&root, 0);
+    let systemctl = root.join("test-bin/systemctl");
+    fs::copy(fake.join("systemctl"), &systemctl).unwrap();
+    fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o755)).unwrap();
+    let run_dir = root.join("run/omawake");
+    fs::create_dir_all(&run_dir).unwrap();
+    let listener = UnixListener::bind(run_dir.join("control.sock")).unwrap();
+    let server = thread::spawn(move || {
+        for _ in 0..2 {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut line = String::new();
+            BufReader::new(&mut stream).read_line(&mut line).unwrap();
+            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["type"], "status");
+            writeln!(stream, "{}", serde_json::json!({"protocol":1,"id":request["id"],"type":"state","state":"armed","details":{"pause":{"manual":false,"owners":0}}})).unwrap();
         }
     });
     let (status, terminal) = run_setup_pty(
@@ -543,11 +696,8 @@ fn setup_home_restores_manual_pause_after_a_managed_config_restart() {
         Config::load(&config_path).unwrap().wake_words[0].phrase,
         "New phrase"
     );
-    assert!(
-        fs::read_to_string(root.join("systemctl.log"))
-            .unwrap()
-            .contains("try-restart")
-    );
+    let calls = fs::read_to_string(root.join("systemctl.log")).unwrap();
+    assert_eq!(calls.matches("try-restart").count(), 1, "{calls}");
 }
 
 #[cfg(unix)]
@@ -692,7 +842,7 @@ fn setup_home_controls_an_app_owned_service_in_a_real_pty() {
     let systemctl = root.join("test-bin/systemctl");
     fs::write(
         &systemctl,
-        "#!/bin/sh\necho \"$*\" >> \"$OMAWAKE_SYSTEMCTL_LOG\"\ncase \"$2\" in\n  is-active) test -e \"$XDG_RUNTIME_DIR/service-active\" || exit 3 ;;\n  start|restart) touch \"$XDG_RUNTIME_DIR/service-active\" ;;\n  stop) rm -f \"$XDG_RUNTIME_DIR/service-active\" ;;\n  disable) rm -f \"$XDG_RUNTIME_DIR/service-active\" ;;\nesac\n",
+        "#!/bin/sh\nif [ \"$2\" = show ]; then\n  case \"$5\" in\n    FragmentPath) printf '%s\\n' \"$OMAWAKE_TEST_FRAGMENT\" ;;\n    DropInPaths) printf '\\n' ;;\n    NeedDaemonReload) printf 'no\\n' ;;\n  esac\n  exit 0\nfi\necho \"$*\" >> \"$OMAWAKE_SYSTEMCTL_LOG\"\ncase \"$2\" in\n  is-active) test -e \"$XDG_RUNTIME_DIR/service-active\" || exit 3 ;;\n  start|restart) touch \"$XDG_RUNTIME_DIR/service-active\" ;;\n  stop) rm -f \"$XDG_RUNTIME_DIR/service-active\" ;;\n  disable) rm -f \"$XDG_RUNTIME_DIR/service-active\" ;;\nesac\n",
     )
     .unwrap();
     fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o755)).unwrap();
@@ -726,6 +876,36 @@ fn setup_home_controls_an_app_owned_service_in_a_real_pty() {
     for action in ["start", "restart", "stop", "disable --now", "daemon-reload"] {
         assert!(calls.contains(action), "missing {action} in {calls}");
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_home_refuses_to_start_a_service_with_an_effective_override() {
+    if Command::new("script").arg("--version").output().is_err() {
+        return;
+    }
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    Config::default().save(&config_path).unwrap();
+    let unit = root.join("config/systemd/user/omawake.service");
+    fs::create_dir_all(unit.parent().unwrap()).unwrap();
+    fs::write(
+        &unit,
+        omawake::setup::systemd::generate(Path::new(env!("CARGO_BIN_EXE_omawake")), &config_path),
+    )
+    .unwrap();
+    let fake = fake_systemctl(&root, 3);
+    let systemctl = root.join("test-bin/systemctl");
+    fs::copy(fake.join("systemctl"), &systemctl).unwrap();
+    fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(root.join("systemctl.dropins"), "/tmp/override.conf").unwrap();
+    let (status, terminal) = run_setup_pty(&root, &[b"jjjjjjj\r", b"\r", b"\r", b"q", b"q"]);
+    assert!(status.success(), "{terminal}");
+    assert!(terminal.contains("Service action failed"));
+    assert!(terminal.contains("override"));
+    let calls = fs::read_to_string(root.join("systemctl.log")).unwrap();
+    assert!(!calls.contains("start omawake.service"), "{calls}");
+    assert!(unit.exists());
 }
 
 #[cfg(unix)]
@@ -1436,13 +1616,29 @@ fn malformed_config_is_reported_before_runtime_commands() {
 }
 
 #[test]
+fn service_install_rejects_an_effective_override_without_touching_existing_service_state() {
+    let root = sandbox();
+    let fake = fake_systemctl(&root, 0);
+    fs::write(root.join("systemctl.dropins"), "/tmp/override.conf").unwrap();
+    let output = run_with_path(&root, &["setup", "systemd", "--no-start"], &fake);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("override"), "{}", stderr(&output));
+    assert!(!root.join("config/systemd/user/omawake.service").exists());
+    let calls = fs::read_to_string(root.join("systemctl.log")).unwrap();
+    assert!(calls.contains("daemon-reload"));
+    for action in ["enable", "disable", "restart"] {
+        assert!(!calls.contains(action), "unexpected {action} in {calls}");
+    }
+}
+
+#[test]
 fn systemd_lifecycle_uses_user_manager_and_propagates_failures() {
     let root = sandbox();
     let success = fake_systemctl(&root, 0);
     fs::create_dir_all(root.join("run")).unwrap();
     fs::write(
         success.join("systemctl"),
-        "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$OMAWAKE_SYSTEMCTL_LOG\"\ncase \"$2\" in\n  is-active) test -e \"$XDG_RUNTIME_DIR/service-active\" || exit 3 ;;\n  start|restart) /usr/bin/touch \"$XDG_RUNTIME_DIR/service-active\" ;;\n  stop|disable) /usr/bin/rm -f \"$XDG_RUNTIME_DIR/service-active\" ;;\nesac\n",
+        "#!/bin/sh\nif [ \"$2\" = show ]; then\n  case \"$5\" in\n    FragmentPath) printf '%s\\n' \"$OMAWAKE_TEST_LOCAL_FRAGMENT\" ;;\n    DropInPaths) printf '\\n' ;;\n    NeedDaemonReload) printf 'no\\n' ;;\n  esac\n  exit 0\nfi\nprintf '%s\\n' \"$*\" >> \"$OMAWAKE_SYSTEMCTL_LOG\"\ncase \"$2\" in\n  is-active) test -e \"$XDG_RUNTIME_DIR/service-active\" || exit 3 ;;\n  start|restart) /usr/bin/touch \"$XDG_RUNTIME_DIR/service-active\" ;;\n  stop|disable) /usr/bin/rm -f \"$XDG_RUNTIME_DIR/service-active\" ;;\nesac\n",
     )
     .unwrap();
     assert!(
