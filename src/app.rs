@@ -1643,13 +1643,14 @@ fn guided_all_with(
     paths: &AppPaths,
     prompts: &mut impl GuidedPrompts,
 ) -> Result<()> {
+    let managed_service_active = managed_service_active_for_config(config_path, paths)?;
     guided_all_with_services(
         config_path,
         paths,
         prompts,
         app_setup::model::install,
         app_setup::menu::install,
-        |_| app_setup::systemd::is_active(),
+        |_| managed_service_active,
         app_setup::systemd::reload_if_was_active,
         |config, paths| app_setup::print_checks(config, paths, false),
         app_setup::print_checks_event,
@@ -2425,16 +2426,42 @@ fn restore_config_snapshot(path: &Path, bytes: Option<&[u8]>) -> Result<()> {
     Ok(())
 }
 
-fn save_and_reload_active(config: Config, config_path: &Path, _paths: &AppPaths) -> Result<bool> {
-    let owns_service_config = app_setup::systemd::targets_config(config_path);
+fn save_and_reload_active(config: Config, config_path: &Path, paths: &AppPaths) -> Result<bool> {
+    let managed_running = managed_service_active_for_config(config_path, paths)?;
     save_and_reload_active_with(
         config,
         config_path,
-        owns_service_config,
-        app_setup::systemd::is_active,
+        managed_running,
+        || managed_running,
         app_setup::systemd::reload_if_was_active,
         app_setup::systemd::restart,
     )
+}
+
+fn managed_service_active_for_config(config_path: &Path, paths: &AppPaths) -> Result<bool> {
+    let owns_service_config = app_setup::systemd::targets_config(config_path);
+    let service_active = (owns_service_config || config_path == AppPaths::discover().config_file)
+        && app_setup::systemd::is_active();
+    managed_service_active_for_config_with(paths, service_active, owns_service_config)
+}
+
+fn managed_service_active_for_config_with(
+    paths: &AppPaths,
+    service_active: bool,
+    owns_service_config: bool,
+) -> Result<bool> {
+    let managed_running = service_active && owns_service_config;
+    if service_active && !managed_running {
+        bail!(
+            "a running Omawake daemon is not managed for this configuration; stop its user service before editing, then restart it to apply the change"
+        );
+    }
+    if !managed_running && connect_control_socket(&socket_path(paths)).is_ok() {
+        bail!(
+            "a running Omawake daemon is not managed for this configuration; run `omawake stop` before editing, then start it again to apply the change"
+        );
+    }
+    Ok(managed_running)
 }
 
 fn save_and_reload_active_with(

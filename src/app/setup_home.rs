@@ -188,6 +188,36 @@ pub(super) fn run(config_path: &Path, paths: &AppPaths) -> Result<()> {
 }
 
 fn perform(action: HomeAction, config_path: &Path, paths: &AppPaths) -> Result<()> {
+    if matches!(
+        action,
+        HomeAction::Guided
+            | HomeAction::Words
+            | HomeAction::Teach
+            | HomeAction::Audio
+            | HomeAction::Runtime
+            | HomeAction::Model
+            | HomeAction::Advanced
+    ) {
+        with_manual_pause_preserved(paths, || perform_action(action, config_path, paths))?;
+    } else {
+        perform_action(action, config_path, paths)?;
+    }
+    if matches!(
+        action,
+        HomeAction::Guided
+            | HomeAction::Teach
+            | HomeAction::Audio
+            | HomeAction::Runtime
+            | HomeAction::Model
+            | HomeAction::Test
+            | HomeAction::Check
+    ) {
+        pause()?;
+    }
+    Ok(())
+}
+
+fn perform_action(action: HomeAction, config_path: &Path, paths: &AppPaths) -> Result<()> {
     match action {
         HomeAction::Guided => with_daemon_paused(paths, || {
             guided_all_with(
@@ -219,8 +249,75 @@ fn perform(action: HomeAction, config_path: &Path, paths: &AppPaths) -> Result<(
         HomeAction::Check => app_setup::print_checks(config_path, paths, false),
         HomeAction::Exit => return Ok(()),
     }?;
-    pause()?;
     Ok(())
+}
+
+fn with_manual_pause_preserved<T>(paths: &AppPaths, work: impl FnOnce() -> Result<T>) -> Result<T> {
+    let was_manual = manual_pause_state(paths)?.unwrap_or(false);
+    let result = work();
+    if was_manual {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let response = loop {
+            match request_with_timeout(paths, Command::Pause) {
+                Ok(response) => break response,
+                Err(error)
+                    if error
+                        .downcast_ref::<io::Error>()
+                        .is_some_and(|error| is_missing_socket(error.kind()))
+                        && Instant::now() < deadline =>
+                {
+                    thread::sleep(Duration::from_millis(50));
+                }
+                Err(error) => return Err(error).context("restore the daemon's manual pause"),
+            }
+        };
+        match response.result {
+            ResultPayload::State { state, .. } if state == "paused" => {}
+            ResultPayload::Error { code, message } => {
+                bail!("could not restore the daemon's manual pause: {code}: {message}")
+            }
+            _ => bail!("the daemon did not confirm its manual pause was restored"),
+        }
+    }
+    result
+}
+
+fn manual_pause_state(paths: &AppPaths) -> Result<Option<bool>> {
+    let response = match request_with_timeout(paths, Command::Status) {
+        Ok(response) => response,
+        Err(error)
+            if error
+                .downcast_ref::<io::Error>()
+                .is_some_and(|error| is_missing_socket(error.kind())) =>
+        {
+            return Ok(None);
+        }
+        Err(error) => return Err(error).context("read daemon pause state before setup"),
+    };
+    match response.result {
+        ResultPayload::State { details, .. } => details
+            .pointer("/pause/manual")
+            .and_then(serde_json::Value::as_bool)
+            .map(Some)
+            .context("daemon status did not report its manual pause state"),
+        ResultPayload::Error { code, message } => {
+            bail!("could not read daemon pause state: {code}: {message}")
+        }
+    }
+}
+
+fn request_with_timeout(paths: &AppPaths, command: Command) -> Result<Response> {
+    let mut stream = connect_control_socket(&socket_path(paths))?;
+    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(10)))?;
+    request_over_stream(&mut stream, command)
+}
+
+fn is_missing_socket(kind: io::ErrorKind) -> bool {
+    matches!(
+        kind,
+        io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused | io::ErrorKind::ConnectionReset
+    )
 }
 
 fn with_daemon_paused<T>(paths: &AppPaths, work: impl FnOnce() -> Result<T>) -> Result<T> {
@@ -239,14 +336,7 @@ fn with_daemon_paused<T>(paths: &AppPaths, work: impl FnOnce() -> Result<T>) -> 
                 _ => bail!("the running daemon did not confirm its microphone was released"),
             }
         }
-        Err(error)
-            if matches!(
-                error.kind(),
-                io::ErrorKind::NotFound
-                    | io::ErrorKind::ConnectionRefused
-                    | io::ErrorKind::ConnectionReset
-            ) =>
-        {
+        Err(error) if is_missing_socket(error.kind()) => {
             ensure!(
                 !app_setup::systemd::active_state()?,
                 "an Omawake systemd service is active but its control socket is unavailable; stop it before recording or testing"

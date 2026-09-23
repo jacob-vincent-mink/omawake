@@ -219,23 +219,30 @@ fn setup_home_teaching_holds_a_manually_launched_daemon_pause_in_a_real_pty() {
     listener.set_nonblocking(true).unwrap();
     let server = thread::spawn(move || {
         let deadline = Instant::now() + Duration::from_secs(8);
-        let mut stream = loop {
+        let accept = || loop {
             match listener.accept() {
                 Ok((stream, _)) => break stream,
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                     assert!(
                         Instant::now() < deadline,
-                        "setup did not request a daemon pause"
+                        "setup did not finish the daemon control exchange"
                     );
                     thread::sleep(Duration::from_millis(20));
                 }
                 Err(error) => panic!("accept daemon control connection: {error}"),
             }
         };
+        let mut status = accept();
+        let mut line = String::new();
+        BufReader::new(&mut status).read_line(&mut line).unwrap();
+        let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(request["type"], "status");
+        writeln!(status, "{}", serde_json::json!({"protocol":1,"id":request["id"],"type":"state","state":"paused","details":{"pause":{"manual":true,"owners":0}}})).unwrap();
+        let mut stream = accept();
         stream
             .set_read_timeout(Some(Duration::from_secs(8)))
             .unwrap();
-        let mut line = String::new();
+        line.clear();
         BufReader::new(&mut stream).read_line(&mut line).unwrap();
         let request: serde_json::Value = serde_json::from_str(&line).unwrap();
         assert_eq!(request["type"], "hold_pause");
@@ -247,6 +254,12 @@ fn setup_home_teaching_holds_a_manually_launched_daemon_pause_in_a_real_pty() {
             0,
             "pause hold was not released"
         );
+        let mut status = accept();
+        line.clear();
+        BufReader::new(&mut status).read_line(&mut line).unwrap();
+        let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(request["type"], "pause");
+        writeln!(status, "{}", serde_json::json!({"protocol":1,"id":request["id"],"type":"state","state":"paused","details":{"pause":{"manual":true,"owners":0}}})).unwrap();
     });
     let (status, terminal) = run_setup_pty(&root, &[b"jj\r", b"", b"", b"q", b"\r", b"q"]);
     server.join().unwrap();
@@ -429,6 +442,87 @@ fn setup_home_word_edit_does_not_restart_a_handwritten_service() {
     )
     .unwrap();
     fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o755)).unwrap();
+    let (status, terminal) =
+        run_setup_pty(&root, &[b"j\r", b"\r", b"\r", b"New phrase\r", b"\r", b"q"]);
+    assert!(status.success());
+    assert!(terminal.contains("Setup action failed"));
+    assert!(terminal.contains("running Omawake daemon is not managed"));
+    assert_eq!(
+        Config::load(&config_path).unwrap().wake_words[0].phrase,
+        "Computer"
+    );
+    assert_eq!(fs::read_to_string(&unit).unwrap(), handwritten);
+    let calls = fs::read_to_string(root.join("systemctl.log")).unwrap();
+    assert!(!calls.contains("restart"), "{calls}");
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_home_refuses_to_disable_a_word_in_a_direct_daemon_without_reloading_it() {
+    if Command::new("script").arg("--version").output().is_err() {
+        return;
+    }
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    Config::default().save(&config_path).unwrap();
+    let original = fs::read(&config_path).unwrap();
+    let run_dir = root.join("run/omawake");
+    fs::create_dir_all(&run_dir).unwrap();
+    let listener = UnixListener::bind(run_dir.join("control.sock")).unwrap();
+    let server = thread::spawn(move || {
+        let (mut status, _) = listener.accept().unwrap();
+        let mut line = String::new();
+        BufReader::new(&mut status).read_line(&mut line).unwrap();
+        let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(request["type"], "status");
+        writeln!(status, "{}", serde_json::json!({"protocol":1,"id":request["id"],"type":"state","state":"armed","details":{"pause":{"manual":false,"owners":0}}})).unwrap();
+        let (mut probe, _) = listener.accept().unwrap();
+        assert_eq!(probe.read(&mut [0_u8]).unwrap(), 0);
+    });
+    let (status, terminal) = run_setup_pty(&root, &[b"j\r", b"\r", b"jjj\r", b"\r", b"q"]);
+    server.join().unwrap();
+    assert!(status.success());
+    assert!(terminal.contains("Setup action failed"), "{terminal}");
+    assert!(terminal.contains("running Omawake daemon is not managed"));
+    assert_eq!(fs::read(&config_path).unwrap(), original);
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_home_restores_manual_pause_after_a_managed_config_restart() {
+    if Command::new("script").arg("--version").output().is_err() {
+        return;
+    }
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    Config::default().save(&config_path).unwrap();
+    let unit = root.join("config/systemd/user/omawake.service");
+    fs::create_dir_all(unit.parent().unwrap()).unwrap();
+    fs::write(
+        &unit,
+        omawake::setup::systemd::generate(Path::new(env!("CARGO_BIN_EXE_omawake")), &config_path),
+    )
+    .unwrap();
+    let systemctl = root.join("test-bin/systemctl");
+    fs::write(
+        &systemctl,
+        "#!/bin/sh\necho \"$*\" >> \"$OMAWAKE_SYSTEMCTL_LOG\"\ncase \"$2\" in\n  is-active|try-restart) exit 0 ;;\nesac\n",
+    )
+    .unwrap();
+    fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o755)).unwrap();
+    let run_dir = root.join("run/omawake");
+    fs::create_dir_all(&run_dir).unwrap();
+    let listener = UnixListener::bind(run_dir.join("control.sock")).unwrap();
+    let server = thread::spawn(move || {
+        for (expected, manual) in [("status", true), ("pause", true)] {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut line = String::new();
+            BufReader::new(&mut stream).read_line(&mut line).unwrap();
+            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["type"], expected);
+            writeln!(stream, "{}", serde_json::json!({"protocol":1,"id":request["id"],"type":"state","state":if manual {"paused"} else {"armed"},"details":{"pause":{"manual":manual,"owners":0}}})).unwrap();
+        }
+    });
     let (status, terminal) = run_setup_pty(
         &root,
         &[
@@ -442,15 +536,18 @@ fn setup_home_word_edit_does_not_restart_a_handwritten_service() {
             b"q",
         ],
     );
-    assert!(status.success());
+    server.join().unwrap();
+    assert!(status.success(), "{terminal}");
     assert!(terminal.contains("Wake word saved"));
     assert_eq!(
         Config::load(&config_path).unwrap().wake_words[0].phrase,
         "New phrase"
     );
-    assert_eq!(fs::read_to_string(&unit).unwrap(), handwritten);
-    let calls = fs::read_to_string(root.join("systemctl.log")).unwrap();
-    assert!(!calls.contains("restart"), "{calls}");
+    assert!(
+        fs::read_to_string(root.join("systemctl.log"))
+            .unwrap()
+            .contains("try-restart")
+    );
 }
 
 #[cfg(unix)]

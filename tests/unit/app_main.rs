@@ -5,6 +5,21 @@ use std::io::Cursor;
 
 use crate::engine::{WakeWordBackend, WakeWordStream};
 
+#[test]
+fn guided_service_preflight_rejects_a_running_unmanaged_unit() {
+    let paths = test_paths("guided-unmanaged-service");
+    let config_path = &paths.config_file;
+    let unit = app_setup::systemd::service_path(&paths);
+    fs::create_dir_all(unit.parent().unwrap()).unwrap();
+    let handwritten = app_setup::systemd::generate(Path::new("/usr/bin/omawake"), config_path)
+        .replace("Restart=on-failure", "Restart=always");
+    fs::write(&unit, handwritten).unwrap();
+    assert!(!app_setup::systemd::is_managed(&paths, config_path));
+    let error = managed_service_active_for_config_with(&paths, true, false).unwrap_err();
+    assert!(error.to_string().contains("not managed"));
+    assert!(!managed_service_active_for_config_with(&paths, false, false).unwrap());
+}
+
 struct FakeControl;
 
 struct InMemoryBackend;
