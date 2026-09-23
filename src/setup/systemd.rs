@@ -1,4 +1,5 @@
 use std::fs;
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -204,6 +205,9 @@ pub fn install(paths: &AppPaths, config: &Path, start: bool) -> Result<PathBuf> 
         read_managed_unit(paths, None)?;
     }
     let was_active = is_active();
+    if !was_active {
+        ensure_no_direct_daemon(paths)?;
+    }
     let was_enabled = is_enabled();
     let mut enable_attempted = false;
     let mut restart_attempted = false;
@@ -352,6 +356,9 @@ pub fn restart() -> Result<()> {
 
 /// Start the Omawake user unit installed by setup.
 pub fn start(paths: &AppPaths) -> Result<()> {
+    if !is_active() {
+        ensure_no_direct_daemon(paths)?;
+    }
     set_active_with(
         paths,
         "start",
@@ -359,6 +366,25 @@ pub fn start(paths: &AppPaths) -> Result<()> {
         |action| systemctl([action, UNIT]),
         active_state,
     )
+}
+
+fn ensure_no_direct_daemon(paths: &AppPaths) -> Result<()> {
+    match UnixStream::connect(paths.socket()) {
+        Ok(_) => bail!(
+            "a directly launched Omawake daemon is running; run `omawake stop` before starting the user service"
+        ),
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound
+                    | std::io::ErrorKind::ConnectionRefused
+                    | std::io::ErrorKind::ConnectionReset
+            ) =>
+        {
+            Ok(())
+        }
+        Err(error) => Err(error).context("check for a directly launched Omawake daemon"),
+    }
 }
 
 /// Stop the Omawake user unit installed by setup.

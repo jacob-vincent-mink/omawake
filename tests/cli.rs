@@ -950,6 +950,37 @@ fn setup_home_refuses_to_start_a_service_with_an_effective_override() {
 
 #[cfg(unix)]
 #[test]
+fn setup_home_refuses_to_start_a_service_beside_a_direct_daemon() {
+    if Command::new("script").arg("--version").output().is_err() {
+        return;
+    }
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    Config::default().save(&config_path).unwrap();
+    let unit = root.join("config/systemd/user/omawake.service");
+    fs::create_dir_all(unit.parent().unwrap()).unwrap();
+    fs::write(
+        &unit,
+        omawake::setup::systemd::generate(Path::new(env!("CARGO_BIN_EXE_omawake")), &config_path),
+    )
+    .unwrap();
+    let fake = fake_systemctl(&root, 3);
+    let systemctl = root.join("test-bin/systemctl");
+    fs::copy(fake.join("systemctl"), &systemctl).unwrap();
+    fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o755)).unwrap();
+    let run_dir = root.join("run/omawake");
+    fs::create_dir_all(&run_dir).unwrap();
+    let _daemon = UnixListener::bind(run_dir.join("control.sock")).unwrap();
+    let (status, terminal) = run_setup_pty(&root, &[b"jjjjjjj\r", b"\r", b"\r", b"q", b"q"]);
+    assert!(status.success(), "{terminal}");
+    assert!(terminal.contains("directly launched Omawake daemon"));
+    let calls = fs::read_to_string(root.join("systemctl.log")).unwrap();
+    assert!(!calls.contains("--user start omawake.service"), "{calls}");
+    assert!(unit.exists());
+}
+
+#[cfg(unix)]
+#[test]
 fn setup_home_edits_advanced_settings_and_rejects_zero_queue_in_a_real_pty() {
     if Command::new("script").arg("--version").output().is_err() {
         return;
@@ -1674,6 +1705,22 @@ fn service_install_rejects_an_effective_override_without_touching_existing_servi
             "unexpected {action} in {calls}"
         );
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn cli_service_install_refuses_a_running_direct_daemon() {
+    let root = sandbox();
+    let run_dir = root.join("run/omawake");
+    fs::create_dir_all(&run_dir).unwrap();
+    let _daemon = UnixListener::bind(run_dir.join("control.sock")).unwrap();
+    let fake = fake_systemctl(&root, 3);
+    let output = run_with_path(&root, &["setup", "systemd", "--no-start"], &fake);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("directly launched Omawake daemon"));
+    assert!(!root.join("config/systemd/user/omawake.service").exists());
+    let calls = fs::read_to_string(root.join("systemctl.log")).unwrap();
+    assert!(!calls.contains("enable"), "{calls}");
 }
 
 #[test]
