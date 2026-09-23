@@ -3,7 +3,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::linux::net::SocketAddrExt;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::net::{SocketAddr, UnixListener, UnixStream};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
@@ -74,11 +74,7 @@ pub(crate) fn response_targets_config(response: &Response, paths: &AppPaths) -> 
 pub(crate) fn reserve(paths: &AppPaths) -> Result<Vec<UnixListener>> {
     // Keep the spelling of the config path locked if an atomic save replaces a
     // symlink. Lock its resolved target too, so aliases share daemon ownership.
-    let path = if paths.config_file.is_absolute() {
-        paths.config_file.clone()
-    } else {
-        std::env::current_dir()?.join(&paths.config_file)
-    };
+    let path = absolute_config_path(paths)?;
     let mut identities = vec![path.clone()];
     if let Ok(resolved) = fs::canonicalize(&path) {
         identities.push(resolved);
@@ -108,4 +104,12 @@ pub(crate) fn reserve(paths: &AppPaths) -> Result<Vec<UnixListener>> {
         })?);
     }
     Ok(listeners)
+}
+
+pub(crate) fn absolute_config_path(paths: &AppPaths) -> Result<PathBuf> {
+    Ok(if paths.config_file.is_absolute() {
+        paths.config_file.clone()
+    } else {
+        std::env::current_dir()?.join(&paths.config_file)
+    })
 }

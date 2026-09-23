@@ -51,6 +51,17 @@ pub fn effective_targets_config(config: &Path) -> bool {
     }
 }
 
+/// A loaded, unmodified setup unit can prove that an active service belongs
+/// to a different config, allowing this config to be edited independently.
+pub fn loaded_managed_unit_targets_another_config(config: &Path) -> bool {
+    let defaults = AppPaths::discover();
+    let local = service_path(&defaults);
+    local.is_file()
+        && loaded_fragment_without_overrides().as_deref() == Some(local.as_path())
+        && read_managed_unit(&defaults, None).is_ok()
+        && read_managed_unit(&defaults, Some(config)).is_err()
+}
+
 fn loaded_fragment_without_overrides() -> Option<PathBuf> {
     let Ok(fragment) = unit_property("FragmentPath") else {
         return None;

@@ -320,13 +320,8 @@ fn setup_home_recognition_holds_a_manually_launched_daemon_pause_in_a_real_pty()
         let mut line = String::new();
         BufReader::new(&mut stream).read_line(&mut line).unwrap();
         let request: serde_json::Value = serde_json::from_str(&line).unwrap();
-        assert_eq!(request["type"], "status");
-        writeln!(stream, "{}", serde_json::json!({"protocol":1,"id":request["id"],"type":"state","state":"paused","details":{"config_path":server_config,"pause":{"manual":true,"owners":0}}})).unwrap();
-        line.clear();
-        BufReader::new(&mut stream).read_line(&mut line).unwrap();
-        let request: serde_json::Value = serde_json::from_str(&line).unwrap();
         assert_eq!(request["type"], "hold_pause");
-        let response = serde_json::json!({"protocol":1,"id":request["id"],"type":"state","state":"paused","details":{"pause":{"manual":true,"owners":1}}});
+        let response = serde_json::json!({"protocol":1,"id":request["id"],"type":"state","state":"paused","details":{"config_path":server_config,"pause":{"manual":true,"owners":1}}});
         writeln!(stream, "{response}").unwrap();
         let mut byte = [0];
         assert_eq!(
@@ -1478,6 +1473,56 @@ fn service_install_preserves_an_existing_symlinked_config() {
     assert_eq!(fs::read_link(&config_path).unwrap(), target);
 }
 
+#[cfg(unix)]
+#[test]
+fn failed_service_install_preserves_an_existing_symlinked_config() {
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    let target = root.join("saved-config.toml");
+    Config::default().save(&target).unwrap();
+    fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(&target, &config_path).unwrap();
+    let unit = root.join("config/systemd/user/omawake.service");
+    fs::create_dir_all(unit.parent().unwrap()).unwrap();
+    fs::write(&unit, "[Service]\nExecStart=/usr/bin/other\n").unwrap();
+    let fake = fake_systemctl(&root, 3);
+    let output = run_with_path(&root, &["setup", "systemd", "--no-start"], &fake);
+    assert!(!output.status.success());
+    assert!(
+        fs::symlink_metadata(&config_path)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(fs::read_link(&config_path).unwrap(), target);
+}
+
+#[cfg(unix)]
+#[test]
+fn failed_service_install_restores_an_invalid_symlinked_config() {
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    let target = root.join("invalid-config.toml");
+    let invalid = b"[backend]\nremoved_option = \"\"\n";
+    fs::write(&target, invalid).unwrap();
+    fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(&target, &config_path).unwrap();
+    let unit = root.join("config/systemd/user/omawake.service");
+    fs::create_dir_all(unit.parent().unwrap()).unwrap();
+    fs::write(&unit, "[Service]\nExecStart=/usr/bin/other\n").unwrap();
+    let fake = fake_systemctl(&root, 3);
+    let output = run_with_path(&root, &["setup", "systemd", "--no-start"], &fake);
+    assert!(!output.status.success());
+    assert!(
+        fs::symlink_metadata(&config_path)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(fs::read_link(&config_path).unwrap(), target);
+    assert_eq!(fs::read(&config_path).unwrap(), invalid);
+}
+
 #[test]
 fn config_commands_cover_supported_keys_and_errors() {
     let root = sandbox();
@@ -1636,6 +1681,35 @@ fn default_config_edit_ignores_an_unrelated_custom_daemon_socket() {
         Config::load(&default_config).unwrap().daemon.queue_capacity,
         4
     );
+}
+
+#[test]
+fn default_config_edit_ignores_a_managed_service_for_another_config() {
+    let root = sandbox();
+    let default_config = root.join("config/omawake/config.toml");
+    let custom_config = root.join("config/omawake/other.toml");
+    Config::default().save(&default_config).unwrap();
+    Config::default().save(&custom_config).unwrap();
+    let unit = root.join("config/systemd/user/omawake.service");
+    fs::create_dir_all(unit.parent().unwrap()).unwrap();
+    fs::write(
+        &unit,
+        omawake::setup::systemd::generate(Path::new(env!("CARGO_BIN_EXE_omawake")), &custom_config),
+    )
+    .unwrap();
+    let fake = fake_systemctl(&root, 0);
+    let edit = run_with_path(
+        &root,
+        &["config", "set", "daemon.queue_capacity", "4"],
+        &fake,
+    );
+    assert!(edit.status.success(), "{}", stderr(&edit));
+    assert_eq!(
+        Config::load(&default_config).unwrap().daemon.queue_capacity,
+        4
+    );
+    let calls = fs::read_to_string(root.join("systemctl.log")).unwrap_or_default();
+    assert!(!calls.contains("try-restart"), "{calls}");
 }
 
 #[test]
@@ -2830,7 +2904,8 @@ fn daemon_recovers_a_pinned_microphone_and_keeps_controls_responsive() {
     }
     let mut daemon = Daemon(
         Command::new(env!("CARGO_BIN_EXE_omawake"))
-            .args(["--config", config_path.to_str().unwrap(), "daemon"])
+            .args(["--config", "config/omawake/config.toml", "daemon"])
+            .current_dir(&root)
             .env("XDG_CONFIG_HOME", root.join("config"))
             .env("XDG_DATA_HOME", root.join("data"))
             .env("XDG_CACHE_HOME", root.join("cache"))
@@ -2858,6 +2933,21 @@ fn daemon_recovers_a_pinned_microphone_and_keeps_controls_responsive() {
         }
     };
     let unavailable = wait_state("audio_unavailable");
+    assert_eq!(
+        unavailable["details"]["config_path"],
+        config_path.to_str().unwrap()
+    );
+    let (recognition_status, recognition) = run_setup_pty(&root, &[b"jjjjjj\r", b"\r", b"q"]);
+    assert!(recognition_status.success());
+    assert!(recognition.contains("Listening for five seconds"));
+    let (microphone_status, microphone) = run_setup_pty(
+        &root,
+        &[b"jjj\r", b"", b"", b"", b"", b"\r", b"q", b"\r", b"q"],
+    );
+    assert!(microphone_status.success());
+    assert!(microphone.contains("Audio device"));
+    assert!(microphone.contains("Apply audio device"));
+    assert!(microphone.contains("stop the running Omawake daemon"));
     assert_eq!(
         unavailable["details"]["audio"]["requested"],
         "pipewire:test-mic"
@@ -2942,8 +3032,8 @@ fn daemon_recovers_a_pinned_microphone_and_keeps_controls_responsive() {
         let mut line = String::new();
         BufReader::new(&mut stream).read_line(&mut line).unwrap();
         let request: serde_json::Value = serde_json::from_str(&line).unwrap();
-        assert_eq!(request["type"], "status");
-        writeln!(stream, "{}", serde_json::json!({"protocol":1,"id":request["id"],"type":"state","state":"armed","details":{"config_path":unrelated_owner}})).unwrap();
+        assert_eq!(request["type"], "hold_pause");
+        writeln!(stream, "{}", serde_json::json!({"protocol":1,"id":request["id"],"type":"state","state":"paused","details":{"config_path":unrelated_owner}})).unwrap();
         assert_eq!(stream.read(&mut [0_u8]).unwrap(), 0);
     });
     let (other_socket_status, other_socket_terminal) = run_setup_pty_with_runtime(

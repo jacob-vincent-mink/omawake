@@ -1118,8 +1118,17 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
                     app_setup::systemd::ensure_no_direct_daemon(paths)?;
                 }
                 let original = config_snapshot(config_path)?;
+                let original_link = match fs::symlink_metadata(config_path) {
+                    Ok(metadata) if metadata.file_type().is_symlink() => {
+                        Some(fs::read_link(config_path)?)
+                    }
+                    Ok(_) => None,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                    Err(error) => return Err(error).context("inspect config before service setup"),
+                };
+                let config_was_missing = !config_path.exists();
+                let repair_invalid = app_setup::config_recovery(config_path)?.is_some();
                 let result = (|| {
-                    let repair_invalid = app_setup::config_recovery(config_path)?.is_some();
                     let config = app_setup::ensure_config(config_path)?;
                     if repair_invalid {
                         config.save(config_path)?;
@@ -1129,7 +1138,14 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
                     Ok(())
                 })();
                 if let Err(error) = result {
-                    restore_config_snapshot(config_path, original.as_deref())?;
+                    if config_was_missing || repair_invalid {
+                        if let Some(target) = original_link {
+                            fs::remove_file(config_path)?;
+                            std::os::unix::fs::symlink(target, config_path)?;
+                        } else {
+                            restore_config_snapshot(config_path, original.as_deref())?;
+                        }
+                    }
                     return Err(error);
                 }
                 Ok(())
@@ -2490,8 +2506,10 @@ fn managed_service_active_for_config(
     paths: &AppPaths,
 ) -> Result<ConfigEditState> {
     let base_targets_config = app_setup::systemd::targets_config(config_path);
-    let service_active = (base_targets_config || config_path == AppPaths::discover().config_file)
-        && app_setup::systemd::is_active();
+    let default_may_target_config = config_path == AppPaths::discover().config_file
+        && !app_setup::systemd::loaded_managed_unit_targets_another_config(config_path);
+    let service_active =
+        (base_targets_config || default_may_target_config) && app_setup::systemd::is_active();
     let effective_targets_config = base_targets_config
         && service_active
         && app_setup::systemd::effective_targets_config(config_path);
@@ -3341,6 +3359,7 @@ fn run_loaded_daemon(
     paths: &AppPaths,
     shutdown_requested: Arc<AtomicBool>,
 ) -> Result<()> {
+    let config_identity = crate::daemon_instance::absolute_config_path(paths)?;
     let listener = bind_socket(paths)?;
     let socket_metadata = fs::symlink_metadata(socket_path(paths)).with_context(|| {
         format!(
@@ -3363,7 +3382,7 @@ fn run_loaded_daemon(
             &config.model.name,
             &config.model.language,
         );
-        details["config_path"] = json!(&paths.config_file);
+        details["config_path"] = json!(&config_identity);
         attach_engine_groups(&mut details, detector);
         control
             .borrow_mut()
@@ -3986,12 +4005,19 @@ fn setup_audio(
     }
     let mut save = apply;
     if interactive {
+        let apply_blocker = managed_service_active_for_config(config_path, paths)
+            .err()
+            .map(|error| format!("{error:#}"));
         loop {
             let items = [
-                MenuItem::available(
-                    "Apply",
-                    "Save this route and restart an already-active service.",
-                ),
+                if let Some(reason) = &apply_blocker {
+                    MenuItem::unavailable("Apply", reason)
+                } else {
+                    MenuItem::available(
+                        "Apply",
+                        "Save this route and restart an already-active service.",
+                    )
+                },
                 MenuItem::available(
                     "Test device",
                     "Run a short audio check without loading a model.",
