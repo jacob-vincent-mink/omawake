@@ -2830,6 +2830,21 @@ fn daemon_recovers_a_pinned_microphone_and_keeps_controls_responsive() {
     assert!(setup_status.success());
     assert!(terminal.contains("stop the running Omawake daemon before recording"));
     assert!(terminal.contains("another Omawake daemon is already"));
+    let before_edit = fs::read(&config_path).unwrap();
+    let edit = Command::new(env!("CARGO_BIN_EXE_omawake"))
+        .args(["config", "set", "daemon.queue_capacity", "4"])
+        .env("XDG_RUNTIME_DIR", root.join("alternate-run"))
+        .env("XDG_CONFIG_HOME", root.join("config"))
+        .env("XDG_DATA_HOME", root.join("data"))
+        .env("XDG_CACHE_HOME", root.join("cache"))
+        .env("XDG_STATE_HOME", root.join("state"))
+        .env("PATH", test_path(&root))
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(!edit.status.success());
+    assert!(stderr(&edit).contains("another Omawake daemon is already"));
+    assert_eq!(fs::read(&config_path).unwrap(), before_edit);
     assert!(run(&root, &["pause"]).status.success());
     wait_state("paused");
     assert!(run(&root, &["resume"]).status.success());

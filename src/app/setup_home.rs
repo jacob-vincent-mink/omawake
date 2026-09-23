@@ -343,7 +343,7 @@ fn with_daemon_paused<T>(paths: &AppPaths, work: impl FnOnce() -> Result<T>) -> 
                 "an Omawake systemd service is active but its control socket is unavailable; stop it before recording or testing"
             );
             reservation = Some(
-                bind_daemon_instance(paths)
+                AudioSetupReservation::new(paths)
                     .context("stop the running Omawake daemon before recording or testing audio")?,
             );
             None

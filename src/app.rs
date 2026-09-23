@@ -8,6 +8,7 @@ mod training;
 use crate::setup::wizard::MenuItem;
 
 use sha2::{Digest, Sha256};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
@@ -1153,14 +1154,14 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
                 Some(id) => model_spec(id)?,
                 None => crate::catalog::setup_model(&current)?,
             };
-            let service_was_active = managed_service_active_for_config(config_path, paths)?;
+            let edit = managed_service_active_for_config(config_path, paths)?;
             install_everything(
                 spec,
                 config_path,
                 paths,
                 source_dir.as_deref(),
                 progress_format,
-                service_was_active,
+                edit.managed_running,
                 |config, path| {
                     crate::runtime_inventory::apply_with(
                         config,
@@ -1647,14 +1648,14 @@ fn guided_all_with(
     paths: &AppPaths,
     prompts: &mut impl GuidedPrompts,
 ) -> Result<()> {
-    let managed_service_active = managed_service_active_for_config(config_path, paths)?;
+    let edit = managed_service_active_for_config(config_path, paths)?;
     guided_all_with_services(
         config_path,
         paths,
         prompts,
         app_setup::model::install,
         app_setup::menu::install,
-        |_| managed_service_active,
+        |_| edit.managed_running,
         app_setup::systemd::reload_if_was_active,
         |config, paths| app_setup::print_checks(config, paths, false),
         app_setup::print_checks_event,
@@ -2431,7 +2432,8 @@ fn restore_config_snapshot(path: &Path, bytes: Option<&[u8]>) -> Result<()> {
 }
 
 fn save_and_reload_active(config: Config, config_path: &Path, paths: &AppPaths) -> Result<bool> {
-    let managed_running = managed_service_active_for_config(config_path, paths)?;
+    let edit = managed_service_active_for_config(config_path, paths)?;
+    let managed_running = edit.managed_running;
     save_and_reload_active_with(
         config,
         config_path,
@@ -2442,14 +2444,71 @@ fn save_and_reload_active(config: Config, config_path: &Path, paths: &AppPaths) 
     )
 }
 
-fn managed_service_active_for_config(config_path: &Path, paths: &AppPaths) -> Result<bool> {
+struct ConfigEditState {
+    managed_running: bool,
+    _reservation: Option<Vec<UnixListener>>,
+}
+
+// Guided audio setup can save config while it owns the daemon reservation.
+// Nested edit preflight reuses that reservation on this thread.
+thread_local! {
+    static AUDIO_SETUP_RESERVATIONS: RefCell<Vec<PathBuf>> = const { RefCell::new(Vec::new()) };
+}
+
+struct AudioSetupReservation {
+    path: PathBuf,
+    _listeners: Vec<UnixListener>,
+}
+
+impl AudioSetupReservation {
+    fn new(paths: &AppPaths) -> Result<Self> {
+        let listeners = bind_daemon_instance(paths)?;
+        let path = paths.config_file.clone();
+        AUDIO_SETUP_RESERVATIONS.with(|held| held.borrow_mut().push(path.clone()));
+        Ok(Self {
+            path,
+            _listeners: listeners,
+        })
+    }
+}
+
+impl Drop for AudioSetupReservation {
+    fn drop(&mut self) {
+        AUDIO_SETUP_RESERVATIONS.with(|held| {
+            let mut held = held.borrow_mut();
+            if let Some(index) = held.iter().rposition(|path| path == &self.path) {
+                held.remove(index);
+            }
+        });
+    }
+}
+
+fn managed_service_active_for_config(
+    config_path: &Path,
+    paths: &AppPaths,
+) -> Result<ConfigEditState> {
     let base_targets_config = app_setup::systemd::targets_config(config_path);
     let service_active = (base_targets_config || config_path == AppPaths::discover().config_file)
         && app_setup::systemd::is_active();
     let effective_targets_config = base_targets_config
         && service_active
         && app_setup::systemd::effective_targets_config(config_path);
-    managed_service_active_for_config_with(paths, service_active, effective_targets_config)
+    let managed_running =
+        managed_service_active_for_config_with(paths, service_active, effective_targets_config)?;
+    let audio_reservation_held = AUDIO_SETUP_RESERVATIONS
+        .with(|held| held.borrow().iter().any(|path| path == &paths.config_file));
+    let reservation = if managed_running || audio_reservation_held {
+        None
+    } else {
+        Some(
+            bind_daemon_instance(paths)
+                .context("stop the running Omawake daemon before editing its configuration")?,
+        )
+    };
+    Ok(ConfigEditState {
+        managed_running,
+        _reservation: reservation,
+    })
 }
 
 fn managed_service_active_for_config_with(
