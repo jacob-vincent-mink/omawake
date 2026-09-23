@@ -26,9 +26,7 @@ cd omawake-0.0.3-linux-x86_64
 ./omawake setup
 ```
 
-Use the arrow keys and Enter to choose a provider and model, review the plan,
-and apply it. The default release provider is audio.cpp on CPU. Setup downloads
-and verifies these two pinned MIT-licensed assets as one model profile:
+The Ratatui setup home shows the current runtime, model, microphone, wake words, and service state. Use arrow keys or `j`/`k` to move, Enter to open a choice, and Esc or `q` to go back. **Start guided setup** chooses a provider, model, and microphone, reviews the plan, and applies it. The default release provider is audio.cpp on CPU. Setup downloads and verifies these two pinned MIT-licensed assets as one model profile:
 
 - Moonshine Streaming Tiny Q8_0, 60,407,904 bytes
 - Silero VAD 6.2.1, 1,239,748 bytes
@@ -38,9 +36,11 @@ license notices must verify before the new model directory becomes active.
 Setup then initializes the provider and both models with a silent file-only
 proof before saving the config.
 
-Setup installs the optional desktop settings launcher. It does **not** install
-or start a systemd service. Run on demand with `omawake daemon`, or explicitly
-install the user service later with `omawake setup systemd`.
+Setup installs the optional desktop settings launcher, which opens the same setup home. It does **not** install or start a systemd service during the guided flow. From setup home, review the example `Computer` wake word and its action, choose **Teach a wake word** if recognition needs examples, test the microphone, then use **Try recognition** to listen for five seconds without executing actions. **Background service** lets you explicitly install and start the user service, stop or restart it, check its status, or uninstall it. You can also run on demand with `omawake daemon` or use `omawake setup systemd` from the shell.
+
+The **Wake words & actions** screen adds phrases and lets you change the phrase, program, individual arguments, aliases, and enabled state. An active trained detector keeps its spoken phrase and does not use transcript aliases; use **Teach a wake word** to change its recognition.
+
+**Advanced settings** covers CPU threads, cooldown, and capture queue. Changes to an active setup-managed service restart it automatically; setup rolls back the configuration if the restart fails. Guided setup, microphone selection, teaching, and the recognition test pause a running setup-managed service and resume it afterward so its actions cannot fire during recording. Setup leaves hand-written user units alone. **Run setup checks** verifies the full installation after each step.
 
 These focused commands expose the same choices without the full guided flow:
 

@@ -104,57 +104,487 @@ fn stderr(output: &Output) -> String {
 }
 
 #[cfg(unix)]
-#[test]
-fn guided_setup_wraps_words_and_accepts_arrow_keys_in_a_real_pty() {
-    if Command::new("script").arg("--version").output().is_err() {
-        return;
-    }
-    let root = sandbox();
+fn run_setup_pty(root: &Path, keys: &[&[u8]]) -> (std::process::ExitStatus, String) {
     let binary = env!("CARGO_BIN_EXE_omawake");
     assert!(!binary.contains(['\'', '"', ' ']));
+    let transcript = root.join("setup.typescript");
     let mut child = Command::new("script")
-        .args(["-qec", &format!("{binary} setup"), "/dev/null"])
+        .args([
+            "-fqec",
+            &format!("stty rows 24 cols 100 && {binary} setup"),
+            transcript.to_str().unwrap(),
+        ])
+        .env("HOME", root)
         .env("XDG_CONFIG_HOME", root.join("config"))
         .env("XDG_DATA_HOME", root.join("data"))
         .env("XDG_CACHE_HOME", root.join("cache"))
         .env("XDG_STATE_HOME", root.join("state"))
         .env("XDG_RUNTIME_DIR", root.join("run"))
         .env("TERM", "xterm-256color")
+        .env("PATH", test_path(root))
+        .env("OMAWAKE_SYSTEMCTL_LOG", root.join("systemctl.log"))
         .env(
             "OMAWAKE_AUDIOCPP_LIBRARY",
             root.join("missing-libaudiocpp.so"),
         )
         .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
+        .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
     let mut input = child.stdin.take().unwrap();
-    thread::sleep(Duration::from_millis(750));
-    // Runtime flow, default audio.cpp, CPU, then current discovery.
-    for keys in [b"\x1b[B\r".as_slice(), b"\r", b"\r", b"\r"] {
+    thread::sleep(Duration::from_millis(350));
+    for keys in keys {
         input.write_all(keys).unwrap();
         input.flush().unwrap();
-        thread::sleep(Duration::from_millis(150));
+        thread::sleep(Duration::from_millis(220));
     }
     drop(input);
     let deadline = Instant::now() + Duration::from_secs(5);
     while child.try_wait().unwrap().is_none() {
         if Instant::now() >= deadline {
             child.kill().unwrap();
-            panic!("guided setup did not finish after PTY input");
+            panic!("setup did not finish after PTY input");
         }
         thread::sleep(Duration::from_millis(25));
     }
-    let output = child.wait_with_output().unwrap();
-    assert!(!output.status.success());
-    let terminal = stdout(&output);
+    let status = child.wait_with_output().unwrap().status;
+    (status, fs::read_to_string(transcript).unwrap())
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_home_opens_runtime_flow_and_returns_in_a_real_pty() {
+    if Command::new("script").arg("--version").output().is_err() {
+        return;
+    }
+    let root = sandbox();
+    // Skip disabled first-run rows, open Runtime, cancel it, then leave setup.
+    let (status, terminal) = run_setup_pty(&root, &[b"\x1b[B\r", b"q", b"\r", b"q"]);
+    assert!(status.success());
     assert!(terminal.contains("Omawake setup"));
     assert!(terminal.contains("Inference runtime"));
-    assert!(terminal.contains("Inference device"));
-    assert!(terminal.contains("Runtime libraries"));
-    assert!(terminal.contains("missing-libaudiocpp.so"));
+    assert!(terminal.contains("Start guided setup"));
+    assert!(terminal.contains("Background service"));
     assert!(!root.join("config/omawake/config.toml").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_home_guided_flow_can_be_cancelled_before_install_in_a_real_pty() {
+    if Command::new("script").arg("--version").output().is_err() {
+        return;
+    }
+    let root = sandbox();
+    let (status, terminal) = run_setup_pty(&root, &[b"\r", b"q", b"\r", b"q"]);
+    assert!(status.success());
+    assert!(terminal.contains("Inference runtime"));
+    assert!(terminal.contains("Setup cancelled"));
+    assert!(!root.join("config/omawake/config.toml").exists());
+    assert!(!root.join("config/systemd/user/omawake.service").exists());
+    assert!(!root.join("data/omawake/models").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_home_teaching_can_be_cancelled_without_changing_a_word_in_a_real_pty() {
+    if Command::new("script").arg("--version").output().is_err() {
+        return;
+    }
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    Config::default().save(&config_path).unwrap();
+    let original = fs::read(&config_path).unwrap();
+    let (status, terminal) = run_setup_pty(&root, &[b"jj\r", b"q", b"\r", b"q"]);
+    assert!(status.success());
+    assert!(terminal.contains("Wake-word onboarding"));
+    assert!(terminal.contains("onboarding cancelled"));
+    assert_eq!(fs::read(&config_path).unwrap(), original);
+    assert!(!root.join("state/omawake").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_home_teaching_temporarily_stops_and_resumes_a_managed_service_in_a_real_pty() {
+    if Command::new("script").arg("--version").output().is_err() {
+        return;
+    }
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    Config::default().save(&config_path).unwrap();
+    let original = fs::read(&config_path).unwrap();
+    let unit = root.join("config/systemd/user/omawake.service");
+    fs::create_dir_all(unit.parent().unwrap()).unwrap();
+    fs::write(
+        &unit,
+        omawake::setup::systemd::generate(Path::new(env!("CARGO_BIN_EXE_omawake")), &config_path),
+    )
+    .unwrap();
+    let run_dir = root.join("run");
+    fs::create_dir_all(&run_dir).unwrap();
+    fs::write(run_dir.join("service-active"), b"").unwrap();
+    let systemctl = root.join("test-bin/systemctl");
+    fs::write(
+        &systemctl,
+        "#!/bin/sh\necho \"$*\" >> \"$OMAWAKE_SYSTEMCTL_LOG\"\ncase \"$2\" in\n  is-active) test -e \"$XDG_RUNTIME_DIR/service-active\" || exit 3 ;;\n  start) touch \"$XDG_RUNTIME_DIR/service-active\" ;;\n  stop) rm -f \"$XDG_RUNTIME_DIR/service-active\" ;;\nesac\n",
+    )
+    .unwrap();
+    fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o755)).unwrap();
+    let (status, terminal) = run_setup_pty(
+        &root,
+        &[b"jj\r", b"", b"", b"", b"", b"q", b"", b"", b"\r", b"q"],
+    );
+    assert!(status.success());
+    assert!(terminal.contains("Wake-word onboarding"));
+    assert!(terminal.contains("onboarding cancelled"));
+    assert_eq!(fs::read(&config_path).unwrap(), original);
+    assert!(unit.exists());
+    assert!(run_dir.join("service-active").exists());
+    let calls = fs::read_to_string(root.join("systemctl.log")).unwrap();
+    let stopped = calls.find("--user stop omawake.service").unwrap();
+    let started = calls.find("--user start omawake.service").unwrap();
+    assert!(stopped < started, "{calls}");
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_home_microphone_picker_can_be_cancelled_without_saving_in_a_real_pty() {
+    if Command::new("script").arg("--version").output().is_err() {
+        return;
+    }
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    Config::default().save(&config_path).unwrap();
+    let original = fs::read(&config_path).unwrap();
+    let (status, terminal) =
+        run_setup_pty(&root, &[b"jjj\r", b"", b"", b"", b"", b"q", b"\r", b"q"]);
+    assert!(status.success());
+    assert!(terminal.contains("Audio device"));
+    assert!(terminal.contains("Setup cancelled"));
+    assert_eq!(fs::read(&config_path).unwrap(), original);
+    assert!(!root.join("config/systemd/user/omawake.service").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_home_model_picker_can_be_cancelled_without_download_in_a_real_pty() {
+    if Command::new("script").arg("--version").output().is_err() {
+        return;
+    }
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    Config::default().save(&config_path).unwrap();
+    let original = fs::read(&config_path).unwrap();
+    let (status, terminal) = run_setup_pty(&root, &[b"jjjjj\r", b"q", b"\r", b"q"]);
+    assert!(status.success());
+    assert!(terminal.contains("Wake-word model"));
+    assert!(terminal.contains("Setup cancelled"));
+    assert_eq!(fs::read(&config_path).unwrap(), original);
+    assert!(!root.join("data/omawake/models").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_home_recognition_and_checks_report_missing_model_in_a_real_pty() {
+    if Command::new("script").arg("--version").output().is_err() {
+        return;
+    }
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    Config::default().save(&config_path).unwrap();
+    let original = fs::read(&config_path).unwrap();
+    let (status, terminal) = run_setup_pty(
+        &root,
+        &[
+            b"jjjjjj\r", // Try recognition
+            b"\r",       // Failed action notice
+            b"jjj\r",    // Checks
+            b"\r",       // Failed checks notice
+            b"q",        // Home
+        ],
+    );
+    assert!(status.success());
+    assert!(terminal.contains("Try recognition (5 seconds)"));
+    assert!(terminal.contains("Setup action failed"));
+    assert!(terminal.contains("setup checks failed"));
+    assert!(terminal.contains("error model"));
+    assert_eq!(fs::read(&config_path).unwrap(), original);
+    assert!(!root.join("config/systemd/user/omawake.service").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_home_service_install_rejects_unproved_model_in_a_real_pty() {
+    if Command::new("script").arg("--version").output().is_err() {
+        return;
+    }
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    Config::default().save(&config_path).unwrap();
+    let original = fs::read(&config_path).unwrap();
+    let (status, terminal) = run_setup_pty(
+        &root,
+        &[
+            b"jjjjjjj\r", // Background service
+            b"\r",        // Install and start at login
+            b"\r",        // Failed action notice
+            b"q",         // Service menu
+            b"q",         // Home
+        ],
+    );
+    assert!(status.success());
+    assert!(terminal.contains("Install and start at login"));
+    assert!(terminal.contains("Service action failed"));
+    assert!(terminal.contains("verify model and runtime"));
+    assert_eq!(fs::read(&config_path).unwrap(), original);
+    assert!(!root.join("config/systemd/user/omawake.service").exists());
+    assert!(!root.join("systemctl.log").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_home_edits_a_wake_phrase_in_a_real_pty() {
+    if Command::new("script").arg("--version").output().is_err() {
+        return;
+    }
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    Config::default().save(&config_path).unwrap();
+    let (status, terminal) = run_setup_pty(
+        &root,
+        &[
+            b"j\r",            // Wake words
+            b"\r",             // Computer
+            b"\r",             // Edit phrase
+            b"Hey computer\r", // New phrase
+            b"\r",             // Saved notice
+            b"q",              // Word detail
+            b"q",              // Word list
+            b"q",              // Setup home
+        ],
+    );
+    assert!(status.success());
+    assert!(terminal.contains("Edit phrase"));
+    assert!(terminal.contains("Wake word saved"));
+    assert_eq!(
+        Config::load(&config_path).unwrap().wake_words[0].phrase,
+        "Hey computer"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_home_edits_action_alias_and_enabled_state_in_a_real_pty() {
+    if Command::new("script").arg("--version").output().is_err() {
+        return;
+    }
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    Config::default().save(&config_path).unwrap();
+    let (status, terminal) = run_setup_pty(
+        &root,
+        &[
+            b"j\r",            // Wake words
+            b"\r",             // Computer
+            b"j\r",            // Edit action
+            b"\r",             // Program
+            b"/bin/echo\r",    // New program
+            b"jjj\r",          // Save action
+            b"\r",             // Saved notice
+            b"jj\r",           // Aliases
+            b"\r",             // Add alias
+            b"Hey computer\r", // Exact transcript
+            b"\r",             // Saved notice
+            b"q",              // Aliases
+            b"jjj\r",          // Disable
+            b"\r",             // Saved notice
+            b"q",              // Word detail
+            b"q",              // Word list
+            b"q",              // Setup home
+        ],
+    );
+    assert!(status.success());
+    assert!(terminal.contains("Action saved"));
+    assert!(terminal.contains("Aliases saved"));
+    let word = &Config::load(&config_path).unwrap().wake_words[0];
+    assert_eq!(word.command[0], "/bin/echo");
+    assert_eq!(word.aliases, ["Hey computer"]);
+    assert!(!word.enabled);
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_home_adds_and_removes_a_wake_word_in_a_real_pty() {
+    if Command::new("script").arg("--version").output().is_err() {
+        return;
+    }
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    Config::default().save(&config_path).unwrap();
+    let (status, terminal) = run_setup_pty(
+        &root,
+        &[
+            b"j\r",         // Wake words
+            b"j\r",         // Add wake word
+            b"lights\r",    // ID
+            b"Lights\r",    // Phrase
+            b"/bin/echo\r", // Program
+            b"on\r",        // Argument
+            b"\r",          // Finish arguments
+            b"\r",          // Saved notice
+            b"j\r",         // New word
+            b"jjjj\r",      // Remove word
+            b"j\r",         // Confirm remove
+            b"\r",          // Removed notice
+            b"q",           // Word list
+            b"q",           // Setup home
+        ],
+    );
+    assert!(status.success());
+    assert!(terminal.contains("Wake word saved"));
+    assert!(terminal.contains("Wake word removed"));
+    let config = Config::load(&config_path).unwrap();
+    assert_eq!(config.wake_words.len(), 1);
+    assert_eq!(config.wake_words[0].id, "computer");
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_home_changes_action_arguments_and_removes_alias_in_a_real_pty() {
+    if Command::new("script").arg("--version").output().is_err() {
+        return;
+    }
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    Config::default().save(&config_path).unwrap();
+    let (status, terminal) = run_setup_pty(
+        &root,
+        &[
+            b"j\r",     // Wake words
+            b"\r",      // Computer
+            b"j\r",     // Edit action
+            b"jj\r",    // Add argument
+            b"hi\r",    // New argument
+            b"jj\r",    // Edit new argument
+            b"\r",      // Change
+            b"there\r", // Replacement
+            b"jj\r",    // Select new argument again
+            b"j\r",     // Remove argument
+            b"jj\r",    // Add another
+            b"final\r", // New argument
+            b"jjjj\r",  // Save action
+            b"\r",      // Saved notice
+            b"jj\r",    // Aliases
+            b"\r",      // Add alias
+            b"hey\r",   // Exact transcript
+            b"\r",      // Saved notice
+            b"\r",      // Select alias
+            b"j\r",     // Confirm remove
+            b"\r",      // Saved notice
+            b"q",       // Aliases
+            b"q",       // Word detail
+            b"q",       // Word list
+            b"q",       // Setup home
+        ],
+    );
+    assert!(status.success());
+    assert!(terminal.contains("Action saved"));
+    assert!(terminal.contains("Remove alias?"));
+    let word = &Config::load(&config_path).unwrap().wake_words[0];
+    assert_eq!(word.command, ["notify-send", "Wake word heard", "final"]);
+    assert!(word.aliases.is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_home_controls_an_app_owned_service_in_a_real_pty() {
+    if Command::new("script").arg("--version").output().is_err() {
+        return;
+    }
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    Config::default().save(&config_path).unwrap();
+    let unit = root.join("config/systemd/user/omawake.service");
+    fs::create_dir_all(unit.parent().unwrap()).unwrap();
+    fs::write(
+        &unit,
+        omawake::setup::systemd::generate(Path::new(env!("CARGO_BIN_EXE_omawake")), &config_path),
+    )
+    .unwrap();
+    let systemctl = root.join("test-bin/systemctl");
+    fs::write(
+        &systemctl,
+        "#!/bin/sh\necho \"$*\" >> \"$OMAWAKE_SYSTEMCTL_LOG\"\ncase \"$2\" in\n  is-active) test -e \"$XDG_RUNTIME_DIR/service-active\" || exit 3 ;;\n  start|restart) touch \"$XDG_RUNTIME_DIR/service-active\" ;;\n  stop) rm -f \"$XDG_RUNTIME_DIR/service-active\" ;;\n  disable) rm -f \"$XDG_RUNTIME_DIR/service-active\" ;;\nesac\n",
+    )
+    .unwrap();
+    fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::create_dir_all(root.join("run")).unwrap();
+    let (status, terminal) = run_setup_pty(
+        &root,
+        &[
+            b"jjjjjjj\r", // Background service
+            b"\r",        // Start
+            b"\r",        // Notice
+            b"j\r",       // Restart
+            b"\r",        // Notice
+            b"\r",        // Stop
+            b"\r",        // Notice
+            b"j\r",       // Status
+            b"\r",        // Status notice
+            b"jj\r",      // Uninstall
+            b"j\r",       // Confirm uninstall
+            b"\r",        // Notice
+            b"q",         // Service menu
+            b"q",         // Setup home
+        ],
+    );
+    assert!(status.success());
+    assert!(terminal.contains("Background service"));
+    assert!(terminal.contains("Restart service"));
+    assert!(terminal.contains("Service status"));
+    assert!(!unit.exists());
+    assert!(!root.join("run/service-active").exists());
+    let calls = fs::read_to_string(root.join("systemctl.log")).unwrap();
+    for action in ["start", "restart", "stop", "disable --now", "daemon-reload"] {
+        assert!(calls.contains(action), "missing {action} in {calls}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_home_edits_advanced_settings_and_rejects_zero_queue_in_a_real_pty() {
+    if Command::new("script").arg("--version").output().is_err() {
+        return;
+    }
+    let root = sandbox();
+    let config_path = root.join("config/omawake/config.toml");
+    Config::default().save(&config_path).unwrap();
+    let (status, terminal) = run_setup_pty(
+        &root,
+        &[
+            b"jjjjjjjj\r", // Advanced settings
+            b"\r",         // CPU threads
+            b"4\r",        // New value
+            b"\r",         // Saved notice
+            b"j\r",        // Cooldown
+            b"750\r",      // New value
+            b"\r",         // Saved notice
+            b"jj\r",       // Capture queue
+            b"12\r",       // New value
+            b"\r",         // Saved notice
+            b"jj\r",       // Capture queue again
+            b"0\r",        // Invalid value
+            b"\r",         // Rejection notice
+            b"q",          // Advanced menu
+            b"q",          // Setup home
+        ],
+    );
+    assert!(status.success());
+    assert!(terminal.contains("Setting not saved"));
+    let config = Config::load(&config_path).unwrap();
+    assert_eq!(config.backend.threads, 4);
+    assert_eq!(config.daemon.cooldown_milliseconds, 750);
+    assert_eq!(config.daemon.queue_capacity, 12);
 }
 
 #[cfg(unix)]
@@ -831,6 +1261,12 @@ fn malformed_config_is_reported_before_runtime_commands() {
 fn systemd_lifecycle_uses_user_manager_and_propagates_failures() {
     let root = sandbox();
     let success = fake_systemctl(&root, 0);
+    fs::create_dir_all(root.join("run")).unwrap();
+    fs::write(
+        success.join("systemctl"),
+        "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$OMAWAKE_SYSTEMCTL_LOG\"\ncase \"$2\" in\n  is-active) test -e \"$XDG_RUNTIME_DIR/service-active\" || exit 3 ;;\n  start|restart) /usr/bin/touch \"$XDG_RUNTIME_DIR/service-active\" ;;\n  stop|disable) /usr/bin/rm -f \"$XDG_RUNTIME_DIR/service-active\" ;;\nesac\n",
+    )
+    .unwrap();
     assert!(
         run_with_path(&root, &["setup", "systemd", "--no-start"], &success)
             .status
@@ -838,11 +1274,8 @@ fn systemd_lifecycle_uses_user_manager_and_propagates_failures() {
     );
     let unit = fs::read_to_string(root.join("config/systemd/user/omawake.service")).unwrap();
     assert!(!unit.contains("LD_LIBRARY_PATH"));
-    assert!(
-        run_with_path(&root, &["setup", "systemd"], &success)
-            .status
-            .success()
-    );
+    let started = run_with_path(&root, &["setup", "systemd"], &success);
+    assert!(started.status.success(), "{}", stderr(&started));
     assert!(
         run_with_path(&root, &["setup", "systemd", "--status"], &success)
             .status

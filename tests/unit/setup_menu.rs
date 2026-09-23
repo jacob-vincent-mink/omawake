@@ -18,6 +18,12 @@ fn launcher_path_falls_back_and_uninstall_is_idempotent() {
     uninstall(&isolated).unwrap();
     let installed = install(&isolated).unwrap();
     assert!(installed.is_file());
+    let contents = fs::read_to_string(&installed).unwrap();
+    assert!(
+        contents
+            .lines()
+            .any(|line| line.starts_with("Exec=") && line.ends_with(" setup"))
+    );
     status(&isolated).unwrap();
     uninstall(&isolated).unwrap();
     assert!(!installed.exists());

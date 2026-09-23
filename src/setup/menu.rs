@@ -17,7 +17,7 @@ pub fn launcher_path(paths: &AppPaths) -> PathBuf {
 pub fn install(paths: &AppPaths) -> Result<PathBuf> {
     let binary = std::env::current_exe()?.canonicalize()?;
     let contents = format!(
-        "[Desktop Entry]\nType=Application\nName=Omawake Setup\nComment=Install and configure a local wake-word model\nExec=\"{}\" setup model\nTerminal=true\nCategories=Settings;\nKeywords=voice;wake word;speech;\n",
+        "[Desktop Entry]\nType=Application\nName=Omawake Setup\nComment=Configure wake words and the background service\nExec=\"{}\" setup\nTerminal=true\nCategories=Settings;\nKeywords=voice;wake word;speech;\n",
         desktop_exec_path(&binary)
     );
     let path = launcher_path(paths);

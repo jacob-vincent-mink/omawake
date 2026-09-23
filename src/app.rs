@@ -2,6 +2,7 @@ mod assisted;
 mod feedback;
 mod onboarding;
 mod pause_ownership;
+mod setup_home;
 mod training;
 
 use crate::setup::wizard::MenuItem;
@@ -29,7 +30,9 @@ use crate::paths::AppPaths;
 use crate::protocol::{Command, Request, Response, ResultPayload};
 use crate::setup as app_setup;
 use crate::setup::model::ProgressFormat;
-use crate::setup::wizard::{self, RuntimeSelection, SetupMode};
+#[cfg(test)]
+use crate::setup::wizard::SetupMode;
+use crate::setup::wizard::{self, RuntimeSelection};
 use anyhow::{Context, Result, bail, ensure};
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
@@ -979,7 +982,7 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
         );
     }
     if command.is_none() && setup_is_interactive() {
-        return guided_setup(config_path, paths);
+        return setup_home::run(config_path, paths);
     }
     if command.is_none() {
         println!(
@@ -1291,6 +1294,7 @@ trait GuidedPrompts {
     fn audio_device(&mut self, current: &str) -> Result<Option<String>> {
         Ok(Some(current.into()))
     }
+    #[cfg(test)]
     fn setup_mode(&mut self) -> Result<Option<SetupMode>>;
     fn runtime(&mut self, current: &Config) -> Result<Option<RuntimeSelection>>;
     fn runtime_library_dir(&mut self, _candidate: &Config) -> Result<Option<PathBuf>> {
@@ -1330,6 +1334,7 @@ impl GuidedPrompts for TerminalGuidedPrompts {
     fn audio_device(&mut self, current: &str) -> Result<Option<String>> {
         choose_audio_device(current)
     }
+    #[cfg(test)]
     fn setup_mode(&mut self) -> Result<Option<SetupMode>> {
         wizard::choose_setup_mode()
     }
@@ -1477,6 +1482,7 @@ pub(crate) fn setup_provider_availability(
     }
 }
 
+#[cfg(test)]
 fn guided_setup(config_path: &Path, paths: &AppPaths) -> Result<()> {
     guided_setup_with(
         config_path,
@@ -1487,6 +1493,7 @@ fn guided_setup(config_path: &Path, paths: &AppPaths) -> Result<()> {
     )
 }
 
+#[cfg(test)]
 fn guided_setup_with(
     config_path: &Path,
     paths: &AppPaths,
