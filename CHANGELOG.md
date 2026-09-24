@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1 - 2026-09-24
+
+- Discover Arch OpenVINO plugins in `lib/openvino` from a system prefix such as
+  `/usr`, while retaining the core and GenAI library directory for loading.
+
 ## 0.1.0 - 2026-09-24
 
 - Accept OpenVINO 2026.4 NPU runtimes whose Python wheel contains its compiler

@@ -1,6 +1,6 @@
 [package]
 name = "omawake"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Local wake-word detection CLI and daemon with runtime-selectable inference backends"
 license = "MIT"
