@@ -2,12 +2,10 @@ mod assisted;
 mod feedback;
 mod onboarding;
 mod pause_ownership;
-mod setup_home;
 mod training;
 
 use crate::setup::wizard::MenuItem;
 
-use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
@@ -983,7 +981,13 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
         );
     }
     if command.is_none() && setup_is_interactive() {
-        return setup_home::run(config_path, paths);
+        return guided_all_with(
+            config_path,
+            paths,
+            &mut TerminalGuidedPrompts {
+                config_path: config_path.to_owned(),
+            },
+        );
     }
     if command.is_none() {
         println!(
@@ -2472,40 +2476,6 @@ struct ConfigEditState {
     _reservation: Option<Vec<UnixListener>>,
 }
 
-// Guided audio setup can save config while it owns the daemon reservation.
-// Nested edit preflight reuses that reservation on this thread.
-thread_local! {
-    static AUDIO_SETUP_RESERVATIONS: RefCell<Vec<PathBuf>> = const { RefCell::new(Vec::new()) };
-}
-
-struct AudioSetupReservation {
-    path: PathBuf,
-    _listeners: Vec<UnixListener>,
-}
-
-impl AudioSetupReservation {
-    fn new(paths: &AppPaths) -> Result<Self> {
-        let listeners = bind_daemon_instance(paths)?;
-        let path = paths.config_file.clone();
-        AUDIO_SETUP_RESERVATIONS.with(|held| held.borrow_mut().push(path.clone()));
-        Ok(Self {
-            path,
-            _listeners: listeners,
-        })
-    }
-}
-
-impl Drop for AudioSetupReservation {
-    fn drop(&mut self) {
-        AUDIO_SETUP_RESERVATIONS.with(|held| {
-            let mut held = held.borrow_mut();
-            if let Some(index) = held.iter().rposition(|path| path == &self.path) {
-                held.remove(index);
-            }
-        });
-    }
-}
-
 fn managed_service_active_for_config(
     config_path: &Path,
     paths: &AppPaths,
@@ -2520,9 +2490,7 @@ fn managed_service_active_for_config(
         && app_setup::systemd::effective_targets_config(config_path);
     let managed_running =
         managed_service_active_for_config_with(paths, service_active, effective_targets_config)?;
-    let audio_reservation_held = AUDIO_SETUP_RESERVATIONS
-        .with(|held| held.borrow().iter().any(|path| path == &paths.config_file));
-    let reservation = if managed_running || audio_reservation_held {
+    let reservation = if managed_running {
         None
     } else {
         let held = bind_daemon_instance(paths)
@@ -2551,12 +2519,45 @@ fn managed_service_active_for_config_with(
             "a running Omawake daemon is not managed for this configuration; stop its user service before editing, then restart it to apply the change"
         );
     }
-    if managed_running && setup_home::manual_pause_state(paths)? == Some(true) {
+    if managed_running && manual_pause_state(paths)? == Some(true) {
         bail!(
             "the running Omawake daemon is manually paused; run `omawake resume` before changing its configuration, then pause it again afterward"
         );
     }
     Ok(managed_running)
+}
+
+fn manual_pause_state(paths: &AppPaths) -> Result<Option<bool>> {
+    let mut stream = match connect_control_socket(&socket_path(paths)) {
+        Ok(stream) => stream,
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound
+                    | std::io::ErrorKind::ConnectionRefused
+                    | std::io::ErrorKind::ConnectionReset
+            ) =>
+        {
+            return Ok(None);
+        }
+        Err(error) => return Err(error).context("read daemon pause state before setup"),
+    };
+    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(10)))?;
+    let response = request_over_stream(&mut stream, Command::Status)?;
+    if !crate::daemon_instance::response_targets_config(&response, paths)? {
+        return Ok(None);
+    }
+    match response.result {
+        ResultPayload::State { details, .. } => details
+            .pointer("/pause/manual")
+            .and_then(Value::as_bool)
+            .map(Some)
+            .context("daemon status did not report its manual pause state"),
+        ResultPayload::Error { code, message } => {
+            bail!("could not read daemon pause state: {code}: {message}")
+        }
+    }
 }
 
 fn save_and_reload_active_with(
