@@ -1,4 +1,12 @@
-# Omawake 0.1.0
+# Omawake 0.1.1
+
+This update fixes `setup runtime --dir /usr` with an explicit OpenVINO CPU or
+NPU device on Arch installations where OpenVINO plugins live in
+`/usr/lib/openvino` and core and GenAI libraries live in `/usr/lib`. Runtime
+discovery now retains both directories. The default GenAI provider lookup also
+includes the plugin directory.
+
+## Omawake 0.1.0
 
 This release accepts both split NPU compiler packages and self-contained
 OpenVINO 2026.4 NPU plugins, checking any separate compiler libraries beside
