@@ -3651,6 +3651,43 @@ fn runtime_directory_and_config_snapshot_cover_default_cuda_and_cleanup_edges() 
 }
 
 #[test]
+fn openvino_runtime_directory_discovers_arch_split_libraries() {
+    let paths = test_paths("openvino-arch-split-libraries");
+    let prefix = paths.data_dir.join("usr");
+    let libraries = prefix.join("lib");
+    let plugins = libraries.join("openvino");
+    fs::create_dir_all(&plugins).unwrap();
+    for library in [
+        "libopenvino_genai_c.so",
+        "libopenvino_c.so",
+        "libopenvino_intel_npu_compiler_loader.so",
+        "libopenvino_intel_npu_compiler.so",
+    ] {
+        fs::write(libraries.join(library), b"provider").unwrap();
+    }
+    for plugin in [
+        "libopenvino_intel_cpu_plugin.so",
+        "libopenvino_intel_npu_plugin.so",
+    ] {
+        fs::write(plugins.join(plugin), b"plugin").unwrap();
+    }
+
+    for device in ["cpu", "npu"] {
+        let mut candidate = Config::default();
+        candidate.backend.kind = "openvino-genai".into();
+        candidate.backend.runtime = Runtime::Openvino;
+        candidate.backend.device = device.into();
+        configure_runtime_directory(&mut candidate, &prefix).unwrap();
+        assert_eq!(
+            candidate.backend.library,
+            libraries.join("libopenvino_genai_c.so")
+        );
+        assert!(candidate.backend.library_dirs.contains(&libraries));
+        assert!(candidate.backend.library_dirs.contains(&plugins));
+    }
+}
+
+#[test]
 fn request_reader_is_testable_without_a_unix_socket() {
     let request = read_request(std::io::Cursor::new(encoded_request(
         1,
