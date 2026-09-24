@@ -19,7 +19,7 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use libloading::Library;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -185,18 +185,27 @@ impl ProviderSpec {
             "NPU" => "libopenvino_intel_npu_plugin.so",
             _ => unreachable!(),
         };
-        find_library(&library_dirs, &[plugin]).with_context(|| {
+        let plugin_path = find_library(&library_dirs, &[plugin]).with_context(|| {
             format!("selected OpenVINO installation has no {device} device plugin ({plugin})")
         })?;
         if device == "NPU" {
-            for required in [
+            // Distribution packages ship separate NPU compiler libraries;
+            // Python wheel runtimes can contain the compiler in the plugin.
+            // Never satisfy this check with files from another installation.
+            let plugin_dir = plugin_path.parent().expect("plugin has a parent directory");
+            let compiler_files = [
                 "libopenvino_intel_npu_compiler_loader.so",
                 "libopenvino_intel_npu_compiler.so",
-            ] {
-                find_library(&library_dirs, &[required]).with_context(|| {
-                    format!("selected OpenVINO NPU installation is incomplete: missing {required}")
-                })?;
-            }
+            ];
+            let present = compiler_files
+                .iter()
+                .filter(|name| plugin_dir.join(name).is_file())
+                .count();
+            ensure!(
+                present == 0 || present == compiler_files.len(),
+                "selected OpenVINO NPU installation has only part of its separate compiler libraries in {}",
+                plugin_dir.display()
+            );
         }
         let audiocpp_library = super::audiocpp::resolve_bundled_library(paths, &library_dirs)
             .context(
