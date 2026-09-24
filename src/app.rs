@@ -2085,13 +2085,20 @@ fn configure_runtime_directory(config: &mut Config, directory: &Path) -> Result<
             directory.display()
         );
     }
-    let candidates = [
+    let mut candidates = vec![
         directory.to_owned(),
         directory.join("lib"),
         directory.join("lib64"),
         directory.join("runtime/lib/intel64"),
         directory.join("runtime/lib/intel64/Release"),
     ];
+    if config.backend.runtime == Runtime::Openvino {
+        candidates.extend([
+            directory.join("openvino"),
+            directory.join("lib/openvino"),
+            directory.join("lib64/openvino"),
+        ]);
+    }
     let find = |names: &[&str]| -> Result<PathBuf> {
         let mut matches = candidates
             .iter()

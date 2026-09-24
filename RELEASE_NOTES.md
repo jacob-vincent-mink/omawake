@@ -1,4 +1,25 @@
-# Omawake 0.0.3
+# Omawake 0.1.1
+
+This update fixes `setup runtime --dir /usr` with an explicit OpenVINO CPU or
+NPU device on Arch installations where OpenVINO plugins live in
+`/usr/lib/openvino` and core and GenAI libraries live in `/usr/lib`. Runtime
+discovery now retains both directories. The default GenAI provider lookup also
+includes the plugin directory.
+
+## Omawake 0.1.0
+
+This release accepts both split NPU compiler packages and self-contained
+OpenVINO 2026.4 NPU plugins, checking any separate compiler libraries beside
+the chosen plugin. Its OpenVINO GenAI Whisper path passed a
+file-only NPU test with the isolated 2026.4 C build: a Kokoro WAV synthesized
+by Omaspeak was transcribed and detected with an exact transcript alias.
+
+If an existing configuration pins a 2026.3 GenAI bundle, set
+`backend.library` and `backend.library_dirs` to the new installation before
+testing it. The package's optional `openvino-genai` dependency pins the
+matching OpenVINO runtime version.
+
+## Omawake 0.0.3
 
 This release completes the model-support roadmap:
 

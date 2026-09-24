@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.1 - 2026-09-24
+
+- Discover Arch OpenVINO plugins in `lib/openvino` from a system prefix such as
+  `/usr`, while retaining the core and GenAI library directory for loading.
+
+## 0.1.0 - 2026-09-24
+
+- Accept OpenVINO 2026.4 NPU runtimes whose Python wheel contains its compiler
+  in the NPU plugin, while still checking complete split compiler layouts.
+- Validate the isolated OpenVINO 2026.4 GenAI C build with the existing
+  Whisper model and a Kokoro WAV synthesized by Omaspeak on NPU.
+
 ## 0.0.3 - 2026-09-17
 
 - Reconciled the model-support roadmap: W02-W05 setup/activation/cache gates
