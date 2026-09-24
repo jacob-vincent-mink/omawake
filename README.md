@@ -26,9 +26,7 @@ cd omawake-0.1.0-linux-x86_64
 ./omawake setup
 ```
 
-Use the arrow keys and Enter to choose a provider and model, review the plan,
-and apply it. The default release provider is audio.cpp on CPU. Setup downloads
-and verifies these two pinned MIT-licensed assets as one model profile:
+The Ratatui setup home shows the current runtime, model, microphone, wake words, and service state. Use arrow keys or `j`/`k` to move, Enter to open a choice, and Esc or `q` to go back. **Start guided setup** chooses a provider, model, and microphone, reviews the plan, and applies it. The default release provider is audio.cpp on CPU. Setup downloads and verifies these two pinned MIT-licensed assets as one model profile:
 
 - Moonshine Streaming Tiny Q8_0, 60,407,904 bytes
 - Silero VAD 6.2.1, 1,239,748 bytes
@@ -38,9 +36,11 @@ license notices must verify before the new model directory becomes active.
 Setup then initializes the provider and both models with a silent file-only
 proof before saving the config.
 
-Setup installs the optional desktop settings launcher. It does **not** install
-or start a systemd service. Run on demand with `omawake daemon`, or explicitly
-install the user service later with `omawake setup systemd`.
+Setup installs the optional desktop settings launcher, which opens the same setup home. It does **not** install or start a systemd service during the guided flow. From setup home, review the example `Computer` wake word and its action, choose **Teach a wake word** if recognition needs examples, test the microphone, then use **Try recognition** to listen for five seconds without executing actions. **Background service** lets you explicitly install and start the user service, stop or restart it, check its status, or uninstall it. Stop a directly launched daemon before installing the service. You can also run on demand with `omawake daemon` or use `omawake setup systemd` from the shell.
+
+The **Wake words & actions** screen adds phrases and lets you change the phrase, program, individual arguments, aliases, and enabled state. An active trained detector keeps its spoken phrase and does not use transcript aliases. To replace a trained phrase, add a new wake word, teach it, then remove the old one. If you launched the daemon directly, stop it with `omawake stop` before editing and start it again afterward; setup refuses edits it cannot apply to the running process.
+
+**Advanced settings** covers CPU threads, cooldown, and capture queue. Changes to an active setup-managed service restart it automatically; setup rolls back the configuration if the restart fails. Resume a manually paused service before editing, then pause it again afterward. Setup holds a running daemon paused during microphone and recognition tests, preserves an existing manual pause, and releases the hold if setup exits. Teaching and guided configuration require a directly launched daemon to be stopped before editing; microphone testing remains available, but Apply is unavailable until that daemon stops. Setup refuses automatic restarts when the effective systemd unit has unrecognized changes or overrides. **Run setup checks** verifies the full installation after each step.
 
 These focused commands expose the same choices without the full guided flow:
 
@@ -100,6 +100,8 @@ launching an action and reopens it after the configured cooldown. Actions are
 started in the background with detached standard streams and reaped when they
 exit, so a long-running command cannot block detection. Actions do not pass
 through a shell.
+Only one daemon per user can run for a configuration file, even when processes use
+different `XDG_RUNTIME_DIR` values.
 
 ```bash
 omawake wake-word add --id computer --phrase Computer -- notify-send "Wake word heard"
@@ -111,6 +113,9 @@ When the optional user service is already active, successful `config`,
 Omawake restores the prior config and explicitly restarts the prior daemon if
 the updated daemon fails to start. A custom `--config` never restarts a unit
 that points at another file.
+If the service is manually paused, resume it before editing; setup will refuse
+to restart a paused service. Overrides to the effective systemd unit also block
+automatic reloads until reviewed.
 
 For names or coined words that the verifier spells inconsistently, use
 **Teach a wake word** in `omawake setup`, or run:

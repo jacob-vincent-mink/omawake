@@ -5,6 +5,66 @@ use std::io::Cursor;
 
 use crate::engine::{WakeWordBackend, WakeWordStream};
 
+#[test]
+fn daemon_instance_lock_spans_runtime_directories_for_the_same_config() {
+    let first = test_paths("daemon-instance-cross-runtime");
+    Config::default().save(&first.config_file).unwrap();
+    let mut second = first.clone();
+    second.runtime_dir = first.runtime_dir.join("alternate");
+    let owner = bind_daemon_instance(&first).unwrap();
+    let error = bind_daemon_instance(&second).unwrap_err();
+    assert!(error.to_string().contains("already running"));
+
+    let mut other_config = second.clone();
+    other_config.config_file = first.config_file.with_file_name("other.toml");
+    let independent = bind_daemon_instance(&other_config).unwrap();
+    drop(independent);
+    drop(owner);
+    bind_daemon_instance(&second).unwrap();
+}
+
+#[test]
+fn daemon_instance_lock_survives_atomic_save_of_a_symlinked_config() {
+    let mut paths = test_paths("daemon-instance-symlink-save");
+    let target = paths.config_file.with_file_name("target.toml");
+    Config::default().save(&target).unwrap();
+    std::os::unix::fs::symlink(&target, &paths.config_file).unwrap();
+    let owner = bind_daemon_instance(&paths).unwrap();
+    let mut target_paths = paths.clone();
+    target_paths.config_file = target;
+    assert!(
+        bind_daemon_instance(&target_paths)
+            .unwrap_err()
+            .to_string()
+            .contains("already running")
+    );
+    Config::default().save(&paths.config_file).unwrap();
+    paths.runtime_dir = paths.runtime_dir.join("alternate");
+    assert!(
+        bind_daemon_instance(&paths)
+            .unwrap_err()
+            .to_string()
+            .contains("already running")
+    );
+    drop(owner);
+    bind_daemon_instance(&paths).unwrap();
+}
+
+#[test]
+fn guided_service_preflight_rejects_a_running_unmanaged_unit() {
+    let paths = test_paths("guided-unmanaged-service");
+    let config_path = &paths.config_file;
+    let unit = app_setup::systemd::service_path(&paths);
+    fs::create_dir_all(unit.parent().unwrap()).unwrap();
+    let handwritten = app_setup::systemd::generate(Path::new("/usr/bin/omawake"), config_path)
+        .replace("Restart=on-failure", "Restart=always");
+    fs::write(&unit, handwritten).unwrap();
+    assert!(!app_setup::systemd::is_managed(&paths, config_path));
+    let error = managed_service_active_for_config_with(&paths, true, false).unwrap_err();
+    assert!(error.to_string().contains("not managed"));
+    assert!(!managed_service_active_for_config_with(&paths, false, false).unwrap());
+}
+
 struct FakeControl;
 
 struct InMemoryBackend;
@@ -669,6 +729,7 @@ fn test_paths(name: &str) -> AppPaths {
     let root = crate::test_support::unique_directory("main", name);
     AppPaths {
         config_file: root.join("config/config.toml"),
+        config_home: root.to_path_buf(),
         data_dir: root.join("data"),
         cache_dir: root.join("cache"),
         state_dir: root.join("state"),
@@ -1275,6 +1336,42 @@ fn config_refresh_restarts_once_and_explicitly_resurrects_after_rollback() {
     );
     assert_eq!(explicit_restarts.get(), 1);
     assert_eq!(fs::read(&paths.config_file).unwrap(), previous_bytes);
+}
+
+#[cfg(unix)]
+#[test]
+fn failed_service_restart_restores_a_symlinked_config_target() {
+    use std::os::unix::fs::symlink;
+
+    let paths = test_paths("config-refresh-symlink-rollback");
+    let target = paths.config_file.with_file_name("target.toml");
+    let original = Config::default();
+    original.save(&target).unwrap();
+    symlink(&target, &paths.config_file).unwrap();
+    let original_bytes = fs::read(&target).unwrap();
+    let mut updated = original.clone();
+    updated.daemon.queue_capacity = 4;
+    let error = save_and_reload_active_with(
+        updated,
+        &paths.config_file,
+        true,
+        || true,
+        |_| bail!("injected restart failure"),
+        || {
+            assert_eq!(fs::read(&target).unwrap(), original_bytes);
+            Ok(())
+        },
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("reload active daemon"));
+    assert!(
+        fs::symlink_metadata(&paths.config_file)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(fs::read_link(&paths.config_file).unwrap(), target);
+    assert_eq!(fs::read(&target).unwrap(), original_bytes);
 }
 
 #[test]

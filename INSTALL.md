@@ -11,12 +11,17 @@ cd omawake-0.1.0-linux-x86_64
 ./omawake setup
 ```
 
-The guided terminal flow discovers the packaged provider, downloads and
-verifies the pinned Moonshine and Silero assets, runs a silent file-only proof,
-and then saves the config. The initial mapping listens for `Computer` and runs
-`notify-send`; replace it with `omawake wake-word add` and `remove`. Full setup
-also installs a desktop launcher. It does not install or enable a service or a
-vendor runtime.
+The setup home starts a guided flow that discovers the packaged provider,
+downloads and verifies the pinned Moonshine and Silero assets, runs a silent
+file-only proof, and then saves the config. The initial mapping listens for
+`Computer` and runs `notify-send`; review or replace this example in **Wake
+words & actions**. Full setup also installs a desktop launcher that reopens
+setup home. It does not install or enable a service or a vendor runtime.
+
+From setup home you can change the microphone, runtime, model, wake phrases,
+actions, and aliases; test recognition without executing actions; and run
+checks. Choose **Background service** explicitly to install/start, stop,
+restart, or uninstall the systemd user service.
 
 To install for one user:
 
@@ -36,9 +41,9 @@ omawake setup all --source-dir /absolute/directory/with/both/catalog-assets
 omawake setup check
 ```
 
-Run `omawake daemon` directly for an on-demand session. Install the optional
-user service only with `omawake setup systemd`; `--no-start` installs and
-enables it without starting it. Distribution packages may install the disabled
+Run `omawake daemon` directly for an on-demand session. The optional user
+service can also be installed with `omawake setup systemd`; `--no-start` installs
+and enables it without starting it. Distribution packages may install the disabled
 unit from `packaging/systemd/omawake.service` without enabling it.
 
 For acceleration, install a complete audio.cpp CUDA, Vulkan, or HIP provider,
@@ -54,6 +59,8 @@ hardware, provider availability, and the pending model proof separately.
 Existing manual selections stay preselected. If the optional service is
 already active, a successful focused config, runtime, model, or wake-word edit
 restarts it once; failed startup restores the previous config and daemon.
+Resume a manually paused service before editing. Setup also refuses automatic
+restarts when the effective systemd unit has unrecognized overrides.
 
 ## Build from source
 

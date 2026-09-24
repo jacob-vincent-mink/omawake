@@ -1,43 +1,27 @@
 use super::*;
 
 #[test]
-fn rows_wrap_at_narrow_and_normal_widths_without_losing_unicode_alignment() {
-    use unicode_width::UnicodeWidthStr;
-    for width in [24, 80] {
-        for indent in [0, 4, 6] {
-            let text = wrap(
-                "OpenVINO / GPU — /opt/运行时/lib/intel64/Release\nprovider registration failed; configure external libraries",
-                width,
-                indent,
-            );
-            for (index, line) in text.split("\r\n").enumerate() {
-                assert!(line.width() + if index == 0 { indent } else { 0 } < width);
-            }
-            assert_no_bare_line_feeds(text.as_bytes());
-        }
-        let mut output = Vec::new();
-        render_at_width(
-            &mut output,
-            "Runtime",
-            "Choose an external installation",
-            &[MenuItem::available(
-                "OpenVINO",
-                "/opt/runtime/lib/intel64/Release",
-            )],
-            0,
-            width,
-        )
-        .unwrap();
-        assert!(!output.is_empty());
-    }
-    assert!(wrap("\x1bhello\tworld", 80, 0).contains("helloworld"));
-    let prose = wrap(
-        "This never installs or starts a service; an active daemon restarts after Apply.",
-        32,
-        6,
+fn render_shows_heading_options_and_selected_detail() {
+    let items = [
+        MenuItem::available("OpenVINO", "Intel CPU, GPU, and NPU"),
+        MenuItem::unavailable("CUDA", "Provider unavailable"),
+    ];
+    let screen = test_screen(
+        60,
+        12,
+        "Runtime",
+        "Choose an external installation",
+        &items,
+        0,
     );
-    assert!(!prose.contains("\r\n      his"));
-    assert!(!prose.contains("\r\n      pply"));
+    assert!(screen.contains("Runtime"));
+    assert!(screen.contains("Choose an external installation"));
+    assert!(screen.contains("OpenVINO"));
+    assert!(screen.contains("CUDA"));
+    assert!(screen.contains("Selected · OpenVINO"));
+    assert!(screen.contains("Intel CPU, GPU, and NPU"));
+    assert!(screen.contains("Enter select"));
+    assert_eq!(clean_text("\x1bhello\tworld", false), "helloworld");
 }
 use std::collections::VecDeque;
 use std::io::IsTerminal;
@@ -62,16 +46,6 @@ impl Prompter for ScriptedPrompter {
 
 fn key(code: KeyCode) -> Event {
     Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
-}
-
-fn assert_no_bare_line_feeds(output: &[u8]) {
-    assert!(
-        output
-            .iter()
-            .enumerate()
-            .all(|(index, byte)| *byte != b'\n' || index > 0 && output[index - 1] == b'\r'),
-        "raw-mode rendering must return to column zero before every line feed"
-    );
 }
 
 #[test]
@@ -157,9 +131,9 @@ fn menu_renders_metadata_and_processes_arrow_enter_and_cancel() {
         key(KeyCode::Down),
         key(KeyCode::Enter),
     ]);
-    let mut output = Vec::new();
+    let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(80, 24)).unwrap();
     let selected = run_menu(
-        &mut output,
+        &mut terminal,
         "Runtime",
         "Choose a runtime.",
         &items,
@@ -168,16 +142,16 @@ fn menu_renders_metadata_and_processes_arrow_enter_and_cancel() {
     )
     .unwrap();
     assert_eq!(selected, Some(2));
-    let rendered = String::from_utf8(output).unwrap();
+    let rendered = screen_text(terminal.backend().buffer());
     assert!(rendered.contains("Runtime"));
     assert!(rendered.contains("CUDA"));
+    assert!(rendered.contains("Intel CPU, GPU, and NPU"));
     assert!(rendered.contains("Unavailable in this build"));
-    assert!(plain_terminal_output(rendered.as_bytes()).contains("\r\n      "));
-    assert_no_bare_line_feeds(rendered.as_bytes());
 
     let mut events = VecDeque::from([key(KeyCode::Char('q'))]);
+    let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(80, 24)).unwrap();
     assert_eq!(
-        run_menu(&mut Vec::new(), "x", "y", &items, 0, || {
+        run_menu(&mut terminal, "x", "y", &items, 0, || {
             Ok(events.pop_front().unwrap())
         })
         .unwrap(),
@@ -519,26 +493,32 @@ fn terminal_entry_points_fail_cleanly_without_a_tty() {
     assert!(confirm_runtime_apply(Runtime::Default, "cpu", None).is_err());
 }
 
-fn plain_terminal_output(output: &[u8]) -> String {
+fn screen_text(buffer: &ratatui::buffer::Buffer) -> String {
     let mut text = String::new();
-    let mut escape = false;
-    for character in String::from_utf8_lossy(output).chars() {
-        if character == '\x1b' {
-            escape = true;
-        } else if escape {
-            if character.is_ascii_alphabetic() {
-                escape = false;
-            }
-        } else {
-            text.push(character);
+    for y in 0..buffer.area.height {
+        for x in 0..buffer.area.width {
+            text.push_str(buffer[(x, y)].symbol());
         }
+        text.push('\n');
     }
     text
 }
 
+fn test_screen(
+    width: u16,
+    height: u16,
+    title: &str,
+    help: &str,
+    items: &[MenuItem],
+    selected: usize,
+) -> String {
+    let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
+    render(&mut terminal, title, help, items, selected).unwrap();
+    screen_text(terminal.backend().buffer())
+}
+
 #[test]
 fn viewport_keeps_selection_visible_without_overflow_on_resize() {
-    use unicode_width::UnicodeWidthStr;
     let items = (0..100)
         .map(|n| {
             MenuItem::available(
@@ -549,27 +529,18 @@ fn viewport_keeps_selection_visible_without_overflow_on_resize() {
         .collect::<Vec<_>>();
     for (width, height) in [(24, 8), (80, 24), (12, 4), (4, 2), (1, 1)] {
         for selected in [0, 50, 99] {
-            let mut output = Vec::new();
-            render_at_size(
-                &mut output,
+            let text = test_screen(
+                width,
+                height,
                 "Choose a model",
                 "Navigate the installed and downloadable catalog.",
                 &items,
                 selected,
-                width,
-                height,
-            )
-            .unwrap();
-            let text = plain_terminal_output(&output);
-            assert!(
-                text.split("\r\n").count() <= height,
-                "{width}x{height}: {text:?}"
             );
-            assert!(text.split("\r\n").all(|line| line.width() < width));
+            assert_eq!(text.lines().count(), height as usize, "{width}x{height}");
             if width >= 24 {
-                assert!(text.contains(&format!("› Choice {selected}")), "{text:?}");
+                assert!(text.contains(&format!("Choice {selected}")), "{text:?}");
             }
-            assert_no_bare_line_feeds(&output);
         }
     }
 }

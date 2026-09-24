@@ -2,10 +2,12 @@ mod assisted;
 mod feedback;
 mod onboarding;
 mod pause_ownership;
+mod setup_home;
 mod training;
 
 use crate::setup::wizard::MenuItem;
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
@@ -29,7 +31,9 @@ use crate::paths::AppPaths;
 use crate::protocol::{Command, Request, Response, ResultPayload};
 use crate::setup as app_setup;
 use crate::setup::model::ProgressFormat;
-use crate::setup::wizard::{self, RuntimeSelection, SetupMode};
+#[cfg(test)]
+use crate::setup::wizard::SetupMode;
+use crate::setup::wizard::{self, RuntimeSelection};
 use anyhow::{Context, Result, bail, ensure};
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
@@ -979,7 +983,7 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
         );
     }
     if command.is_none() && setup_is_interactive() {
-        return guided_setup(config_path, paths);
+        return setup_home::run(config_path, paths);
     }
     if command.is_none() {
         println!(
@@ -1110,16 +1114,35 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
             } else if uninstall {
                 app_setup::systemd::uninstall(paths)
             } else {
+                if !app_setup::systemd::is_active() {
+                    app_setup::systemd::ensure_no_direct_daemon(paths)?;
+                }
                 let original = config_snapshot(config_path)?;
+                let original_link = match fs::symlink_metadata(config_path) {
+                    Ok(metadata) if metadata.file_type().is_symlink() => {
+                        Some(fs::read_link(config_path)?)
+                    }
+                    Ok(_) => None,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                    Err(error) => return Err(error).context("inspect config before service setup"),
+                };
+                let config_was_missing = !config_path.exists();
+                let repair_invalid = app_setup::config_recovery(config_path)?.is_some();
                 let result = (|| {
                     let config = app_setup::ensure_config(config_path)?;
-                    config.save(config_path)?;
+                    if repair_invalid {
+                        config.save(config_path)?;
+                    }
                     let path = app_setup::systemd::install(paths, config_path, !no_start)?;
                     println!("installed: {}", path.display());
                     Ok(())
                 })();
                 if let Err(error) = result {
-                    restore_config_snapshot(config_path, original.as_deref())?;
+                    if (config_was_missing || repair_invalid)
+                        && (original.is_some() || original_link.is_none())
+                    {
+                        restore_config_snapshot(config_path, original.as_deref())?;
+                    }
                     return Err(error);
                 }
                 Ok(())
@@ -1146,14 +1169,14 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
                 Some(id) => model_spec(id)?,
                 None => crate::catalog::setup_model(&current)?,
             };
-            let service_was_active = app_setup::systemd::is_active();
+            let edit = managed_service_active_for_config(config_path, paths)?;
             install_everything(
                 spec,
                 config_path,
                 paths,
                 source_dir.as_deref(),
                 progress_format,
-                service_was_active,
+                edit.managed_running,
                 |config, path| {
                     crate::runtime_inventory::apply_with(
                         config,
@@ -1291,6 +1314,7 @@ trait GuidedPrompts {
     fn audio_device(&mut self, current: &str) -> Result<Option<String>> {
         Ok(Some(current.into()))
     }
+    #[cfg(test)]
     fn setup_mode(&mut self) -> Result<Option<SetupMode>>;
     fn runtime(&mut self, current: &Config) -> Result<Option<RuntimeSelection>>;
     fn runtime_library_dir(&mut self, _candidate: &Config) -> Result<Option<PathBuf>> {
@@ -1330,6 +1354,7 @@ impl GuidedPrompts for TerminalGuidedPrompts {
     fn audio_device(&mut self, current: &str) -> Result<Option<String>> {
         choose_audio_device(current)
     }
+    #[cfg(test)]
     fn setup_mode(&mut self) -> Result<Option<SetupMode>> {
         wizard::choose_setup_mode()
     }
@@ -1477,6 +1502,7 @@ pub(crate) fn setup_provider_availability(
     }
 }
 
+#[cfg(test)]
 fn guided_setup(config_path: &Path, paths: &AppPaths) -> Result<()> {
     guided_setup_with(
         config_path,
@@ -1487,6 +1513,7 @@ fn guided_setup(config_path: &Path, paths: &AppPaths) -> Result<()> {
     )
 }
 
+#[cfg(test)]
 fn guided_setup_with(
     config_path: &Path,
     paths: &AppPaths,
@@ -1636,13 +1663,14 @@ fn guided_all_with(
     paths: &AppPaths,
     prompts: &mut impl GuidedPrompts,
 ) -> Result<()> {
+    let edit = managed_service_active_for_config(config_path, paths)?;
     guided_all_with_services(
         config_path,
         paths,
         prompts,
         app_setup::model::install,
         app_setup::menu::install,
-        |_| app_setup::systemd::is_active(),
+        |_| edit.managed_running,
         app_setup::systemd::reload_if_was_active,
         |config, paths| app_setup::print_checks(config, paths, false),
         app_setup::print_checks_event,
@@ -2397,18 +2425,19 @@ fn config_snapshot(path: &Path) -> Result<Option<Vec<u8>>> {
 }
 
 fn restore_config_snapshot(path: &Path, bytes: Option<&[u8]>) -> Result<()> {
-    let temporary = path.with_extension("toml.tmp");
+    let target = crate::config::config_write_target(path)?;
+    let temporary = target.with_extension("toml.tmp");
     match bytes {
         Some(bytes) => {
-            if let Some(parent) = path.parent() {
+            if let Some(parent) = target.parent() {
                 fs::create_dir_all(parent)?;
             }
             fs::write(&temporary, bytes)?;
-            fs::rename(&temporary, path)?;
+            fs::rename(&temporary, &target)?;
         }
         None => {
-            if path.exists() {
-                fs::remove_file(path)?;
+            if target.exists() {
+                fs::remove_file(&target)?;
             }
             if temporary.exists() {
                 fs::remove_file(temporary)?;
@@ -2418,16 +2447,109 @@ fn restore_config_snapshot(path: &Path, bytes: Option<&[u8]>) -> Result<()> {
     Ok(())
 }
 
-fn save_and_reload_active(config: Config, config_path: &Path, _paths: &AppPaths) -> Result<bool> {
-    let owns_service_config = app_setup::systemd::targets_config(config_path);
+fn save_and_reload_active(config: Config, config_path: &Path, paths: &AppPaths) -> Result<bool> {
+    let edit = managed_service_active_for_config(config_path, paths)?;
+    let managed_running = edit.managed_running;
     save_and_reload_active_with(
         config,
         config_path,
-        owns_service_config,
-        app_setup::systemd::is_active,
+        managed_running,
+        || managed_running,
         app_setup::systemd::reload_if_was_active,
         app_setup::systemd::restart,
     )
+}
+
+struct ConfigEditState {
+    managed_running: bool,
+    _reservation: Option<Vec<UnixListener>>,
+}
+
+// Guided audio setup can save config while it owns the daemon reservation.
+// Nested edit preflight reuses that reservation on this thread.
+thread_local! {
+    static AUDIO_SETUP_RESERVATIONS: RefCell<Vec<PathBuf>> = const { RefCell::new(Vec::new()) };
+}
+
+struct AudioSetupReservation {
+    path: PathBuf,
+    _listeners: Vec<UnixListener>,
+}
+
+impl AudioSetupReservation {
+    fn new(paths: &AppPaths) -> Result<Self> {
+        let listeners = bind_daemon_instance(paths)?;
+        let path = paths.config_file.clone();
+        AUDIO_SETUP_RESERVATIONS.with(|held| held.borrow_mut().push(path.clone()));
+        Ok(Self {
+            path,
+            _listeners: listeners,
+        })
+    }
+}
+
+impl Drop for AudioSetupReservation {
+    fn drop(&mut self) {
+        AUDIO_SETUP_RESERVATIONS.with(|held| {
+            let mut held = held.borrow_mut();
+            if let Some(index) = held.iter().rposition(|path| path == &self.path) {
+                held.remove(index);
+            }
+        });
+    }
+}
+
+fn managed_service_active_for_config(
+    config_path: &Path,
+    paths: &AppPaths,
+) -> Result<ConfigEditState> {
+    let base_targets_config = app_setup::systemd::targets_config(config_path);
+    let default_may_target_config = config_path == AppPaths::discover().config_file
+        && !app_setup::systemd::loaded_managed_unit_targets_another_config(config_path);
+    let service_active =
+        (base_targets_config || default_may_target_config) && app_setup::systemd::is_active();
+    let effective_targets_config = base_targets_config
+        && service_active
+        && app_setup::systemd::effective_targets_config(config_path);
+    let managed_running =
+        managed_service_active_for_config_with(paths, service_active, effective_targets_config)?;
+    let audio_reservation_held = AUDIO_SETUP_RESERVATIONS
+        .with(|held| held.borrow().iter().any(|path| path == &paths.config_file));
+    let reservation = if managed_running || audio_reservation_held {
+        None
+    } else {
+        let held = bind_daemon_instance(paths)
+            .context("stop the running Omawake daemon before editing its configuration")?;
+        if crate::daemon_instance::socket_targets_config(paths)? == Some(true) {
+            bail!(
+                "a running Omawake daemon is not managed for this configuration; run `omawake stop` before editing, then start it again to apply the change"
+            );
+        }
+        Some(held)
+    };
+    Ok(ConfigEditState {
+        managed_running,
+        _reservation: reservation,
+    })
+}
+
+fn managed_service_active_for_config_with(
+    paths: &AppPaths,
+    service_active: bool,
+    owns_service_config: bool,
+) -> Result<bool> {
+    let managed_running = service_active && owns_service_config;
+    if service_active && !managed_running {
+        bail!(
+            "a running Omawake daemon is not managed for this configuration; stop its user service before editing, then restart it to apply the change"
+        );
+    }
+    if managed_running && setup_home::manual_pause_state(paths)? == Some(true) {
+        bail!(
+            "the running Omawake daemon is manually paused; run `omawake resume` before changing its configuration, then pause it again afterward"
+        );
+    }
+    Ok(managed_running)
 }
 
 fn save_and_reload_active_with(
@@ -3220,8 +3342,13 @@ fn run_daemon_with_shutdown(
     paths: &AppPaths,
     shutdown_requested: Arc<AtomicBool>,
 ) -> Result<()> {
+    let _singleton = bind_daemon_instance(paths)?;
     let detector = Detector::load(config, paths)?;
     run_loaded_daemon(&detector, config, paths, shutdown_requested)
+}
+
+fn bind_daemon_instance(paths: &AppPaths) -> Result<Vec<UnixListener>> {
+    crate::daemon_instance::reserve(paths)
 }
 
 fn run_loaded_daemon(
@@ -3230,6 +3357,7 @@ fn run_loaded_daemon(
     paths: &AppPaths,
     shutdown_requested: Arc<AtomicBool>,
 ) -> Result<()> {
+    let config_identity = crate::daemon_instance::absolute_config_path(paths)?;
     let listener = bind_socket(paths)?;
     let socket_metadata = fs::symlink_metadata(socket_path(paths)).with_context(|| {
         format!(
@@ -3252,6 +3380,7 @@ fn run_loaded_daemon(
             &config.model.name,
             &config.model.language,
         );
+        details["config_path"] = json!(&config_identity);
         attach_engine_groups(&mut details, detector);
         control
             .borrow_mut()
@@ -3874,12 +4003,19 @@ fn setup_audio(
     }
     let mut save = apply;
     if interactive {
+        let apply_blocker = managed_service_active_for_config(config_path, paths)
+            .err()
+            .map(|error| format!("{error:#}"));
         loop {
             let items = [
-                MenuItem::available(
-                    "Apply",
-                    "Save this route and restart an already-active service.",
-                ),
+                if let Some(reason) = &apply_blocker {
+                    MenuItem::unavailable("Apply", reason)
+                } else {
+                    MenuItem::available(
+                        "Apply",
+                        "Save this route and restart an already-active service.",
+                    )
+                },
                 MenuItem::available(
                     "Test device",
                     "Run a short audio check without loading a model.",

@@ -6,9 +6,16 @@ use anyhow::{Context, Result, bail};
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
-    execute, queue,
-    style::{Attribute, Color, Print, ResetColor, SetAttribute, SetForegroundColor},
-    terminal::{self, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
+    execute,
+    terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use ratatui::{
+    Frame, Terminal, TerminalOptions, Viewport,
+    backend::{Backend, CrosstermBackend},
+    layout::Rect,
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{List, ListItem, ListState, Paragraph, Wrap},
 };
 
 use crate::backend::Runtime;
@@ -144,7 +151,14 @@ pub fn select(
 ) -> Result<Option<usize>> {
     let mut stdout = io::stdout();
     let _terminal = TerminalSession::enter(&mut stdout)?;
-    run_menu(&mut stdout, title, help, items, preferred, || {
+    let viewport = match terminal::size() {
+        Ok((width, height)) if width > 0 && height > 0 => Viewport::Fullscreen,
+        _ => Viewport::Fixed(Rect::new(0, 0, 80, 24)),
+    };
+    let mut terminal =
+        Terminal::with_options(CrosstermBackend::new(stdout), TerminalOptions { viewport })
+            .context("initialize interactive setup screen")?;
+    run_menu(&mut terminal, title, help, items, preferred, || {
         event::read().context("read terminal input")
     })
 }
@@ -154,7 +168,13 @@ struct TerminalSession;
 impl TerminalSession {
     fn enter(output: &mut impl Write) -> Result<Self> {
         terminal::enable_raw_mode().context("enable terminal raw mode")?;
-        if let Err(error) = execute!(output, EnterAlternateScreen, cursor::Hide) {
+        if let Err(error) = execute!(
+            output,
+            EnterAlternateScreen,
+            cursor::Hide,
+            Clear(ClearType::All)
+        ) {
+            let _ = execute!(output, cursor::Show, LeaveAlternateScreen);
             let _ = terminal::disable_raw_mode();
             return Err(error).context("open interactive setup screen");
         }
@@ -170,7 +190,7 @@ impl Drop for TerminalSession {
 }
 
 fn run_menu(
-    output: &mut impl Write,
+    terminal: &mut Terminal<impl Backend>,
     title: &str,
     help: &str,
     items: &[MenuItem],
@@ -179,7 +199,7 @@ fn run_menu(
 ) -> Result<Option<usize>> {
     let mut state = MenuState::new(items, preferred)?;
     loop {
-        render(output, title, help, items, state.selected)?;
+        render(terminal, title, help, items, state.selected)?;
         let Event::Key(key) = read()? else {
             continue;
         };
@@ -204,183 +224,141 @@ fn action(key: KeyEvent) -> Action {
 }
 
 fn render(
-    output: &mut impl Write,
+    terminal: &mut Terminal<impl Backend>,
     title: &str,
     help: &str,
     items: &[MenuItem],
     selected: usize,
 ) -> Result<()> {
-    let (width, height) = terminal::size()
-        .ok()
-        .filter(|(w, h)| *w > 0 && *h > 0)
-        .unwrap_or((80, 24));
-    render_at_size(
-        output,
-        title,
-        help,
-        items,
-        selected,
-        width.max(1) as usize,
-        height.max(1) as usize,
-    )
-}
-
-#[cfg(test)]
-fn render_at_width(
-    output: &mut impl Write,
-    title: &str,
-    help: &str,
-    items: &[MenuItem],
-    selected: usize,
-    width: usize,
-) -> Result<()> {
-    render_at_size(output, title, help, items, selected, width, 24)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn render_at_size(
-    output: &mut impl Write,
-    title: &str,
-    help: &str,
-    items: &[MenuItem],
-    selected: usize,
-    width: usize,
-    height: usize,
-) -> Result<()> {
-    let height = height.max(1);
-    let mut header = vec![clip(title, width)];
-    if height >= 8 {
-        header.extend(
-            wrap(help, width, 0)
-                .split("\r\n")
-                .take(height.saturating_sub(5))
-                .map(str::to_owned),
-        );
-    }
-    // Reserve the last row and never emit a trailing newline: raw terminals
-    // otherwise scroll the selection off-screen at the bottom edge.
-    header.truncate(height.saturating_sub(2));
-    let budget = height.saturating_sub(header.len() + 1).max(1);
-    let mut lines = Vec::new();
-    let mut selected_line = 0;
-    for (index, item) in items.iter().enumerate() {
-        if index == selected {
-            selected_line = lines.len();
-        }
-        let prefix = if index == selected { "  › " } else { "    " };
-        lines.push((index, clip(&format!("{prefix}{}", item.label), width)));
-        let detail = wrap(&item.detail, width, 6);
-        for (line, value) in detail.split("\r\n").enumerate() {
-            let value = if line == 0 {
-                format!("      {value}")
-            } else {
-                value.to_owned()
-            };
-            lines.push((index, clip(&value, width)));
-        }
-    }
-    let start = selected_line
-        .saturating_sub(budget / 3)
-        .min(lines.len().saturating_sub(budget));
-    queue!(
-        output,
-        terminal::Clear(ClearType::All),
-        cursor::MoveTo(0, 0)
-    )?;
-    for line in header {
-        queue!(output, Print(line), Print("\r\n"))?;
-    }
-    let visible = lines.iter().skip(start).take(budget);
-    for (offset, (index, line)) in visible.enumerate() {
-        let color = if !items[*index].enabled {
-            Color::DarkGrey
-        } else if *index == selected {
-            Color::Cyan
-        } else {
-            Color::Reset
-        };
-        queue!(output, SetForegroundColor(color), Print(line), ResetColor)?;
-        if offset + 1 < budget || height > 1 {
-            queue!(output, Print("\r\n"))?;
-        }
-    }
-    if height > 1 {
-        let footer = format!(
-            "{}/{} · ↑↓ navigate · Enter select · Esc cancel",
-            selected + 1,
-            items.len()
-        );
-        queue!(
-            output,
-            SetAttribute(Attribute::Dim),
-            Print(clip(&footer, width)),
-            SetAttribute(Attribute::Reset)
-        )?;
-    }
-    output.flush()?;
+    terminal
+        .draw(|frame| render_frame(frame, title, help, items, selected))
+        .map_err(|error| anyhow::anyhow!("render interactive setup screen: {error}"))?;
     Ok(())
 }
 
-fn clip(text: &str, width: usize) -> String {
-    use unicode_width::UnicodeWidthChar;
-    let mut remaining = width.saturating_sub(1);
-    text.chars()
-        .filter(|c| !c.is_control())
-        .take_while(|c| {
-            let size = c.width().unwrap_or(0);
-            if size > remaining {
-                false
-            } else {
-                remaining -= size;
-                true
-            }
-        })
-        .collect()
-}
-
-fn wrap(text: &str, width: usize, indent: usize) -> String {
-    use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
-
-    let limit = width.saturating_sub(indent + 1).max(1);
-    let text: String = text
-        .chars()
-        .filter(|character| *character == '\n' || !character.is_control())
-        .collect();
-    let mut output = String::new();
-    for (paragraph_index, paragraph) in text.split('\n').enumerate() {
-        if paragraph_index > 0 {
-            wrapped_newline(&mut output, indent);
-        }
-        let mut column = 0;
-        for word in paragraph.split_whitespace() {
-            let word_width = word.width();
-            if column > 0 && column + 1 + word_width <= limit {
-                output.push(' ');
-                output.push_str(word);
-                column += 1 + word_width;
-                continue;
-            }
-            if column > 0 {
-                wrapped_newline(&mut output, indent);
-                column = 0;
-            }
-            for character in word.chars() {
-                let character_width = character.width().unwrap_or(0);
-                if column > 0 && column + character_width > limit {
-                    wrapped_newline(&mut output, indent);
-                    column = 0;
-                }
-                output.push(character);
-                column += character_width;
-            }
-        }
+fn render_frame(frame: &mut Frame, title: &str, help: &str, items: &[MenuItem], selected: usize) {
+    let area = frame.area();
+    if area.width == 0 || area.height == 0 {
+        return;
     }
-    output
+
+    // Give the list a row even on very small terminals. Detail expands only
+    // when there is enough room to keep navigation usable.
+    let compact = area.height < 12;
+    let title_height = u16::from(area.height >= 3);
+    let help_height = if area.height >= 12 {
+        3
+    } else {
+        u16::from(area.height >= 4)
+    };
+    let footer_height = u16::from(area.height >= 2);
+    let detail_height = if compact { 0 } else { 3 };
+    let list_budget = area
+        .height
+        .saturating_sub(title_height + help_height + footer_height + detail_height);
+    let list_height = list_budget.min(items.len() as u16).max(1);
+    let mut y = area.y;
+
+    if title_height > 0 {
+        frame.render_widget(
+            Paragraph::new(clean_text(title, false)).style(
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Rect::new(area.x, y, area.width, title_height),
+        );
+        y += title_height;
+    }
+    if help_height > 0 {
+        frame.render_widget(
+            Paragraph::new(clean_text(help, true))
+                .wrap(Wrap { trim: true })
+                .style(Style::default().fg(Color::Gray)),
+            Rect::new(area.x, y, area.width, help_height),
+        );
+        y += help_height;
+    }
+
+    let rows = items
+        .iter()
+        .map(|item| {
+            let foreground = if item.enabled {
+                Color::White
+            } else {
+                Color::DarkGray
+            };
+            let mut spans = vec![Span::styled(
+                clean_text(&item.label, false),
+                Style::default().fg(foreground),
+            )];
+            if !item.enabled {
+                spans.push(Span::styled(
+                    format!("  · {}", clean_text(&item.detail, false)),
+                    Style::default().fg(Color::DarkGray),
+                ));
+            }
+            ListItem::new(Line::from(spans))
+        })
+        .collect::<Vec<_>>();
+    let list = List::new(rows).highlight_symbol("› ").highlight_style(
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD | Modifier::REVERSED),
+    );
+    let mut list_state = ListState::default();
+    list_state.select(Some(selected));
+    frame.render_stateful_widget(
+        list,
+        Rect::new(area.x, y, area.width, list_height),
+        &mut list_state,
+    );
+    y += list_height;
+
+    if detail_height > 0 {
+        let selected_item = &items[selected];
+        let heading = format!(
+            "{} · {}",
+            if selected_item.enabled {
+                "Selected"
+            } else {
+                "Unavailable"
+            },
+            clean_text(&selected_item.label, false)
+        );
+        frame.render_widget(
+            Paragraph::new(heading).style(
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Rect::new(area.x, y, area.width, 1),
+        );
+        frame.render_widget(
+            Paragraph::new(clean_text(&selected_item.detail, true))
+                .wrap(Wrap { trim: true })
+                .style(Style::default().fg(Color::Gray)),
+            Rect::new(area.x, y + 1, area.width, detail_height - 1),
+        );
+        y += detail_height;
+    }
+    if footer_height > 0 {
+        let footer = format!(
+            "{} / {}   ↑↓ or j/k move   Enter select   Esc/q back",
+            selected + 1,
+            items.len()
+        );
+        frame.render_widget(
+            Paragraph::new(footer).style(Style::default().fg(Color::DarkGray)),
+            Rect::new(area.x, y, area.width, footer_height),
+        );
+    }
 }
 
-fn wrapped_newline(output: &mut String, indent: usize) {
-    output.push_str("\r\n");
-    output.push_str(&" ".repeat(indent));
+fn clean_text(text: &str, keep_newlines: bool) -> String {
+    text.chars()
+        .filter(|c| !c.is_control() || keep_newlines && *c == '\n')
+        .collect()
 }
 
 pub fn choose_setup_mode() -> Result<Option<SetupMode>> {
