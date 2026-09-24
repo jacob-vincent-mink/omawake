@@ -145,7 +145,12 @@ impl ProviderSpec {
                 }
             }
         }
-        for directory in ["/usr/lib", "/usr/local/lib", "/usr/lib64"] {
+        for directory in [
+            "/usr/lib",
+            "/usr/lib/openvino",
+            "/usr/local/lib",
+            "/usr/lib64",
+        ] {
             let directory = PathBuf::from(directory);
             if directory.is_dir() && !library_dirs.contains(&directory) {
                 library_dirs.push(directory);
@@ -2845,6 +2850,19 @@ mod tests {
         assert_eq!(cpu.core_library, core.canonicalize().unwrap());
         assert_eq!(cpu.audiocpp_library, audiocpp.canonicalize().unwrap());
         assert!(!cpu.static_pipeline());
+
+        let plugins = runtime.join("openvino");
+        fs::create_dir_all(&plugins).unwrap();
+        let cpu_plugin = "libopenvino_intel_cpu_plugin.so";
+        fs::rename(runtime.join(cpu_plugin), plugins.join(cpu_plugin)).unwrap();
+        config.backend.library_dirs = vec![runtime.clone(), plugins.clone()];
+        let split = ProviderSpec::from_config(&config, &paths).unwrap();
+        assert!(
+            split
+                .library_dirs
+                .contains(&plugins.canonicalize().unwrap())
+        );
+        fs::rename(plugins.join(cpu_plugin), runtime.join(cpu_plugin)).unwrap();
 
         config.backend.library.clear();
         config.backend.library_dirs = vec![PathBuf::from("../runtime")];
