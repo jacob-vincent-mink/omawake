@@ -56,7 +56,8 @@ def main():
                    XDG_STATE_HOME=str(root / "state"), XDG_CACHE_HOME=str(root / "cache"),
                    XDG_RUNTIME_DIR=str(root / "run"), TERM="xterm-256color")
         provider = args.provider_library or Path(f"/usr/lib/{APP}/libaudiocpp.so")
-        if APP == "omawake" and provider.is_file():
+        needs_provider_override = args.provider_library is not None or binary.parent.name in {"debug", "release"}
+        if APP == "omawake" and needs_provider_override and provider.is_file():
             env["OMAWAKE_AUDIOCPP_LIBRARY"] = str(provider.resolve())
         if copied:
             verified = subprocess.run([str(binary), "setup", "model", "--verify", source.name],
