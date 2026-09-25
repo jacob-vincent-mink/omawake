@@ -26,8 +26,10 @@ cd omawake-0.1.1-linux-x86_64
 ./omawake setup
 ```
 
-Use the arrow keys and Enter to choose a provider, model, and microphone, review
-the plan, and apply it. Press Esc or `q` to cancel. The default release provider
+The first page shows the detected hardware recommendation, runtime, model, and
+microphone. Choose **Use recommended settings** to apply it, or **Customize**
+to choose each setting. Press Esc or `q` to cancel. The same recommendation can
+be installed in one command with `omawake setup --recommended`. The default release provider
 is audio.cpp on CPU. Setup downloads
 and verifies these two pinned MIT-licensed assets as one model profile:
 

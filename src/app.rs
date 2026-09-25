@@ -168,6 +168,9 @@ enum TopCommand {
     Stop,
     /// Configure providers, models, and optional integrations.
     Setup {
+        /// Apply the detected hardware recommendation without prompts.
+        #[arg(long)]
+        recommended: bool,
         #[command(subcommand)]
         command: Option<SetupCommand>,
     },
@@ -645,7 +648,20 @@ where
             crate::native_worker::write_json(&response, &paths.runtime_dir, &report)?;
             return Ok(());
         }
-        TopCommand::Setup { command } => return setup(command, &config_path, &paths),
+        TopCommand::Setup {
+            command,
+            recommended,
+        } => {
+            return if recommended {
+                ensure!(
+                    command.is_none(),
+                    "--recommended cannot be combined with a setup subcommand"
+                );
+                apply_recommended_setup(&config_path, &paths)
+            } else {
+                setup(command, &config_path, &paths)
+            };
+        }
         command => command,
     };
     let config = Config::load(&config_path)?;
@@ -974,6 +990,75 @@ fn remove_wake_word(config: &mut Config, id: &str) -> Result<()> {
     Ok(())
 }
 
+struct RecommendedSetupPlan {
+    candidate: Config,
+    model: &'static crate::catalog::ModelSpec,
+    provider_detected: bool,
+    summary: String,
+}
+
+fn recommended_setup_plan(config_path: &Path) -> Result<RecommendedSetupPlan> {
+    let current = app_setup::load_config(config_path)?;
+    let hardware = crate::hardware::detect();
+    let recommendation = crate::hardware::recommend(
+        &hardware,
+        setup_provider_availability(&current, config_path),
+    );
+    let selection = RuntimeSelection {
+        runtime: recommendation.runtime,
+        device: recommendation.device.clone(),
+    };
+    let candidate = runtime_selection_candidate(&current, config_path, &selection, None, None)?;
+    let model = crate::catalog::setup_model(&candidate)?;
+    let summary = format!(
+        "Detected: {}\nRuntime: {} · Device: {}\nModel: {}\nMicrophone: {}\nService unit: unchanged\n{}\n\nThe model and provider are verified before configuration is saved.",
+        recommendation.label,
+        runtime_name(selection.runtime),
+        selection.device,
+        model.name,
+        candidate.audio.device,
+        recommendation.detail,
+    );
+    Ok(RecommendedSetupPlan {
+        candidate,
+        model,
+        provider_detected: recommendation.provider_detected,
+        summary,
+    })
+}
+
+fn apply_recommended_setup(config_path: &Path, paths: &AppPaths) -> Result<()> {
+    apply_recommended_plan(recommended_setup_plan(config_path)?, config_path, paths)
+}
+
+fn apply_recommended_plan(
+    plan: RecommendedSetupPlan,
+    config_path: &Path,
+    paths: &AppPaths,
+) -> Result<()> {
+    ensure!(
+        plan.provider_detected,
+        "recommended provider is missing; run `omawake setup` to customize its path"
+    );
+    validate_runtime_candidate(&plan.candidate, config_path)?;
+    let edit = managed_service_active_for_config(config_path, paths)?;
+    install_everything_with_config(
+        plan.model,
+        plan.candidate,
+        config_path,
+        paths,
+        None,
+        ProgressFormat::Human,
+        edit.managed_running,
+        app_setup::model::install,
+        prove_setup_candidate,
+        app_setup::menu::install,
+        app_setup::systemd::reload_if_was_active,
+        |config, paths| app_setup::print_checks(config, paths, false),
+        app_setup::print_checks_event,
+    )
+}
+
 fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) -> Result<()> {
     if let Some(error) = app_setup::config_recovery(config_path)? {
         eprintln!(
@@ -981,13 +1066,42 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
         );
     }
     if command.is_none() && setup_is_interactive() {
-        return guided_all_with(
-            config_path,
-            paths,
-            &mut TerminalGuidedPrompts {
-                config_path: config_path.to_owned(),
+        let plan = recommended_setup_plan(config_path)?;
+        let items = [
+            if plan.provider_detected {
+                MenuItem::available(
+                    "Use recommended settings",
+                    "Install the shown model and launcher, then verify the runtime",
+                )
+            } else {
+                MenuItem::unavailable(
+                    "Use recommended settings",
+                    "The recommended provider is missing; customize its path",
+                )
             },
-        );
+            MenuItem::available("Customize", "Choose runtime, model, and microphone"),
+        ];
+        match wizard::select(
+            "Review recommended setup",
+            &plan.summary,
+            &items,
+            if plan.provider_detected { 0 } else { 1 },
+        )? {
+            Some(0) => return apply_recommended_plan(plan, config_path, paths),
+            Some(1) => {
+                return guided_all_with(
+                    config_path,
+                    paths,
+                    &mut TerminalGuidedPrompts {
+                        config_path: config_path.to_owned(),
+                    },
+                );
+            }
+            _ => {
+                println!("Setup cancelled.");
+                return Ok(());
+            }
+        }
     }
     if command.is_none() {
         println!(

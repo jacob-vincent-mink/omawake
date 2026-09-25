@@ -233,7 +233,12 @@ fn setup_wizard_cancel_preserves_first_run_state_in_a_real_pty() {
     let root = sandbox();
     let (status, terminal) = run_setup_pty(&root, &[b"q"]);
     assert!(status.success(), "{terminal}");
-    assert!(terminal.contains("Inference runtime"), "{terminal}");
+    assert!(terminal.contains("Review recommended setup"), "{terminal}");
+    assert!(terminal.contains("Runtime:"), "{terminal}");
+    assert!(terminal.contains("Model:"), "{terminal}");
+    assert!(terminal.contains("Microphone:"), "{terminal}");
+    assert!(terminal.contains("Use recommended settings"), "{terminal}");
+    assert!(terminal.contains("Customize"), "{terminal}");
     assert!(terminal.contains("Setup cancelled"), "{terminal}");
     assert!(!root.join("config/omawake/config.toml").exists());
     assert!(!root.join("config/systemd/user/omawake.service").exists());

@@ -4025,7 +4025,20 @@ fn setup_all_leaves_model_unspecified_until_backend_resolution() {
     assert!(matches!(
         cli.command,
         TopCommand::Setup {
-            command: Some(SetupCommand::All { model: None, .. })
+            command: Some(SetupCommand::All { model: None, .. }),
+            ..
+        }
+    ));
+}
+
+#[test]
+fn setup_recommended_is_a_single_command_flag() {
+    let cli = Cli::try_parse_from(["omawake", "setup", "--recommended"]).unwrap();
+    assert!(matches!(
+        cli.command,
+        TopCommand::Setup {
+            recommended: true,
+            command: None
         }
     ));
 }
