@@ -24,11 +24,17 @@ def main() -> None:
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--model-cache", type=Path)
     parser.add_argument("--cancel-before-accept", action="store_true")
+    parser.add_argument("--customize", action="store_true", help="navigate two Customize pages, then cancel")
+    parser.add_argument("--customize-review", action="store_true", help="navigate Customize to final review, then cancel")
     parser.add_argument("--timeout", type=int, default=300)
     args = parser.parse_args()
     binary = args.binary.expanduser().resolve(strict=True)
-    if not args.cancel_before_accept and args.model_cache is None:
-        parser.error("--model-cache is required for a full Apply")
+    if sum((args.cancel_before_accept, args.customize, args.customize_review)) > 1:
+        parser.error("choose one verification mode")
+    no_apply = args.cancel_before_accept or args.customize or args.customize_review
+    copy_model = not no_apply or args.customize_review
+    if copy_model and args.model_cache is None:
+        parser.error("--model-cache is required for Apply or --customize-review")
     source = args.model_cache.expanduser().resolve(strict=True) if args.model_cache else None
     if source is not None and not source.is_dir():
         parser.error("--model-cache must be an installed catalog model directory")
@@ -37,7 +43,7 @@ def main() -> None:
 
     with tempfile.TemporaryDirectory(prefix=f"{APP}-setup-e2e-") as scratch:
         root = Path(scratch)
-        if not args.cancel_before_accept:
+        if copy_model:
             model = root / "data" / APP / "models" / source.name
             shutil.copytree(source, model)
         (root / "run").mkdir()
@@ -50,7 +56,7 @@ def main() -> None:
             XDG_RUNTIME_DIR=str(root / "run"),
             TERM="xterm-256color",
         )
-        if not args.cancel_before_accept:
+        if copy_model:
             verified = subprocess.run(
                 [str(binary), "setup", "model", "--verify", source.name],
                 env=env,
@@ -90,7 +96,58 @@ def main() -> None:
                     f"recommended model does not match cached {source.name if source else 'model'}; "
                     f"refusing Apply. First page: {model_line or 'missing'}"
                 )
-            keys = (b"\x1b[D", b"\r", b"q", b"q") if args.cancel_before_accept else (b"\x1b[D", b"\r", b"\x1b[D", b"\r")
+            if args.customize_review:
+                def page_title():
+                    latest = transcript.read_bytes().split(b"\x1b[2J")[-1]
+                    plain = re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]", b"", latest).decode(errors="replace")
+                    lines = [line.strip() for line in plain.splitlines() if line.strip()]
+                    return lines[2] if len(lines) >= 3 else ""
+
+                def advance(previous):
+                    for key in (b"\x1b[D", b"\r"):
+                        child.stdin.write(key)
+                        child.stdin.flush()
+                        time.sleep(0.2)
+                    until = time.monotonic() + 15
+                    while time.monotonic() < until:
+                        title = page_title()
+                        if title and title != previous:
+                            return title
+                        if child.poll() is not None:
+                            break
+                        time.sleep(0.1)
+                    raise SystemExit(f"Customize did not advance from {previous}: {page_title()}")
+
+                child.stdin.write(b"\x1b[C")
+                child.stdin.flush()
+                time.sleep(0.2)
+                child.stdin.write(b"\r")
+                child.stdin.flush()
+                title = "Select setup"
+                until = time.monotonic() + 15
+                while time.monotonic() < until and page_title() == title:
+                    time.sleep(0.1)
+                title = page_title()
+                seen = []
+                for _ in range(12):
+                    if title == "Accept setup":
+                        break
+                    seen.append(title)
+                    title = advance(title)
+                if title != "Accept setup":
+                    raise SystemExit(f"Customize did not reach Accept setup: {seen}, {title}")
+                required_pages = {"Inference runtime", "Inference device", "Wake-word model", "Audio device"}
+                if not required_pages.issubset(seen):
+                    raise SystemExit(f"Customize skipped a page: {seen}")
+                child.stdin.write(b"q")
+                child.stdin.flush()
+                keys = ()
+            elif args.customize:
+                keys = (b"\x1b[C", b"\r", b"\r", b"\x1b[D", b"\r", b"q")
+            elif args.cancel_before_accept:
+                keys = (b"\x1b[D", b"\r", b"q", b"q")
+            else:
+                keys = (b"\x1b[D", b"\r", b"\x1b[D", b"\r")
             for key in keys:
                 if child.poll() is not None:
                     break
@@ -102,14 +159,33 @@ def main() -> None:
             child.kill()
             child.communicate()
             raise SystemExit(f"setup did not complete: {error}") from error
+        except BaseException:
+            if child.poll() is None:
+                child.kill()
+                child.communicate()
+            raise
         text = re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]", b"", transcript.read_bytes()).decode(errors="replace")
-        required = ("Select setup", "Accept setup", "Setup cancelled.") if args.cancel_before_accept else ("Select setup", "Accept setup", "Setup complete.")
+        if args.customize_review:
+            required = ("Select setup", "Wake-word model", "Audio device", "Accept setup", "Setup cancelled.")
+        elif args.customize:
+            required = ("Select setup", "Inference runtime", "Inference device", "Setup cancelled.")
+        elif args.cancel_before_accept:
+            required = ("Select setup", "Accept setup", "Setup cancelled.")
+        else:
+            required = ("Select setup", "Accept setup", "Setup complete.")
         missing = [marker for marker in required if marker not in text]
         config = root / "config" / APP / "config.toml"
         launcher = root / "data" / "applications" / f"{APP}-settings.desktop"
         cache_has_files = any(path.is_file() for path in (root / "cache" / APP).rglob("*"))
-        if args.cancel_before_accept:
-            valid_state = not config.exists() and not launcher.exists() and not (root / "data" / APP).exists() and not cache_has_files
+        if no_apply:
+            expected_models = {source.name} if args.customize_review else set()
+            models = root / "data" / APP / "models"
+            installed_models = {path.name for path in models.iterdir()} if models.is_dir() else set()
+            valid_state = (
+                not config.exists() and not launcher.exists() and not cache_has_files
+                and installed_models == expected_models
+                and not (root / "data" / APP / "downloads").exists()
+            )
         else:
             valid_state = config.is_file() and launcher.is_file()
         if child.returncode or missing or not valid_state:
@@ -118,7 +194,11 @@ def main() -> None:
                 f"config={config.is_file()}, launcher={launcher.is_file()}, cache_files={cache_has_files}):\n"
                 f"{text[-6000:]}\n{stderr.decode(errors='replace')}"
             )
-        if args.cancel_before_accept:
+        if args.customize_review:
+            print(f"{APP}: Customize reached final Accept; cancelled with no download, cache, config, or launcher")
+        elif args.customize:
+            print(f"{APP}: Customize runtime and device pages navigated; no files changed")
+        elif args.cancel_before_accept:
             print(f"{APP}: final Accept page cancelled; no config, model, launcher, or compiled cache")
         else:
             print(f"{APP}: Select → Accept → Finish passed; model verified; config and launcher installed in isolation")

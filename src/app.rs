@@ -1484,7 +1484,7 @@ struct TerminalGuidedPrompts {
 
 impl GuidedPrompts for TerminalGuidedPrompts {
     fn audio_device(&mut self, current: &str) -> Result<Option<String>> {
-        choose_audio_device(current)
+        app_setup::audio::choose_horizontal(current, crate::audio::device_inventory)
     }
     #[cfg(test)]
     fn setup_mode(&mut self) -> Result<Option<SetupMode>> {
@@ -1556,7 +1556,14 @@ impl GuidedPrompts for TerminalGuidedPrompts {
         paths: &AppPaths,
         current: &Config,
     ) -> Result<Option<&'static crate::catalog::ModelSpec>> {
-        choose_model(paths, current)
+        choose_model_with(paths, current, |items, preferred| {
+            wizard::select_horizontal(
+                "Wake-word model",
+                "● active · ○ installed · downloadable catalog models can be installed",
+                items,
+                preferred,
+            )
+        })
     }
 
     fn model_source_directory(
@@ -1943,20 +1950,6 @@ where
         check_human,
         check_json,
     )
-}
-
-fn choose_model(
-    paths: &AppPaths,
-    current: &Config,
-) -> Result<Option<&'static crate::catalog::ModelSpec>> {
-    choose_model_with(paths, current, |items, preferred| {
-        wizard::select(
-            "Wake-word model",
-            "● active · ○ installed · downloadable catalog models can be installed",
-            items,
-            preferred,
-        )
-    })
 }
 
 fn choose_model_with<S>(

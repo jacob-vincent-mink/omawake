@@ -257,10 +257,12 @@ fn setup_menu_opens_customize_without_installing_in_a_real_pty() {
         return;
     }
     let root = sandbox();
-    let (status, terminal) = run_setup_pty(&root, &[b"\x1b[C", b"\r", b"q"]);
+    let (status, terminal) =
+        run_setup_pty(&root, &[b"\x1b[C", b"\r", b"\r", b"\x1b[D", b"\r", b"q"]);
     assert!(status.success(), "{terminal}");
     assert!(terminal.contains("Select setup"), "{terminal}");
     assert!(terminal.contains("Inference runtime"), "{terminal}");
+    assert!(terminal.contains("Inference device"), "{terminal}");
     assert!(!root.join("config/omawake/config.toml").exists());
     assert!(!root.join("data/omawake").exists());
 }

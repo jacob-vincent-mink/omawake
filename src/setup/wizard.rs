@@ -57,7 +57,7 @@ impl Prompter for TerminalPrompter {
                 &options,
             );
         }
-        select(title, help, items, preferred)
+        select_horizontal(title, help, items, preferred)
     }
 }
 
@@ -157,6 +157,20 @@ pub fn select(
     })
 }
 
+/// A guided setup page with deliberate Left/Right selection.
+pub fn select_horizontal(
+    title: &str,
+    help: &str,
+    items: &[MenuItem],
+    preferred: usize,
+) -> Result<Option<usize>> {
+    let mut stdout = io::stdout();
+    let _terminal = TerminalSession::enter(&mut stdout)?;
+    run_options(&mut stdout, title, help, items, preferred, || {
+        event::read().context("read terminal input")
+    })
+}
+
 /// A two-option setup page. No choice is active until Left or Right is pressed.
 pub fn select_choice(title: &str, summary: &str, items: &[MenuItem; 2]) -> Result<Option<usize>> {
     if !items.iter().any(|item| item.enabled) {
@@ -174,11 +188,26 @@ fn run_choice(
     title: &str,
     summary: &str,
     items: &[MenuItem; 2],
+    read: impl FnMut() -> Result<Event>,
+) -> Result<Option<usize>> {
+    run_options(output, title, summary, items, 0, read)
+}
+
+fn run_options(
+    output: &mut impl Write,
+    title: &str,
+    summary: &str,
+    items: &[MenuItem],
+    preferred: usize,
     mut read: impl FnMut() -> Result<Event>,
 ) -> Result<Option<usize>> {
+    if items.is_empty() || !items.iter().any(|item| item.enabled) {
+        bail!("setup page has no available choices");
+    }
     let mut selected = None;
+    let focus = preferred.min(items.len() - 1);
     loop {
-        render_choice(output, title, summary, items, selected)?;
+        render_choice(output, title, summary, items, selected, focus)?;
         let Event::Key(key) = read()? else {
             continue;
         };
@@ -186,8 +215,16 @@ fn run_choice(
             continue;
         }
         match (key.code, key.modifiers) {
-            (KeyCode::Left, KeyModifiers::NONE) if items[0].enabled => selected = Some(0),
-            (KeyCode::Right, KeyModifiers::NONE) if items[1].enabled => selected = Some(1),
+            (KeyCode::Left | KeyCode::Up, KeyModifiers::NONE) => {
+                if let Some(current) = selected {
+                    selected = Some(next_available(items, current, -1));
+                } else if items[focus].enabled {
+                    selected = Some(focus);
+                }
+            }
+            (KeyCode::Right | KeyCode::Down, KeyModifiers::NONE) => {
+                selected = Some(next_available(items, selected.unwrap_or(focus), 1));
+            }
             (KeyCode::Enter, KeyModifiers::NONE) if selected.is_some() => return Ok(selected),
             (KeyCode::Esc | KeyCode::Char('q'), KeyModifiers::NONE)
             | (KeyCode::Char('c'), KeyModifiers::CONTROL) => return Ok(None),
@@ -196,21 +233,55 @@ fn run_choice(
     }
 }
 
+fn next_available(items: &[MenuItem], current: usize, direction: isize) -> usize {
+    let mut next = current;
+    loop {
+        next = (next as isize + direction).rem_euclid(items.len() as isize) as usize;
+        if items[next].enabled {
+            return next;
+        }
+    }
+}
+
 fn render_choice(
     output: &mut impl Write,
     title: &str,
     summary: &str,
-    items: &[MenuItem; 2],
+    items: &[MenuItem],
     selected: Option<usize>,
+    focus: usize,
 ) -> Result<()> {
     let (width, height) = terminal::size()
         .ok()
         .filter(|(width, height)| *width > 0 && *height > 0)
         .unwrap_or((80, 24));
-    let width = width.max(1) as usize;
-    let height = height.max(1) as usize;
+    render_choice_at_size(
+        output,
+        title,
+        summary,
+        items,
+        selected,
+        focus,
+        width as usize,
+        height as usize,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_choice_at_size(
+    output: &mut impl Write,
+    title: &str,
+    summary: &str,
+    items: &[MenuItem],
+    selected: Option<usize>,
+    focus: usize,
+    width: usize,
+    height: usize,
+) -> Result<()> {
+    let width = width.max(1);
+    let height = height.max(1);
     let mut lines = vec![
-        "OMAWAKE  /  SETUP".to_owned(),
+        format!("OMAWAKE  /  {}", setup_section(title)),
         "─".repeat(width.saturating_sub(1)),
         title.to_owned(),
         String::new(),
@@ -218,7 +289,7 @@ fn render_choice(
     lines.extend(
         wrap(summary, width, 0)
             .split("\r\n")
-            .take(height.saturating_sub(10))
+            .take(height.saturating_sub(13))
             .map(str::to_owned),
     );
     lines.push(String::new());
@@ -233,11 +304,40 @@ fn render_choice(
         }
     };
     let choice_row = lines.len();
-    lines.push(format!("{}    {}", option(0), option(1)));
-    lines.push(selected.map_or_else(
+    let center = selected.unwrap_or(focus);
+    let start = center.saturating_sub(1).min(items.len().saturating_sub(3));
+    let mut row = String::new();
+    for index in start..items.len().min(start + 3) {
+        let card = option(index);
+        if !row.is_empty() && row.chars().count() + card.chars().count() + 4 >= width {
+            lines.push(row);
+            row = String::new();
+        }
+        if !row.is_empty() {
+            row.push_str("    ");
+        }
+        row.push_str(&card);
+    }
+    lines.push(row);
+    if items.len() > 3 {
+        lines.push(format!(
+            "Options {}–{} of {}",
+            start + 1,
+            (start + 3).min(items.len()),
+            items.len()
+        ));
+    }
+    let choice_end = lines.len();
+    let detail = selected.map_or_else(
         || "Choose an option to continue.".to_owned(),
         |index| items[index].detail.clone(),
-    ));
+    );
+    lines.extend(
+        wrap(&detail, width, 0)
+            .split("\r\n")
+            .take(2)
+            .map(str::to_owned),
+    );
     while lines.len() < height.saturating_sub(1) {
         lines.push(String::new());
     }
@@ -249,7 +349,7 @@ fn render_choice(
         cursor::MoveTo(0, 0)
     )?;
     for (index, line) in lines.iter().enumerate() {
-        if matches!(index, 0 | 2) || index == choice_row {
+        if matches!(index, 0 | 2) || (choice_row..choice_end).contains(&index) {
             queue!(
                 output,
                 SetForegroundColor(Color::Cyan),

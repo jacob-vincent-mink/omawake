@@ -30,7 +30,9 @@ The first page shows the detected hardware recommendation, runtime, model, and
 microphone. Press Left or Right to select **Use recommended settings** or
 **Customize**, then Enter to continue. The recommended path has a separate
 **Accept setup** page; model download and installation start only after you
-select Accept. Press Esc or `q` to go back or cancel. The same recommendation can
+select Accept. Customize uses the same Left/Right choices for runtime, device,
+model, and later steps; Enter does nothing until you choose on each page. Press
+Esc or `q` to go back or cancel. The same recommendation can
 be installed in one command with `omawake setup --recommended`. The default release provider
 is audio.cpp on CPU. Setup downloads
 and verifies these two pinned MIT-licensed assets as one model profile:
@@ -78,6 +80,10 @@ to check the final Accept page, model proof, config, and launcher.
 Use `python3 scripts/verify-setup-tui.py --binary ~/.local/bin/omawake --cancel-before-accept`
 to confirm that backing out of the final page creates no config, model,
 launcher, or cache files.
+Use `python3 scripts/verify-setup-tui.py --binary ~/.local/bin/omawake --customize`
+to navigate Customize through runtime and device, then cancel with no files changed.
+Add `--model-cache ~/.local/share/omawake/models/moonshine-streaming-tiny-q8_0-silero-v6.2.1 --customize-review`
+instead to navigate every Customize page through final Accept and cancel there.
 
 CUDA, Vulkan, and HIP also accept `--device-id N` for a zero-based GPU index.
 
