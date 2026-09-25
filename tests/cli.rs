@@ -257,12 +257,32 @@ fn setup_menu_opens_customize_without_installing_in_a_real_pty() {
         return;
     }
     let root = sandbox();
-    let (status, terminal) =
-        run_setup_pty(&root, &[b"\x1b[C", b"\r", b"\r", b"\x1b[D", b"\r", b"q"]);
+    let (status, terminal) = run_setup_pty(
+        &root,
+        &[b"\x1b[C", b"\r", b"", b"", b"\r", b" ", b"\r", b"", b"q"],
+    );
     assert!(status.success(), "{terminal}");
     assert!(terminal.contains("Select setup"), "{terminal}");
-    assert!(terminal.contains("Inference runtime"), "{terminal}");
-    assert!(terminal.contains("Inference device"), "{terminal}");
+    assert!(terminal.contains("Space select"), "{terminal}");
+    assert!(terminal.contains("default"), "{terminal}");
+    assert!(!root.join("config/omawake/config.toml").exists());
+    assert!(!root.join("data/omawake").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_customize_reaches_accept_then_cancels_without_installing() {
+    let root = sandbox();
+    let (status, terminal) = run_setup_pty(
+        &root,
+        &[
+            b"\x1b[C", b"\r", b"", b"", b" ", b"\r", b" ", b"\r", b" ", b"\r", b" ", b"\r", b"",
+            b"q",
+        ],
+    );
+    assert!(status.success(), "{terminal}");
+    assert!(terminal.contains("✓ Microphone"), "{terminal}");
+    assert!(terminal.contains("Setup cancelled"), "{terminal}");
     assert!(!root.join("config/omawake/config.toml").exists());
     assert!(!root.join("data/omawake").exists());
 }

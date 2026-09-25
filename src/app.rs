@@ -1059,6 +1059,211 @@ fn apply_recommended_plan(
     )
 }
 
+fn guided_tabbed_setup(config_path: &Path, paths: &AppPaths) -> Result<()> {
+    let current = app_setup::load_config(config_path)?;
+    let providers = setup_provider_availability(&current, config_path);
+    let recommendation = crate::hardware::recommend(&crate::hardware::detect(), providers);
+    let runtimes = [
+        Runtime::Default,
+        Runtime::Openvino,
+        Runtime::Cuda,
+        Runtime::Vulkan,
+        Runtime::Hip,
+    ];
+    let runtime_items = runtimes
+        .iter()
+        .map(|runtime| {
+            let detected = match runtime {
+                Runtime::Default => providers.packaged_cpu,
+                Runtime::Openvino => providers.openvino_npu || providers.openvino_gpu,
+                Runtime::Cuda => providers.cuda,
+                Runtime::Vulkan => providers.vulkan,
+                Runtime::Hip => {
+                    current.backend.runtime == Runtime::Hip
+                        && native_runtime_probe(&current, config_path).loadable
+                }
+            };
+            let label = format!(
+                "{}{}",
+                runtime_name(*runtime),
+                if *runtime == recommendation.runtime {
+                    " · recommended"
+                } else {
+                    ""
+                }
+            );
+            if detected {
+                MenuItem::available(label, "Provider detected")
+            } else {
+                MenuItem::available(
+                    label,
+                    "Provider not detected. Configure it with `omawake setup runtime` first.",
+                )
+            }
+        })
+        .collect::<Vec<_>>();
+    let preferred_runtime = runtimes
+        .iter()
+        .position(|runtime| *runtime == recommendation.runtime)
+        .unwrap_or(0);
+    let report = crate::audio::device_inventory(&current.audio.device);
+    let audio = report["devices"]
+        .as_array()
+        .context("device inventory has no devices")?
+        .iter()
+        .map(|device| {
+            let selector = device["selector"].as_str().unwrap_or("default").to_owned();
+            (
+                selector.clone(),
+                MenuItem::available(
+                    device["label"].as_str().unwrap_or(&selector),
+                    selector.clone(),
+                ),
+            )
+        })
+        .collect::<Vec<_>>();
+    let models = crate::catalog::models();
+    let choices = app_setup::tabbed::run(
+        &["Runtime", "Device", "Model", "Microphone", "Accept"],
+        |tab, picks| {
+            let runtime = runtimes[picks[0].unwrap_or(preferred_runtime)];
+            let devices = match runtime {
+                Runtime::Default => &[("cpu", "CPU")][..],
+                Runtime::Openvino => &[
+                    ("npu", "Intel NPU"),
+                    ("gpu", "Intel GPU"),
+                    ("cpu", "Intel CPU"),
+                ][..],
+                Runtime::Cuda | Runtime::Vulkan | Runtime::Hip => {
+                    &[("auto", "Automatic"), ("gpu", "GPU")][..]
+                }
+            };
+            let device = devices[picks[1].unwrap_or(0)].0;
+            let selection = RuntimeSelection {
+                runtime,
+                device: device.into(),
+            };
+            let candidate =
+                runtime_selection_candidate(&current, config_path, &selection, None, None)?;
+            Ok(match tab {
+                0 => app_setup::tabbed::Page::new(
+                    "Choose runtime",
+                    recommendation.detail.clone(),
+                    runtime_items.clone(),
+                    preferred_runtime,
+                ),
+                1 => app_setup::tabbed::Page::new(
+                    "Choose device",
+                    "Select a device for this runtime.",
+                    devices
+                        .iter()
+                        .map(|(name, detail)| MenuItem::available(*name, *detail))
+                        .collect(),
+                    devices
+                        .iter()
+                        .position(|(name, _)| *name == recommendation.device)
+                        .unwrap_or(0),
+                ),
+                2 => {
+                    let items = models.iter().map(|model| {
+                        let ready = model.downloadable || app_setup::model::verify(paths, model).is_ok();
+                        let detail = format!(
+                            "{} · {} · {:.1} MiB",
+                            model.description,
+                            model.license,
+                            model.total_size() as f64 / 1_048_576.0
+                        );
+                        if ready && model.compatible_with(&candidate.backend.kind, runtime, device) {
+                            MenuItem::available(model.name, detail)
+                        } else {
+                            MenuItem::unavailable(model.name, format!(
+                                "{detail} · incompatible or needs `omawake setup model --download {} --source PATH`",
+                                model.id
+                            ))
+                        }
+                    }).collect();
+                    let preferred = models
+                        .iter()
+                        .position(|model| model.id == candidate.model.name)
+                        .unwrap_or(0);
+                    app_setup::tabbed::Page::new(
+                        "Choose model",
+                        "Only compatible models with available downloads or verified local files are selectable.",
+                        items,
+                        preferred,
+                    )
+                }
+                3 => app_setup::tabbed::Page::new(
+                    "Choose microphone",
+                    report["error"]
+                        .as_str()
+                        .unwrap_or("System defaults are unchanged."),
+                    audio.iter().map(|(_, item)| item.clone()).collect(),
+                    audio
+                        .iter()
+                        .position(|(selector, _)| *selector == current.audio.device)
+                        .unwrap_or(0),
+                ),
+                4 => {
+                    let model = models[picks[2].context("select a model")?];
+                    let mic = &audio[picks[3].context("select a microphone")?].0;
+                    app_setup::tabbed::Page::new(
+                        "Accept setup",
+                        format!(
+                            "Runtime: {} · Device: {}\nModel: {}\nMicrophone: {}\nDownloads and compilation start after Accept.",
+                            runtime_name(runtime),
+                            device,
+                            model.name,
+                            mic
+                        ),
+                        vec![MenuItem::available(
+                            "Accept and apply",
+                            "Install and verify the model, then save settings",
+                        )],
+                        0,
+                    )
+                }
+                _ => unreachable!(),
+            })
+        },
+    )?;
+    let Some(choices) = choices else {
+        println!("Setup cancelled; no changes were made.");
+        return Ok(());
+    };
+    let runtime = runtimes[choices[0]];
+    let devices = match runtime {
+        Runtime::Default => &["cpu"][..],
+        Runtime::Openvino => &["npu", "gpu", "cpu"][..],
+        Runtime::Cuda | Runtime::Vulkan | Runtime::Hip => &["auto", "gpu"][..],
+    };
+    let selection = RuntimeSelection {
+        runtime,
+        device: devices[choices[1]].into(),
+    };
+    let mut candidate = runtime_selection_candidate(&current, config_path, &selection, None, None)?;
+    validate_runtime_candidate(&candidate, config_path)?;
+    let model = &models[choices[2]];
+    model.activate(&mut candidate);
+    candidate.audio.device = audio[choices[3]].0.clone();
+    let edit = managed_service_active_for_config(config_path, paths)?;
+    install_everything_with_config(
+        model,
+        candidate,
+        config_path,
+        paths,
+        None,
+        ProgressFormat::Human,
+        edit.managed_running,
+        app_setup::model::install,
+        prove_setup_candidate,
+        app_setup::menu::install,
+        app_setup::systemd::reload_if_was_active,
+        |config, paths| app_setup::print_checks(config, paths, false),
+        app_setup::print_checks_event,
+    )
+}
+
 fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) -> Result<()> {
     if let Some(error) = app_setup::config_recovery(config_path)? {
         eprintln!(
@@ -1102,13 +1307,7 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
                     }
                 }
                 Some(1) => {
-                    return guided_all_with(
-                        config_path,
-                        paths,
-                        &mut TerminalGuidedPrompts {
-                            config_path: config_path.to_owned(),
-                        },
-                    );
+                    return guided_tabbed_setup(config_path, paths);
                 }
                 _ => {
                     println!("Setup cancelled.");
@@ -1443,6 +1642,7 @@ trait GuidedPrompts {
     ) -> Result<crate::runtime_inventory::Probe> {
         crate::runtime_inventory::apply_with(candidate, path, false, native_runtime_probe)
     }
+    #[cfg(test)]
     fn audio_device(&mut self, current: &str) -> Result<Option<String>> {
         Ok(Some(current.into()))
     }
@@ -1470,6 +1670,7 @@ trait GuidedPrompts {
         paths: &AppPaths,
         spec: &crate::catalog::ModelSpec,
     ) -> Result<Option<PathBuf>>;
+    #[cfg(test)]
     fn confirm(
         &mut self,
         selection: &RuntimeSelection,
@@ -1483,6 +1684,7 @@ struct TerminalGuidedPrompts {
 }
 
 impl GuidedPrompts for TerminalGuidedPrompts {
+    #[cfg(test)]
     fn audio_device(&mut self, current: &str) -> Result<Option<String>> {
         app_setup::audio::choose_horizontal(current, crate::audio::device_inventory)
     }
@@ -1578,6 +1780,7 @@ impl GuidedPrompts for TerminalGuidedPrompts {
         }
     }
 
+    #[cfg(test)]
     fn confirm(
         &mut self,
         selection: &RuntimeSelection,
@@ -1797,6 +2000,7 @@ where
     )
 }
 
+#[cfg(test)]
 fn guided_all_with(
     config_path: &Path,
     paths: &AppPaths,
@@ -1817,6 +2021,7 @@ fn guided_all_with(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 fn guided_all_with_services<FI, FM, FA, FR, CH, CJ>(
     config_path: &Path,
     paths: &AppPaths,
@@ -1857,6 +2062,7 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 fn guided_all_with_services_and_validator<FI, FP, FM, FA, FR, CH, CJ, FV>(
     config_path: &Path,
     paths: &AppPaths,
