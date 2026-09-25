@@ -75,6 +75,9 @@ To repeat a full TUI Apply without changing your active configuration, run
 `python3 scripts/verify-setup-tui.py --binary ~/.local/bin/omawake --model-cache ~/.local/share/omawake/models/moonshine-streaming-tiny-q8_0-silero-v6.2.1`.
 The script verifies the cached model first, then uses isolated XDG directories
 to check the final Accept page, model proof, config, and launcher.
+Use `python3 scripts/verify-setup-tui.py --binary ~/.local/bin/omawake --cancel-before-accept`
+to confirm that backing out of the final page creates no config, model,
+launcher, or cache files.
 
 CUDA, Vulkan, and HIP also accept `--device-id N` for a zero-based GPU index.
 
