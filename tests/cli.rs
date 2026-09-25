@@ -231,17 +231,38 @@ fn setup_wizard_cancel_preserves_first_run_state_in_a_real_pty() {
         return;
     }
     let root = sandbox();
-    let (status, terminal) = run_setup_pty(&root, &[b"q"]);
+    let (status, terminal) = run_setup_pty(&root, &[b"\r", b"q"]);
     assert!(status.success(), "{terminal}");
-    assert!(terminal.contains("Review recommended setup"), "{terminal}");
+    assert!(terminal.contains("Select setup"), "{terminal}");
     assert!(terminal.contains("Runtime:"), "{terminal}");
     assert!(terminal.contains("Model:"), "{terminal}");
     assert!(terminal.contains("Microphone:"), "{terminal}");
     assert!(terminal.contains("Use recommended settings"), "{terminal}");
     assert!(terminal.contains("Customize"), "{terminal}");
+    assert!(
+        terminal.contains("Choose an option to continue"),
+        "{terminal}"
+    );
+    assert!(!terminal.contains("Accept setup"), "{terminal}");
     assert!(terminal.contains("Setup cancelled"), "{terminal}");
     assert!(!root.join("config/omawake/config.toml").exists());
+    assert!(!root.join("data/omawake").exists());
     assert!(!root.join("config/systemd/user/omawake.service").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_menu_opens_customize_without_installing_in_a_real_pty() {
+    if Command::new("script").arg("--version").output().is_err() {
+        return;
+    }
+    let root = sandbox();
+    let (status, terminal) = run_setup_pty(&root, &[b"\x1b[C", b"\r", b"q"]);
+    assert!(status.success(), "{terminal}");
+    assert!(terminal.contains("Select setup"), "{terminal}");
+    assert!(terminal.contains("Inference runtime"), "{terminal}");
+    assert!(!root.join("config/omawake/config.toml").exists());
+    assert!(!root.join("data/omawake").exists());
 }
 
 #[cfg(unix)]

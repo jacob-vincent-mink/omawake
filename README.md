@@ -27,8 +27,10 @@ cd omawake-0.1.1-linux-x86_64
 ```
 
 The first page shows the detected hardware recommendation, runtime, model, and
-microphone. Choose **Use recommended settings** to apply it, or **Customize**
-to choose each setting. Press Esc or `q` to cancel. The same recommendation can
+microphone. Press Left or Right to select **Use recommended settings** or
+**Customize**, then Enter to continue. The recommended path has a separate
+**Accept setup** page; model download and installation start only after you
+select Accept. Press Esc or `q` to go back or cancel. The same recommendation can
 be installed in one command with `omawake setup --recommended`. The default release provider
 is audio.cpp on CPU. Setup downloads
 and verifies these two pinned MIT-licensed assets as one model profile:
@@ -68,6 +70,11 @@ selection can validate and apply a different provider directory:
 omawake setup runtime \
   --runtime default --device cpu --dir /absolute/path/to/provider --apply
 ```
+
+To repeat a full TUI Apply without changing your active configuration, run
+`python3 scripts/verify-setup-tui.py --binary ~/.local/bin/omawake --model-cache ~/.local/share/omawake/models/moonshine-streaming-tiny-q8_0-silero-v6.2.1`.
+The script verifies the cached model first, then uses isolated XDG directories
+to check the final Accept page, model proof, config, and launcher.
 
 CUDA, Vulkan, and HIP also accept `--device-id N` for a zero-based GPU index.
 

@@ -49,6 +49,14 @@ impl Prompter for TerminalPrompter {
         items: &[MenuItem],
         preferred: usize,
     ) -> Result<Option<usize>> {
+        if title == "Review full setup" && items.len() == 2 {
+            let options = [items[0].clone(), items[1].clone()];
+            return select_choice(
+                "Accept setup",
+                &format!("{help}\n{}", items[0].detail),
+                &options,
+            );
+        }
         select(title, help, items, preferred)
     }
 }
@@ -149,6 +157,121 @@ pub fn select(
     })
 }
 
+/// A two-option setup page. No choice is active until Left or Right is pressed.
+pub fn select_choice(title: &str, summary: &str, items: &[MenuItem; 2]) -> Result<Option<usize>> {
+    if !items.iter().any(|item| item.enabled) {
+        bail!("setup page has no available choices");
+    }
+    let mut stdout = io::stdout();
+    let _terminal = TerminalSession::enter(&mut stdout)?;
+    run_choice(&mut stdout, title, summary, items, || {
+        event::read().context("read terminal input")
+    })
+}
+
+fn run_choice(
+    output: &mut impl Write,
+    title: &str,
+    summary: &str,
+    items: &[MenuItem; 2],
+    mut read: impl FnMut() -> Result<Event>,
+) -> Result<Option<usize>> {
+    let mut selected = None;
+    loop {
+        render_choice(output, title, summary, items, selected)?;
+        let Event::Key(key) = read()? else {
+            continue;
+        };
+        if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
+            continue;
+        }
+        match (key.code, key.modifiers) {
+            (KeyCode::Left, KeyModifiers::NONE) if items[0].enabled => selected = Some(0),
+            (KeyCode::Right, KeyModifiers::NONE) if items[1].enabled => selected = Some(1),
+            (KeyCode::Enter, KeyModifiers::NONE) if selected.is_some() => return Ok(selected),
+            (KeyCode::Esc | KeyCode::Char('q'), KeyModifiers::NONE)
+            | (KeyCode::Char('c'), KeyModifiers::CONTROL) => return Ok(None),
+            _ => {}
+        }
+    }
+}
+
+fn render_choice(
+    output: &mut impl Write,
+    title: &str,
+    summary: &str,
+    items: &[MenuItem; 2],
+    selected: Option<usize>,
+) -> Result<()> {
+    let (width, height) = terminal::size()
+        .ok()
+        .filter(|(width, height)| *width > 0 && *height > 0)
+        .unwrap_or((80, 24));
+    let width = width.max(1) as usize;
+    let height = height.max(1) as usize;
+    let mut lines = vec![
+        "OMAWAKE  /  SETUP".to_owned(),
+        "─".repeat(width.saturating_sub(1)),
+        title.to_owned(),
+        String::new(),
+    ];
+    lines.extend(
+        wrap(summary, width, 0)
+            .split("\r\n")
+            .take(height.saturating_sub(10))
+            .map(str::to_owned),
+    );
+    lines.push(String::new());
+    let option = |index: usize| {
+        let label = &items[index].label;
+        if selected == Some(index) {
+            format!("[ › {label} ]")
+        } else if items[index].enabled {
+            format!("[   {label} ]")
+        } else {
+            format!("[ unavailable: {label} ]")
+        }
+    };
+    let choice_row = lines.len();
+    lines.push(format!("{}    {}", option(0), option(1)));
+    lines.push(selected.map_or_else(
+        || "Choose an option to continue.".to_owned(),
+        |index| items[index].detail.clone(),
+    ));
+    while lines.len() < height.saturating_sub(1) {
+        lines.push(String::new());
+    }
+    lines.push("← → choose    Enter continue    Esc/q back".to_owned());
+    lines.truncate(height);
+    queue!(
+        output,
+        terminal::Clear(ClearType::All),
+        cursor::MoveTo(0, 0)
+    )?;
+    for (index, line) in lines.iter().enumerate() {
+        if matches!(index, 0 | 2) || index == choice_row {
+            queue!(
+                output,
+                SetForegroundColor(Color::Cyan),
+                SetAttribute(Attribute::Bold)
+            )?;
+        } else if index + 1 == lines.len() {
+            queue!(output, SetForegroundColor(Color::DarkGrey))?;
+        }
+        queue!(
+            output,
+            Print(clip(line, width)),
+            SetAttribute(Attribute::Reset),
+            ResetColor
+        )?;
+        if index + 1 < lines.len() {
+            queue!(output, Print("\r\n"))?;
+        }
+    }
+    output.flush()?;
+    Ok(())
+}
+
 struct TerminalSession;
 
 impl TerminalSession {
@@ -194,8 +317,8 @@ fn run_menu(
 
 fn action(key: KeyEvent) -> Action {
     match (key.code, key.modifiers) {
-        (KeyCode::Up | KeyCode::Char('k'), KeyModifiers::NONE) => Action::Up,
-        (KeyCode::Down | KeyCode::Char('j'), KeyModifiers::NONE) => Action::Down,
+        (KeyCode::Up | KeyCode::Left | KeyCode::Char('k'), KeyModifiers::NONE) => Action::Up,
+        (KeyCode::Down | KeyCode::Right | KeyCode::Char('j'), KeyModifiers::NONE) => Action::Down,
         (KeyCode::Enter, KeyModifiers::NONE) => Action::Accept,
         (KeyCode::Esc | KeyCode::Char('q'), KeyModifiers::NONE)
         | (KeyCode::Char('c'), KeyModifiers::CONTROL) => Action::Cancel,
@@ -330,7 +453,7 @@ fn render_at_size(
     if footer_height > 0 {
         frame.push((
             format!(
-                "↑↓ move   Enter select   Esc/q back                   {} / {}",
+                "←→ / ↑↓ move   Enter select   Esc/q back             {} / {}",
                 selected + 1,
                 items.len()
             ),
@@ -825,7 +948,7 @@ fn apply_items(
 ) -> [MenuItem; 2] {
     [
         MenuItem::available(
-            "Apply setup",
+            "Accept setup",
             format!(
                 "Runtime: {} / {device} · Model: {model} · install model and launcher · {}",
                 runtime_name(runtime),
@@ -836,7 +959,7 @@ fn apply_items(
                 }
             ),
         ),
-        MenuItem::available("Cancel", "Return without changing files."),
+        MenuItem::available("Back", "Return without changing files."),
     ]
 }
 

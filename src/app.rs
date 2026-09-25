@@ -1066,40 +1066,54 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
         );
     }
     if command.is_none() && setup_is_interactive() {
-        let plan = recommended_setup_plan(config_path)?;
-        let items = [
-            if plan.provider_detected {
-                MenuItem::available(
-                    "Use recommended settings",
-                    "Install the shown model and launcher, then verify the runtime",
-                )
-            } else {
-                MenuItem::unavailable(
-                    "Use recommended settings",
-                    "The recommended provider is missing; customize its path",
-                )
-            },
-            MenuItem::available("Customize", "Choose runtime, model, and microphone"),
-        ];
-        match wizard::select(
-            "Review recommended setup",
-            &plan.summary,
-            &items,
-            if plan.provider_detected { 0 } else { 1 },
-        )? {
-            Some(0) => return apply_recommended_plan(plan, config_path, paths),
-            Some(1) => {
-                return guided_all_with(
-                    config_path,
-                    paths,
-                    &mut TerminalGuidedPrompts {
-                        config_path: config_path.to_owned(),
-                    },
-                );
-            }
-            _ => {
-                println!("Setup cancelled.");
-                return Ok(());
+        loop {
+            let plan = recommended_setup_plan(config_path)?;
+            let items = [
+                if plan.provider_detected {
+                    MenuItem::available("Use recommended settings", "Continue to the final review")
+                } else {
+                    MenuItem::unavailable(
+                        "Use recommended settings",
+                        "Provider missing; choose Customize",
+                    )
+                },
+                MenuItem::available("Customize", "Choose runtime, model, and microphone"),
+            ];
+            match wizard::select_choice("Select setup", &plan.summary, &items)? {
+                Some(0) => {
+                    let confirm = [
+                        MenuItem::available(
+                            "Accept setup",
+                            "Download and verify the model, then save settings",
+                        ),
+                        MenuItem::available(
+                            "Back",
+                            "Return to setup choices without changing anything",
+                        ),
+                    ];
+                    match wizard::select_choice("Accept setup", &plan.summary, &confirm)? {
+                        Some(0) => {
+                            apply_recommended_plan(plan, config_path, paths)?;
+                            println!("Setup complete.");
+                            return Ok(());
+                        }
+                        Some(1) | None => continue,
+                        _ => unreachable!(),
+                    }
+                }
+                Some(1) => {
+                    return guided_all_with(
+                        config_path,
+                        paths,
+                        &mut TerminalGuidedPrompts {
+                            config_path: config_path.to_owned(),
+                        },
+                    );
+                }
+                _ => {
+                    println!("Setup cancelled.");
+                    return Ok(());
+                }
             }
         }
     }
