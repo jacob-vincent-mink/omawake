@@ -84,6 +84,9 @@ impl State {
                     .position(|item| item.enabled)
                     .unwrap_or_default()
             });
+        if self.tab + 1 < self.choices.len() && self.choices[self.tab].is_none() {
+            self.choices[self.tab] = Some(self.hover);
+        }
         Ok(())
     }
 
@@ -123,10 +126,8 @@ impl State {
             {
                 self.tab += 1;
             }
+            KeyCode::Enter if self.tab + 1 == self.choices.len() => return Change::Finish,
             KeyCode::Enter if self.choices[self.tab].is_some() => {
-                if self.tab + 1 == self.choices.len() {
-                    return Change::Finish;
-                }
                 self.tab += 1;
             }
             KeyCode::Esc | KeyCode::Char('q') => return Change::Cancel,
@@ -177,7 +178,11 @@ pub fn run(
         match state.handle(key.code, &current) {
             Change::Finish => {
                 return Ok(Some(
-                    state.choices.into_iter().map(Option::unwrap).collect(),
+                    state
+                        .choices
+                        .into_iter()
+                        .map(Option::unwrap_or_default)
+                        .collect(),
                 ));
             }
             Change::Cancel => return Ok(None),
@@ -243,7 +248,12 @@ fn render(frame: &mut ratatui::Frame, tabs: &[&str], page: &Page, state: &State)
             } else {
                 Style::default().fg(Color::DarkGray)
             };
-            ListItem::new(format!("[{mark}] {}", item.label)).style(style)
+            let label = if state.tab + 1 == tabs.len() {
+                item.label.clone()
+            } else {
+                format!("[{mark}] {}", item.label)
+            };
+            ListItem::new(label).style(style)
         })
         .collect::<Vec<_>>();
     let list = List::new(items)
@@ -264,7 +274,7 @@ fn render(frame: &mut ratatui::Frame, tabs: &[&str], page: &Page, state: &State)
     );
     frame.render_widget(
         Line::styled(
-            "↑↓ move  Space select  ←→ tabs  Enter continue  Esc cancel",
+            "↑↓ move  Space select  ←→ tabs  Enter continue / apply  Esc cancel",
             Style::default().fg(Color::DarkGray),
         ),
         rows[5],
@@ -313,8 +323,7 @@ mod tests {
         let mut state = State::new(3);
         let page = page();
         state.sync(&page).unwrap();
-        assert_eq!(state.handle(KeyCode::Enter, &page), Change::Redraw);
-        assert_eq!(state.tab, 0);
+        assert_eq!(state.choices[0], Some(0));
         state.handle(KeyCode::Down, &page);
         assert_eq!(state.hover, 2);
         state.handle(KeyCode::Char(' '), &page);
@@ -346,13 +355,13 @@ mod tests {
             .map(|cell| cell.symbol())
             .collect::<String>();
         assert!(text.contains("Runtime"));
-        assert!(text.contains("[ ] CPU"));
+        assert!(text.contains("[x] CPU"));
         assert!(text.contains("[ ] OpenVINO"));
         assert!(text.contains("Space select"));
     }
 
     #[test]
-    fn accept_requires_space_and_left_restores_the_previous_choice() {
+    fn apply_requires_enter_and_left_restores_the_previous_choice() {
         let accept_page = Page::new(
             "Accept",
             "Apply only after confirmation",
@@ -365,14 +374,13 @@ mod tests {
             choices: vec![Some(2), None],
         };
         state.sync(&accept_page).unwrap();
-        assert_eq!(state.handle(KeyCode::Enter, &accept_page), Change::Redraw);
+        assert_eq!(state.handle(KeyCode::Enter, &accept_page), Change::Finish);
         state.handle(KeyCode::Left, &accept_page);
         assert_eq!(state.tab, 0);
         state.sync(&page()).unwrap();
         assert_eq!(state.hover, 2);
         state.handle(KeyCode::Right, &page());
         state.sync(&accept_page).unwrap();
-        state.handle(KeyCode::Char(' '), &accept_page);
         assert_eq!(state.handle(KeyCode::Enter, &accept_page), Change::Finish);
     }
 
@@ -390,7 +398,7 @@ mod tests {
         state.handle(KeyCode::Down, &page);
         assert_eq!(state.hover, 0);
         state.handle(KeyCode::Right, &page);
-        assert_eq!(state.tab, 0);
+        assert_eq!(state.tab, 1);
         assert_eq!(state.handle(KeyCode::Esc, &page), Change::Cancel);
         assert_eq!(state.handle(KeyCode::Char('q'), &page), Change::Cancel);
     }

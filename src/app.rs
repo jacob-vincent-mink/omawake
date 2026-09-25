@@ -1060,6 +1060,7 @@ fn apply_recommended_plan(
 }
 
 fn guided_tabbed_setup(config_path: &Path, paths: &AppPaths) -> Result<()> {
+    let plan = recommended_setup_plan(config_path)?;
     let current = app_setup::load_config(config_path)?;
     let providers = setup_provider_availability(&current, config_path);
     let recommendation = crate::hardware::recommend(&crate::hardware::detect(), providers);
@@ -1124,7 +1125,7 @@ fn guided_tabbed_setup(config_path: &Path, paths: &AppPaths) -> Result<()> {
         .collect::<Vec<_>>();
     let models = crate::catalog::models();
     let choices = app_setup::tabbed::run(
-        &["Runtime", "Device", "Model", "Microphone", "Accept"],
+        &["Runtime", "Device", "Model", "Microphone", "Apply"],
         |tab, picks| {
             let runtime = runtimes[picks[0].unwrap_or(preferred_runtime)];
             let devices = match runtime {
@@ -1148,7 +1149,7 @@ fn guided_tabbed_setup(config_path: &Path, paths: &AppPaths) -> Result<()> {
             Ok(match tab {
                 0 => app_setup::tabbed::Page::new(
                     "Choose runtime",
-                    recommendation.detail.clone(),
+                    plan.summary.clone(),
                     runtime_items.clone(),
                     preferred_runtime,
                 ),
@@ -1208,16 +1209,16 @@ fn guided_tabbed_setup(config_path: &Path, paths: &AppPaths) -> Result<()> {
                     let model = models[picks[2].context("select a model")?];
                     let mic = &audio[picks[3].context("select a microphone")?].0;
                     app_setup::tabbed::Page::new(
-                        "Accept setup",
+                        "Review and apply",
                         format!(
-                            "Runtime: {} · Device: {}\nModel: {}\nMicrophone: {}\nDownloads and compilation start after Accept.",
+                            "Runtime: {} · Device: {}\nModel: {}\nMicrophone: {}\nDownloads and compilation start after Apply.",
                             runtime_name(runtime),
                             device,
                             model.name,
                             mic
                         ),
                         vec![MenuItem::available(
-                            "Accept and apply",
+                            "Apply setup",
                             "Install and verify the model, then save settings",
                         )],
                         0,
@@ -1261,7 +1262,9 @@ fn guided_tabbed_setup(config_path: &Path, paths: &AppPaths) -> Result<()> {
         app_setup::systemd::reload_if_was_active,
         |config, paths| app_setup::print_checks(config, paths, false),
         app_setup::print_checks_event,
-    )
+    )?;
+    println!("Setup complete.");
+    Ok(())
 }
 
 fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) -> Result<()> {
@@ -1271,50 +1274,7 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
         );
     }
     if command.is_none() && setup_is_interactive() {
-        loop {
-            let plan = recommended_setup_plan(config_path)?;
-            let items = [
-                if plan.provider_detected {
-                    MenuItem::available("Use recommended settings", "Continue to the final review")
-                } else {
-                    MenuItem::unavailable(
-                        "Use recommended settings",
-                        "Provider missing; choose Customize",
-                    )
-                },
-                MenuItem::available("Customize", "Choose runtime, model, and microphone"),
-            ];
-            match wizard::select_choice("Select setup", &plan.summary, &items)? {
-                Some(0) => {
-                    let confirm = [
-                        MenuItem::available(
-                            "Accept setup",
-                            "Download and verify the model, then save settings",
-                        ),
-                        MenuItem::available(
-                            "Back",
-                            "Return to setup choices without changing anything",
-                        ),
-                    ];
-                    match wizard::select_choice("Accept setup", &plan.summary, &confirm)? {
-                        Some(0) => {
-                            apply_recommended_plan(plan, config_path, paths)?;
-                            println!("Setup complete.");
-                            return Ok(());
-                        }
-                        Some(1) | None => continue,
-                        _ => unreachable!(),
-                    }
-                }
-                Some(1) => {
-                    return guided_tabbed_setup(config_path, paths);
-                }
-                _ => {
-                    println!("Setup cancelled.");
-                    return Ok(());
-                }
-            }
-        }
+        return guided_tabbed_setup(config_path, paths);
     }
     if command.is_none() {
         println!(

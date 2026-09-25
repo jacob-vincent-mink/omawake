@@ -17,7 +17,7 @@ import time
 import uuid
 
 APP = "omawake"
-CUSTOM_TABS = ("Choose runtime", "Choose device", "Choose model", "Choose microphone", "Accept setup")
+CUSTOM_TABS = ("Choose runtime", "Choose device", "Choose model", "Choose microphone", "Review and apply")
 
 
 def main():
@@ -25,11 +25,11 @@ def main():
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--model-cache", type=Path)
     parser.add_argument("--provider-library", type=Path)
-    parser.add_argument("--model-down", type=int, default=0, help="move this many model rows in Customize Apply")
+    parser.add_argument("--model-down", type=int, default=0, help="move this many model rows before Apply")
     parser.add_argument("--cancel-before-accept", action="store_true")
     parser.add_argument("--customize", action="store_true")
     parser.add_argument("--customize-review", action="store_true")
-    parser.add_argument("--customize-apply", action="store_true", help="apply the first runtime and its default model")
+    parser.add_argument("--customize-apply", action="store_true", help="apply the CPU runtime and selected model")
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--page-timeout", type=int, default=60)
     args = parser.parse_args()
@@ -90,45 +90,32 @@ def main():
 
         try:
             tmux("new-session", "-d", "-x", "100", "-y", "30", command)
-            first = await_text("Select setup")
+            first = await_text(CUSTOM_TABS[0])
             if source and not no_apply and not args.customize_apply:
                 expected = source.name.split("-")[0]
                 if expected not in first.lower():
                     raise AssertionError(f"recommended model did not match cached {source.name}:\n{first}")
-            if args.customize or args.customize_review or args.customize_apply:
-                key("Right", "Enter")
-                await_text(CUSTOM_TABS[0])
-                # Enter alone must not advance from an unselected tab.
-                key("Enter")
-                time.sleep(0.2)
-                assert CUSTOM_TABS[0] in screen(), "Enter skipped an unselected runtime"
-                if args.customize_apply:
-                    key("Home")
-                end = 2 if args.customize else len(CUSTOM_TABS) - 1
-                for index in range(end):
-                    if args.customize_apply and index == 2:
-                        for _ in range(args.model_down):
-                            key("Down")
-                    key("Space", "Enter")
-                    await_text(CUSTOM_TABS[index + 1])
-                if args.customize_review:
-                    key("Left")
-                    await_text(CUSTOM_TABS[-2])
-                    key("Right")
-                    await_text(CUSTOM_TABS[-1])
-                if args.customize_apply:
-                    key("Space", "Enter")
-                else:
-                    key("q")
+            if args.customize_apply:
+                key("Home", "Space")
+            end = 2 if args.customize else len(CUSTOM_TABS) - 1
+            for index in range(end):
+                if args.customize_apply and index == 2:
+                    for _ in range(args.model_down):
+                        key("Down")
+                    key("Space")
+                key("Right")
+                await_text(CUSTOM_TABS[index + 1])
+            if args.customize_review:
+                key("Left")
+                await_text(CUSTOM_TABS[-2])
+                key("Right")
+                await_text(CUSTOM_TABS[-1])
+            if no_apply:
+                key("q")
             else:
-                key("Left", "Enter")
-                await_text("Accept setup")
-                key("q" if no_apply else "Left")
-                if no_apply:
-                    await_text("Select setup")
-                    key("q")
-                else:
-                    key("Enter")
+                config_before_apply = root / "config" / APP / "config.toml"
+                assert not config_before_apply.exists(), "configuration changed before Apply"
+                key("Enter")
             final = await_text("E2E_EXIT=", args.timeout)
             if "E2E_EXIT=0" not in final:
                 raise AssertionError(f"setup returned an error:\n{final}")
@@ -145,9 +132,8 @@ def main():
                 assert "Setup cancelled" in final
             else:
                 assert config.is_file() and launcher.is_file(), final
-                if not args.customize_apply:
-                    assert "Setup complete" in final, final
-            print(f"{APP}: {'tabbed Customize' if args.customize or args.customize_review or args.customize_apply else 'recommended setup'} passed")
+                assert "Setup complete" in final, final
+            print(f"{APP}: single-menu setup passed")
         finally:
             subprocess.run([*base, "kill-server"], env=env, capture_output=True)
 

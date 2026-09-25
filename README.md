@@ -26,14 +26,12 @@ cd omawake-0.1.1-linux-x86_64
 ./omawake setup
 ```
 
-The first page shows the detected hardware recommendation, runtime, model, and
-microphone. Press Left or Right to select **Use recommended settings** or
-**Customize**, then Enter to continue. The recommended path has a separate
-**Accept setup** page; model download and installation start only after you
-select Accept. Customize shows Runtime, Device, Model, Microphone, and Accept
-tabs. Use Up/Down to highlight an option, Space to select it, Enter to
-continue, and Left/Right to revisit completed steps. Changing an earlier choice
-clears dependent selections. Esc or `q` cancels without applying. The same recommendation can
+Setup opens one menu with Runtime, Device, Model, Microphone, and Apply tabs.
+The detected recommendation is selected by default. Use Left/Right to move
+between tabs, Up/Down to highlight another option, and Space to select it.
+Enter advances to the next tab or applies from the final review. Changing an
+earlier choice updates dependent defaults. Model download and installation
+start only after Apply. Esc or `q` cancels without applying. The same recommendation can
 be installed in one command with `omawake setup --recommended`. The default release provider
 is audio.cpp on CPU. Setup downloads
 and verifies these two pinned MIT-licensed assets as one model profile:
