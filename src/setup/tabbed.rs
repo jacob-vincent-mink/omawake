@@ -375,4 +375,47 @@ mod tests {
         state.handle(KeyCode::Char(' '), &accept_page);
         assert_eq!(state.handle(KeyCode::Enter, &accept_page), Change::Finish);
     }
+
+    #[test]
+    fn keyboard_moves_across_enabled_rows_and_cancels() {
+        let page = page();
+        let mut state = State::new(2);
+        state.sync(&page).unwrap();
+        state.handle(KeyCode::End, &page);
+        assert_eq!(state.hover, 2);
+        state.handle(KeyCode::Home, &page);
+        assert_eq!(state.hover, 0);
+        state.handle(KeyCode::Up, &page);
+        assert_eq!(state.hover, 2);
+        state.handle(KeyCode::Down, &page);
+        assert_eq!(state.hover, 0);
+        state.handle(KeyCode::Right, &page);
+        assert_eq!(state.tab, 0);
+        assert_eq!(state.handle(KeyCode::Esc, &page), Change::Cancel);
+        assert_eq!(state.handle(KeyCode::Char('q'), &page), Change::Cancel);
+    }
+
+    #[test]
+    fn unavailable_choices_are_rejected_and_repaired() {
+        let mut state = State::new(1);
+        assert!(state.sync(&Page::new("Empty", "", vec![], 0)).is_err());
+        assert!(
+            state
+                .sync(&Page::new(
+                    "Missing",
+                    "",
+                    vec![MenuItem::unavailable("CUDA", "missing")],
+                    0
+                ))
+                .is_err()
+        );
+        let page = page();
+        state.choices[0] = Some(1);
+        state.sync(&page).unwrap();
+        assert_eq!(state.hover, 0);
+        state.handle(KeyCode::Down, &page);
+        assert_eq!(state.hover, 2);
+        state.handle(KeyCode::Char(' '), &page);
+        assert_eq!(state.choices[0], Some(2));
+    }
 }
