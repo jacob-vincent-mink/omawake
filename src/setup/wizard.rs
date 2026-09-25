@@ -247,78 +247,135 @@ fn render_at_size(
     width: usize,
     height: usize,
 ) -> Result<()> {
+    let width = width.max(1);
     let height = height.max(1);
-    let mut header = vec![clip(title, width)];
+    let mut frame: Vec<(String, Color, bool)> = Vec::new();
+    let roomy = height >= 12;
     if height >= 8 {
-        header.extend(
+        frame.push((
+            format!("OMAWAKE  /  {}", setup_section(title)),
+            Color::Cyan,
+            true,
+        ));
+        frame.push(("─".repeat(width.saturating_sub(1)), Color::DarkGrey, false));
+    }
+    frame.push((title.to_owned(), Color::Reset, true));
+
+    let review = title.to_ascii_lowercase().contains("review")
+        || title.to_ascii_lowercase().contains("apply");
+    let help_limit = if review {
+        height.saturating_sub(9).min(14)
+    } else if roomy {
+        3
+    } else {
+        1
+    };
+    if height >= 6 {
+        frame.extend(
             wrap(help, width, 0)
                 .split("\r\n")
-                .take(height.saturating_sub(5))
-                .map(str::to_owned),
+                .take(help_limit)
+                .map(|line| (line.to_owned(), Color::DarkGrey, false)),
         );
     }
-    // Reserve the last row and never emit a trailing newline: raw terminals
-    // otherwise scroll the selection off-screen at the bottom edge.
-    header.truncate(height.saturating_sub(2));
-    let budget = height.saturating_sub(header.len() + 1).max(1);
-    let mut lines = Vec::new();
-    let mut selected_line = 0;
-    for (index, item) in items.iter().enumerate() {
-        if index == selected {
-            selected_line = lines.len();
-        }
-        let prefix = if index == selected { "  › " } else { "    " };
-        lines.push((index, clip(&format!("{prefix}{}", item.label), width)));
-        let detail = wrap(&item.detail, width, 6);
-        for (line, value) in detail.split("\r\n").enumerate() {
-            let value = if line == 0 {
-                format!("      {value}")
+
+    let detail_height = if roomy { if review { 3 } else { 5 } } else { 0 };
+    let footer_height = usize::from(height >= 2);
+    let list_height = height
+        .saturating_sub(frame.len() + detail_height + footer_height)
+        .max(1);
+    let start = selected
+        .saturating_sub(list_height / 2)
+        .min(items.len().saturating_sub(list_height));
+    for (index, item) in items.iter().enumerate().skip(start).take(list_height) {
+        let line = if index == selected {
+            format!("  › {}", item.label)
+        } else if item.enabled {
+            format!("    {}", item.label)
+        } else {
+            format!("    {}  · {}", item.label, item.detail)
+        };
+        frame.push((
+            line,
+            if index == selected {
+                Color::Cyan
+            } else if item.enabled {
+                Color::Reset
             } else {
-                value.to_owned()
-            };
-            lines.push((index, clip(&value, width)));
-        }
+                Color::DarkGrey
+            },
+            index == selected,
+        ));
     }
-    let start = selected_line
-        .saturating_sub(budget / 3)
-        .min(lines.len().saturating_sub(budget));
+    if detail_height > 0 && frame.len() + detail_height + footer_height < height {
+        frame.push((String::new(), Color::Reset, false));
+    }
+    if detail_height > 0 {
+        frame.push(("─".repeat(width.saturating_sub(1)), Color::DarkGrey, false));
+        frame.push((
+            format!("SELECTED  /  {}", items[selected].label),
+            Color::Cyan,
+            true,
+        ));
+        frame.extend(
+            wrap(&items[selected].detail, width, 0)
+                .split("\r\n")
+                .take(detail_height - 2)
+                .map(|line| (line.to_owned(), Color::Reset, false)),
+        );
+    }
+    while frame.len() < height.saturating_sub(footer_height) {
+        frame.push((String::new(), Color::Reset, false));
+    }
+    if footer_height > 0 {
+        frame.push((
+            format!(
+                "↑↓ move   Enter select   Esc/q back                   {} / {}",
+                selected + 1,
+                items.len()
+            ),
+            Color::DarkGrey,
+            false,
+        ));
+    }
+    frame.truncate(height);
     queue!(
         output,
         terminal::Clear(ClearType::All),
         cursor::MoveTo(0, 0)
     )?;
-    for line in header {
-        queue!(output, Print(line), Print("\r\n"))?;
-    }
-    let visible = lines.iter().skip(start).take(budget);
-    for (offset, (index, line)) in visible.enumerate() {
-        let color = if !items[*index].enabled {
-            Color::DarkGrey
-        } else if *index == selected {
-            Color::Cyan
-        } else {
-            Color::Reset
-        };
-        queue!(output, SetForegroundColor(color), Print(line), ResetColor)?;
-        if offset + 1 < budget || height > 1 {
+    for (index, (line, color, bold)) in frame.iter().enumerate() {
+        queue!(output, SetForegroundColor(*color))?;
+        if *bold {
+            queue!(output, SetAttribute(Attribute::Bold))?;
+        }
+        queue!(
+            output,
+            Print(clip(line, width)),
+            SetAttribute(Attribute::Reset),
+            ResetColor
+        )?;
+        if index + 1 < frame.len() {
             queue!(output, Print("\r\n"))?;
         }
     }
-    if height > 1 {
-        let footer = format!(
-            "{}/{} · ↑↓ navigate · Enter select · Esc cancel",
-            selected + 1,
-            items.len()
-        );
-        queue!(
-            output,
-            SetAttribute(Attribute::Dim),
-            Print(clip(&footer, width)),
-            SetAttribute(Attribute::Reset)
-        )?;
-    }
     output.flush()?;
     Ok(())
+}
+
+fn setup_section(title: &str) -> &'static str {
+    let title = title.to_ascii_lowercase();
+    if title.contains("runtime") || title.contains("provider") {
+        "RUNTIME"
+    } else if title.contains("model") {
+        "MODEL"
+    } else if title.contains("audio") || title.contains("microphone") {
+        "AUDIO"
+    } else if title.contains("review") || title.contains("apply") {
+        "REVIEW"
+    } else {
+        "SETUP"
+    }
 }
 
 fn clip(text: &str, width: usize) -> String {
