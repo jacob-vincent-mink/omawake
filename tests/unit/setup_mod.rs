@@ -8,6 +8,7 @@ fn fixture(name: &str) -> (std::path::PathBuf, AppPaths) {
     fs::create_dir_all(&root).unwrap();
     let paths = AppPaths {
         config_file: root.join("config/omawake/config.toml"),
+        config_home: root.join("config"),
         data_dir: root.join("data/omawake"),
         cache_dir: root.join("cache/omawake"),
         state_dir: root.join("state/omawake"),

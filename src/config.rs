@@ -240,14 +240,25 @@ impl Config {
 
     pub fn save(&self, path: &Path) -> Result<()> {
         self.validate_engine_references()?;
-        if let Some(parent) = path.parent() {
+        let target = config_write_target(path)?;
+        if let Some(parent) = target.parent() {
             fs::create_dir_all(parent)?;
         }
-        let temporary = path.with_extension("toml.tmp");
+        let temporary = target.with_extension("toml.tmp");
         fs::write(&temporary, toml::to_string_pretty(self)?)?;
-        fs::rename(&temporary, path)
+        fs::rename(&temporary, &target)
             .with_context(|| format!("install config {}", path.display()))?;
         Ok(())
+    }
+}
+
+pub(crate) fn config_write_target(path: &Path) -> Result<PathBuf> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => fs::canonicalize(path)
+            .with_context(|| format!("resolve config symlink {}", path.display())),
+        Ok(_) => Ok(path.to_owned()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(path.to_owned()),
+        Err(error) => Err(error).with_context(|| format!("inspect config {}", path.display())),
     }
 }
 

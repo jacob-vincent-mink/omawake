@@ -100,6 +100,7 @@ impl crate::engine::embedding_worker::EmbeddingSession for FakeEmbeddingSession 
 pub(crate) fn isolated_paths(root: &std::path::Path) -> crate::paths::AppPaths {
     crate::paths::AppPaths {
         config_file: root.join("default/config.toml"),
+        config_home: root.to_path_buf(),
         data_dir: root.join("data"),
         cache_dir: root.join("cache"),
         state_dir: root.join("state"),

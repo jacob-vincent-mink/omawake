@@ -4,6 +4,7 @@ use super::*;
 fn derives_runtime_files() {
     let paths = AppPaths {
         config_file: "/cfg/omawake/config.toml".into(),
+        config_home: "/cfg".into(),
         data_dir: "/data/omawake".into(),
         cache_dir: "/cache/omawake".into(),
         state_dir: "/state/omawake".into(),
@@ -34,6 +35,7 @@ fn discovery_honors_xdg_and_has_stable_fallbacks() {
         custom.config_file,
         PathBuf::from("/cfg/omawake/config.toml")
     );
+    assert_eq!(custom.config_home, PathBuf::from("/cfg"));
     assert_eq!(custom.data_dir, PathBuf::from("/data/omawake"));
     assert_eq!(custom.cache_dir, PathBuf::from("/cache/omawake"));
     assert_eq!(custom.state_dir, PathBuf::from("/state/omawake"));
@@ -46,6 +48,10 @@ fn discovery_honors_xdg_and_has_stable_fallbacks() {
     assert_eq!(
         home_defaults.config_file,
         PathBuf::from("/home/test/.config/omawake/config.toml")
+    );
+    assert_eq!(
+        home_defaults.config_home,
+        PathBuf::from("/home/test/.config")
     );
     assert_eq!(
         home_defaults.data_dir,

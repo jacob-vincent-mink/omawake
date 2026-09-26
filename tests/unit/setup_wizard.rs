@@ -1,4 +1,34 @@
 use super::*;
+use crossterm::event::KeyEvent;
+
+#[test]
+fn horizontal_setup_choice_requires_a_direction_before_enter() {
+    let items = [
+        MenuItem::available("Accept setup", "Begin model installation"),
+        MenuItem::available("Back", "Return without changes"),
+    ];
+    let mut keys =
+        std::collections::VecDeque::from([KeyCode::Enter, KeyCode::Left, KeyCode::Enter]);
+    let mut output = Vec::new();
+    let choice = run_choice(
+        &mut output,
+        "Accept setup",
+        "Model: Moonshine",
+        &items,
+        || {
+            Ok(Event::Key(KeyEvent::new(
+                keys.pop_front().unwrap(),
+                KeyModifiers::NONE,
+            )))
+        },
+    )
+    .unwrap();
+    assert_eq!(choice, Some(0));
+    assert!(keys.is_empty());
+    let rendered = String::from_utf8_lossy(&output);
+    assert!(rendered.contains("Choose an option to continue"));
+    assert!(rendered.contains("Model: Moonshine"));
+}
 
 #[test]
 fn rows_wrap_at_narrow_and_normal_widths_without_losing_unicode_alignment() {
@@ -113,10 +143,10 @@ fn state_uses_available_preference_and_skips_disabled_rows() {
 
 #[test]
 fn keyboard_mapping_covers_navigation_selection_and_cancel() {
-    for code in [KeyCode::Up, KeyCode::Char('k')] {
+    for code in [KeyCode::Up, KeyCode::Left, KeyCode::Char('k')] {
         assert_eq!(action(KeyEvent::new(code, KeyModifiers::NONE)), Action::Up);
     }
-    for code in [KeyCode::Down, KeyCode::Char('j')] {
+    for code in [KeyCode::Down, KeyCode::Right, KeyCode::Char('j')] {
         assert_eq!(
             action(KeyEvent::new(code, KeyModifiers::NONE)),
             Action::Down
@@ -133,10 +163,6 @@ fn keyboard_mapping_covers_navigation_selection_and_cancel() {
     assert_eq!(
         action(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
         Action::Cancel
-    );
-    assert_eq!(
-        action(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)),
-        Action::Ignore
     );
 }
 
@@ -172,7 +198,9 @@ fn menu_renders_metadata_and_processes_arrow_enter_and_cancel() {
     assert!(rendered.contains("Runtime"));
     assert!(rendered.contains("CUDA"));
     assert!(rendered.contains("Unavailable in this build"));
-    assert!(plain_terminal_output(rendered.as_bytes()).contains("\r\n      "));
+    assert!(rendered.contains("OMAWAKE  /  RUNTIME"));
+    assert!(rendered.contains("SELECTED  /  OpenVINO"));
+    assert!(rendered.contains("Intel CPU, GPU, and NPU"));
     assert_no_bare_line_feeds(rendered.as_bytes());
 
     let mut events = VecDeque::from([key(KeyCode::Char('q'))]);
@@ -183,6 +211,71 @@ fn menu_renders_metadata_and_processes_arrow_enter_and_cancel() {
         .unwrap(),
         None
     );
+}
+
+#[test]
+fn customize_choices_require_direction_and_skip_disabled_options() {
+    let items = [
+        MenuItem::available("CPU", "Built in"),
+        MenuItem::unavailable("CUDA", "Unavailable in this build"),
+        MenuItem::available("OpenVINO", "Intel CPU, GPU, and NPU"),
+    ];
+    let mut events = VecDeque::from([
+        key(KeyCode::Enter),
+        key(KeyCode::Left),
+        key(KeyCode::Right),
+        key(KeyCode::Enter),
+    ]);
+    let mut output = Vec::new();
+    let selected = run_options(
+        &mut output,
+        "Runtime",
+        "Choose a runtime.",
+        &items,
+        0,
+        || Ok(events.pop_front().unwrap()),
+    )
+    .unwrap();
+    assert_eq!(selected, Some(2));
+    assert!(events.is_empty());
+    let rendered = String::from_utf8(output).unwrap();
+    assert!(rendered.contains("Choose an option to continue"));
+    assert!(rendered.contains("unavailable: CUDA"));
+    assert!(rendered.contains("Intel CPU, GPU, and NPU"));
+    assert_no_bare_line_feeds(rendered.as_bytes());
+
+    let mut events = VecDeque::from([key(KeyCode::Char('q'))]);
+    assert_eq!(
+        run_options(&mut Vec::new(), "x", "y", &items, 0, || {
+            Ok(events.pop_front().unwrap())
+        })
+        .unwrap(),
+        None
+    );
+}
+
+#[test]
+fn customize_choices_page_through_more_than_three_options() {
+    let items = (0..5)
+        .map(|index| MenuItem::available(format!("Choice {index}"), "detail"))
+        .collect::<Vec<_>>();
+    let mut events = VecDeque::from([
+        key(KeyCode::Enter),
+        key(KeyCode::Left),
+        key(KeyCode::Right),
+        key(KeyCode::Right),
+        key(KeyCode::Right),
+        key(KeyCode::Enter),
+    ]);
+    let mut output = Vec::new();
+    assert_eq!(
+        run_options(&mut output, "Model", "Choose a model", &items, 1, || {
+            Ok(events.pop_front().unwrap())
+        })
+        .unwrap(),
+        Some(4)
+    );
+    assert!(String::from_utf8_lossy(&output).contains("Options 3–5 of 5"));
 }
 
 #[test]
@@ -256,7 +349,7 @@ fn guided_setup_metadata_covers_modes_runtimes_devices_and_review() {
             .detail
             .contains("restart the already-active service")
     );
-    assert_eq!(review[1].label, "Cancel");
+    assert_eq!(review[1].label, "Back");
 }
 
 #[test]
@@ -550,11 +643,12 @@ fn viewport_keeps_selection_visible_without_overflow_on_resize() {
     for (width, height) in [(24, 8), (80, 24), (12, 4), (4, 2), (1, 1)] {
         for selected in [0, 50, 99] {
             let mut output = Vec::new();
-            render_at_size(
+            render_choice_at_size(
                 &mut output,
                 "Choose a model",
                 "Navigate the installed and downloadable catalog.",
                 &items,
+                Some(selected),
                 selected,
                 width,
                 height,

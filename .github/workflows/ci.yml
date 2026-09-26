@@ -16,7 +16,7 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-about@0.9.2,cargo-deny@0.20.2
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ca-certificates libasound2-dev python3
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ca-certificates libasound2-dev python3 tmux
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo deny check licenses
@@ -28,3 +28,12 @@ jobs:
       # CLI tests launch the instrumented binary repeatedly; serial execution
       # prevents concurrent child processes from clobbering the same profile.
       - run: cargo llvm-cov --all-targets --locked --fail-under-lines 90.01 -- --test-threads=1
+      - name: Setup terminal E2E
+        run: |
+          cargo build --locked
+          python3 scripts/verify-setup-tui.py --binary target/debug/omawake --suite smoke --artifacts "$RUNNER_TEMP/setup-e2e"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: omawake-setup-e2e
+          path: ${{ runner.temp }}/setup-e2e

@@ -49,7 +49,15 @@ impl Prompter for TerminalPrompter {
         items: &[MenuItem],
         preferred: usize,
     ) -> Result<Option<usize>> {
-        select(title, help, items, preferred)
+        if title == "Review full setup" && items.len() == 2 {
+            let options = [items[0].clone(), items[1].clone()];
+            return select_choice(
+                "Accept setup",
+                &format!("{help}\n{}", items[0].detail),
+                &options,
+            );
+        }
+        select_horizontal(title, help, items, preferred)
     }
 }
 
@@ -149,6 +157,221 @@ pub fn select(
     })
 }
 
+/// A guided setup page with deliberate Left/Right selection.
+pub fn select_horizontal(
+    title: &str,
+    help: &str,
+    items: &[MenuItem],
+    preferred: usize,
+) -> Result<Option<usize>> {
+    let mut stdout = io::stdout();
+    let _terminal = TerminalSession::enter(&mut stdout)?;
+    run_options(&mut stdout, title, help, items, preferred, || {
+        event::read().context("read terminal input")
+    })
+}
+
+/// A two-option setup page. No choice is active until Left or Right is pressed.
+pub fn select_choice(title: &str, summary: &str, items: &[MenuItem; 2]) -> Result<Option<usize>> {
+    if !items.iter().any(|item| item.enabled) {
+        bail!("setup page has no available choices");
+    }
+    let mut stdout = io::stdout();
+    let _terminal = TerminalSession::enter(&mut stdout)?;
+    run_choice(&mut stdout, title, summary, items, || {
+        event::read().context("read terminal input")
+    })
+}
+
+fn run_choice(
+    output: &mut impl Write,
+    title: &str,
+    summary: &str,
+    items: &[MenuItem; 2],
+    read: impl FnMut() -> Result<Event>,
+) -> Result<Option<usize>> {
+    run_options(output, title, summary, items, 0, read)
+}
+
+fn run_options(
+    output: &mut impl Write,
+    title: &str,
+    summary: &str,
+    items: &[MenuItem],
+    preferred: usize,
+    mut read: impl FnMut() -> Result<Event>,
+) -> Result<Option<usize>> {
+    if items.is_empty() || !items.iter().any(|item| item.enabled) {
+        bail!("setup page has no available choices");
+    }
+    let mut selected = None;
+    let focus = preferred.min(items.len() - 1);
+    loop {
+        render_choice(output, title, summary, items, selected, focus)?;
+        let Event::Key(key) = read()? else {
+            continue;
+        };
+        if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
+            continue;
+        }
+        match (key.code, key.modifiers) {
+            (KeyCode::Left | KeyCode::Up, KeyModifiers::NONE) => {
+                if let Some(current) = selected {
+                    selected = Some(next_available(items, current, -1));
+                } else if items[focus].enabled {
+                    selected = Some(focus);
+                }
+            }
+            (KeyCode::Right | KeyCode::Down, KeyModifiers::NONE) => {
+                selected = Some(next_available(items, selected.unwrap_or(focus), 1));
+            }
+            (KeyCode::Enter, KeyModifiers::NONE) if selected.is_some() => return Ok(selected),
+            (KeyCode::Esc | KeyCode::Char('q'), KeyModifiers::NONE)
+            | (KeyCode::Char('c'), KeyModifiers::CONTROL) => return Ok(None),
+            _ => {}
+        }
+    }
+}
+
+fn next_available(items: &[MenuItem], current: usize, direction: isize) -> usize {
+    let mut next = current;
+    loop {
+        next = (next as isize + direction).rem_euclid(items.len() as isize) as usize;
+        if items[next].enabled {
+            return next;
+        }
+    }
+}
+
+fn render_choice(
+    output: &mut impl Write,
+    title: &str,
+    summary: &str,
+    items: &[MenuItem],
+    selected: Option<usize>,
+    focus: usize,
+) -> Result<()> {
+    let (width, height) = terminal::size()
+        .ok()
+        .filter(|(width, height)| *width > 0 && *height > 0)
+        .unwrap_or((80, 24));
+    render_choice_at_size(
+        output,
+        title,
+        summary,
+        items,
+        selected,
+        focus,
+        width as usize,
+        height as usize,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_choice_at_size(
+    output: &mut impl Write,
+    title: &str,
+    summary: &str,
+    items: &[MenuItem],
+    selected: Option<usize>,
+    focus: usize,
+    width: usize,
+    height: usize,
+) -> Result<()> {
+    let width = width.max(1);
+    let height = height.max(1);
+    let mut lines = vec![
+        format!("OMAWAKE  /  {}", setup_section(title)),
+        "─".repeat(width.saturating_sub(1)),
+        title.to_owned(),
+        String::new(),
+    ];
+    lines.extend(
+        wrap(summary, width, 0)
+            .split("\r\n")
+            .take(height.saturating_sub(13))
+            .map(str::to_owned),
+    );
+    lines.push(String::new());
+    let option = |index: usize| {
+        let label = &items[index].label;
+        if selected == Some(index) {
+            format!("[ › {label} ]")
+        } else if items[index].enabled {
+            format!("[   {label} ]")
+        } else {
+            format!("[ unavailable: {label} ]")
+        }
+    };
+    let choice_row = lines.len();
+    let center = selected.unwrap_or(focus);
+    let start = center.saturating_sub(1).min(items.len().saturating_sub(3));
+    let mut row = String::new();
+    for index in start..items.len().min(start + 3) {
+        let card = option(index);
+        if !row.is_empty() && row.chars().count() + card.chars().count() + 4 >= width {
+            lines.push(row);
+            row = String::new();
+        }
+        if !row.is_empty() {
+            row.push_str("    ");
+        }
+        row.push_str(&card);
+    }
+    lines.push(row);
+    if items.len() > 3 {
+        lines.push(format!(
+            "Options {}–{} of {}",
+            start + 1,
+            (start + 3).min(items.len()),
+            items.len()
+        ));
+    }
+    let choice_end = lines.len();
+    let detail = selected.map_or_else(
+        || "Choose an option to continue.".to_owned(),
+        |index| items[index].detail.clone(),
+    );
+    lines.extend(
+        wrap(&detail, width, 0)
+            .split("\r\n")
+            .take(2)
+            .map(str::to_owned),
+    );
+    while lines.len() < height.saturating_sub(1) {
+        lines.push(String::new());
+    }
+    lines.push("← → choose    Enter continue    Esc/q back".to_owned());
+    lines.truncate(height);
+    queue!(
+        output,
+        terminal::Clear(ClearType::All),
+        cursor::MoveTo(0, 0)
+    )?;
+    for (index, line) in lines.iter().enumerate() {
+        if matches!(index, 0 | 2) || (choice_row..choice_end).contains(&index) {
+            queue!(
+                output,
+                SetForegroundColor(Color::Cyan),
+                SetAttribute(Attribute::Bold)
+            )?;
+        } else if index + 1 == lines.len() {
+            queue!(output, SetForegroundColor(Color::DarkGrey))?;
+        }
+        queue!(
+            output,
+            Print(clip(line, width)),
+            SetAttribute(Attribute::Reset),
+            ResetColor
+        )?;
+        if index + 1 < lines.len() {
+            queue!(output, Print("\r\n"))?;
+        }
+    }
+    output.flush()?;
+    Ok(())
+}
+
 struct TerminalSession;
 
 impl TerminalSession {
@@ -194,8 +417,8 @@ fn run_menu(
 
 fn action(key: KeyEvent) -> Action {
     match (key.code, key.modifiers) {
-        (KeyCode::Up | KeyCode::Char('k'), KeyModifiers::NONE) => Action::Up,
-        (KeyCode::Down | KeyCode::Char('j'), KeyModifiers::NONE) => Action::Down,
+        (KeyCode::Up | KeyCode::Left | KeyCode::Char('k'), KeyModifiers::NONE) => Action::Up,
+        (KeyCode::Down | KeyCode::Right | KeyCode::Char('j'), KeyModifiers::NONE) => Action::Down,
         (KeyCode::Enter, KeyModifiers::NONE) => Action::Accept,
         (KeyCode::Esc | KeyCode::Char('q'), KeyModifiers::NONE)
         | (KeyCode::Char('c'), KeyModifiers::CONTROL) => Action::Cancel,
@@ -247,78 +470,135 @@ fn render_at_size(
     width: usize,
     height: usize,
 ) -> Result<()> {
+    let width = width.max(1);
     let height = height.max(1);
-    let mut header = vec![clip(title, width)];
+    let mut frame: Vec<(String, Color, bool)> = Vec::new();
+    let roomy = height >= 12;
     if height >= 8 {
-        header.extend(
+        frame.push((
+            format!("OMAWAKE  /  {}", setup_section(title)),
+            Color::Cyan,
+            true,
+        ));
+        frame.push(("─".repeat(width.saturating_sub(1)), Color::DarkGrey, false));
+    }
+    frame.push((title.to_owned(), Color::Reset, true));
+
+    let review = title.to_ascii_lowercase().contains("review")
+        || title.to_ascii_lowercase().contains("apply");
+    let help_limit = if review {
+        height.saturating_sub(9).min(14)
+    } else if roomy {
+        3
+    } else {
+        1
+    };
+    if height >= 6 {
+        frame.extend(
             wrap(help, width, 0)
                 .split("\r\n")
-                .take(height.saturating_sub(5))
-                .map(str::to_owned),
+                .take(help_limit)
+                .map(|line| (line.to_owned(), Color::DarkGrey, false)),
         );
     }
-    // Reserve the last row and never emit a trailing newline: raw terminals
-    // otherwise scroll the selection off-screen at the bottom edge.
-    header.truncate(height.saturating_sub(2));
-    let budget = height.saturating_sub(header.len() + 1).max(1);
-    let mut lines = Vec::new();
-    let mut selected_line = 0;
-    for (index, item) in items.iter().enumerate() {
-        if index == selected {
-            selected_line = lines.len();
-        }
-        let prefix = if index == selected { "  › " } else { "    " };
-        lines.push((index, clip(&format!("{prefix}{}", item.label), width)));
-        let detail = wrap(&item.detail, width, 6);
-        for (line, value) in detail.split("\r\n").enumerate() {
-            let value = if line == 0 {
-                format!("      {value}")
+
+    let detail_height = if roomy { if review { 3 } else { 5 } } else { 0 };
+    let footer_height = usize::from(height >= 2);
+    let list_height = height
+        .saturating_sub(frame.len() + detail_height + footer_height)
+        .max(1);
+    let start = selected
+        .saturating_sub(list_height / 2)
+        .min(items.len().saturating_sub(list_height));
+    for (index, item) in items.iter().enumerate().skip(start).take(list_height) {
+        let line = if index == selected {
+            format!("  › {}", item.label)
+        } else if item.enabled {
+            format!("    {}", item.label)
+        } else {
+            format!("    {}  · {}", item.label, item.detail)
+        };
+        frame.push((
+            line,
+            if index == selected {
+                Color::Cyan
+            } else if item.enabled {
+                Color::Reset
             } else {
-                value.to_owned()
-            };
-            lines.push((index, clip(&value, width)));
-        }
+                Color::DarkGrey
+            },
+            index == selected,
+        ));
     }
-    let start = selected_line
-        .saturating_sub(budget / 3)
-        .min(lines.len().saturating_sub(budget));
+    if detail_height > 0 && frame.len() + detail_height + footer_height < height {
+        frame.push((String::new(), Color::Reset, false));
+    }
+    if detail_height > 0 {
+        frame.push(("─".repeat(width.saturating_sub(1)), Color::DarkGrey, false));
+        frame.push((
+            format!("SELECTED  /  {}", items[selected].label),
+            Color::Cyan,
+            true,
+        ));
+        frame.extend(
+            wrap(&items[selected].detail, width, 0)
+                .split("\r\n")
+                .take(detail_height - 2)
+                .map(|line| (line.to_owned(), Color::Reset, false)),
+        );
+    }
+    while frame.len() < height.saturating_sub(footer_height) {
+        frame.push((String::new(), Color::Reset, false));
+    }
+    if footer_height > 0 {
+        frame.push((
+            format!(
+                "←→ / ↑↓ move   Enter select   Esc/q back             {} / {}",
+                selected + 1,
+                items.len()
+            ),
+            Color::DarkGrey,
+            false,
+        ));
+    }
+    frame.truncate(height);
     queue!(
         output,
         terminal::Clear(ClearType::All),
         cursor::MoveTo(0, 0)
     )?;
-    for line in header {
-        queue!(output, Print(line), Print("\r\n"))?;
-    }
-    let visible = lines.iter().skip(start).take(budget);
-    for (offset, (index, line)) in visible.enumerate() {
-        let color = if !items[*index].enabled {
-            Color::DarkGrey
-        } else if *index == selected {
-            Color::Cyan
-        } else {
-            Color::Reset
-        };
-        queue!(output, SetForegroundColor(color), Print(line), ResetColor)?;
-        if offset + 1 < budget || height > 1 {
+    for (index, (line, color, bold)) in frame.iter().enumerate() {
+        queue!(output, SetForegroundColor(*color))?;
+        if *bold {
+            queue!(output, SetAttribute(Attribute::Bold))?;
+        }
+        queue!(
+            output,
+            Print(clip(line, width)),
+            SetAttribute(Attribute::Reset),
+            ResetColor
+        )?;
+        if index + 1 < frame.len() {
             queue!(output, Print("\r\n"))?;
         }
     }
-    if height > 1 {
-        let footer = format!(
-            "{}/{} · ↑↓ navigate · Enter select · Esc cancel",
-            selected + 1,
-            items.len()
-        );
-        queue!(
-            output,
-            SetAttribute(Attribute::Dim),
-            Print(clip(&footer, width)),
-            SetAttribute(Attribute::Reset)
-        )?;
-    }
     output.flush()?;
     Ok(())
+}
+
+fn setup_section(title: &str) -> &'static str {
+    let title = title.to_ascii_lowercase();
+    if title.contains("runtime") || title.contains("provider") {
+        "RUNTIME"
+    } else if title.contains("model") {
+        "MODEL"
+    } else if title.contains("audio") || title.contains("microphone") {
+        "AUDIO"
+    } else if title.contains("review") || title.contains("apply") {
+        "REVIEW"
+    } else {
+        "SETUP"
+    }
 }
 
 fn clip(text: &str, width: usize) -> String {
@@ -768,7 +1048,7 @@ fn apply_items(
 ) -> [MenuItem; 2] {
     [
         MenuItem::available(
-            "Apply setup",
+            "Accept setup",
             format!(
                 "Runtime: {} / {device} · Model: {model} · install model and launcher · {}",
                 runtime_name(runtime),
@@ -779,7 +1059,7 @@ fn apply_items(
                 }
             ),
         ),
-        MenuItem::available("Cancel", "Return without changing files."),
+        MenuItem::available("Back", "Return without changing files."),
     ]
 }
 

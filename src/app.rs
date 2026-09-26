@@ -29,7 +29,9 @@ use crate::paths::AppPaths;
 use crate::protocol::{Command, Request, Response, ResultPayload};
 use crate::setup as app_setup;
 use crate::setup::model::ProgressFormat;
-use crate::setup::wizard::{self, RuntimeSelection, SetupMode};
+#[cfg(test)]
+use crate::setup::wizard::SetupMode;
+use crate::setup::wizard::{self, RuntimeSelection};
 use anyhow::{Context, Result, bail, ensure};
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
@@ -166,6 +168,9 @@ enum TopCommand {
     Stop,
     /// Configure providers, models, and optional integrations.
     Setup {
+        /// Apply the detected hardware recommendation without prompts.
+        #[arg(long)]
+        recommended: bool,
         #[command(subcommand)]
         command: Option<SetupCommand>,
     },
@@ -643,7 +648,20 @@ where
             crate::native_worker::write_json(&response, &paths.runtime_dir, &report)?;
             return Ok(());
         }
-        TopCommand::Setup { command } => return setup(command, &config_path, &paths),
+        TopCommand::Setup {
+            command,
+            recommended,
+        } => {
+            return if recommended {
+                ensure!(
+                    command.is_none(),
+                    "--recommended cannot be combined with a setup subcommand"
+                );
+                apply_recommended_setup(&config_path, &paths)
+            } else {
+                setup(command, &config_path, &paths)
+            };
+        }
         command => command,
     };
     let config = Config::load(&config_path)?;
@@ -972,6 +990,283 @@ fn remove_wake_word(config: &mut Config, id: &str) -> Result<()> {
     Ok(())
 }
 
+struct RecommendedSetupPlan {
+    candidate: Config,
+    model: &'static crate::catalog::ModelSpec,
+    provider_detected: bool,
+    summary: String,
+}
+
+fn recommended_setup_plan(config_path: &Path) -> Result<RecommendedSetupPlan> {
+    let current = app_setup::load_config(config_path)?;
+    let hardware = crate::hardware::detect();
+    let recommendation = crate::hardware::recommend(
+        &hardware,
+        setup_provider_availability(&current, config_path),
+    );
+    let selection = RuntimeSelection {
+        runtime: recommendation.runtime,
+        device: recommendation.device.clone(),
+    };
+    let candidate = runtime_selection_candidate(&current, config_path, &selection, None, None)?;
+    let model = crate::catalog::setup_model(&candidate)?;
+    let summary = format!(
+        "Detected: {}\nRuntime: {} · Device: {}\nModel: {}\nMicrophone: {}\nService unit: unchanged\n{}\n\nThe model and provider are verified before configuration is saved.",
+        recommendation.label,
+        runtime_name(selection.runtime),
+        selection.device,
+        model.name,
+        candidate.audio.device,
+        recommendation.detail,
+    );
+    Ok(RecommendedSetupPlan {
+        candidate,
+        model,
+        provider_detected: recommendation.provider_detected,
+        summary,
+    })
+}
+
+fn apply_recommended_setup(config_path: &Path, paths: &AppPaths) -> Result<()> {
+    apply_recommended_plan(recommended_setup_plan(config_path)?, config_path, paths)
+}
+
+fn apply_recommended_plan(
+    plan: RecommendedSetupPlan,
+    config_path: &Path,
+    paths: &AppPaths,
+) -> Result<()> {
+    ensure!(
+        plan.provider_detected,
+        "recommended provider is missing; run `omawake setup` to customize its path"
+    );
+    validate_runtime_candidate(&plan.candidate, config_path)?;
+    let edit = managed_service_active_for_config(config_path, paths)?;
+    install_everything_with_config(
+        plan.model,
+        plan.candidate,
+        config_path,
+        paths,
+        None,
+        ProgressFormat::Human,
+        edit.managed_running,
+        app_setup::model::install,
+        prove_setup_candidate,
+        app_setup::menu::install,
+        app_setup::systemd::reload_if_was_active,
+        |config, paths| app_setup::print_checks(config, paths, false),
+        app_setup::print_checks_event,
+    )
+}
+
+fn guided_tabbed_setup(config_path: &Path, paths: &AppPaths) -> Result<()> {
+    let plan = recommended_setup_plan(config_path)?;
+    let current = app_setup::load_config(config_path)?;
+    let providers = setup_provider_availability(&current, config_path);
+    let recommendation = crate::hardware::recommend(&crate::hardware::detect(), providers);
+    let runtimes = [
+        Runtime::Default,
+        Runtime::Openvino,
+        Runtime::Cuda,
+        Runtime::Vulkan,
+        Runtime::Hip,
+    ];
+    let runtime_items = runtimes
+        .iter()
+        .map(|runtime| {
+            let detected = match runtime {
+                Runtime::Default => providers.packaged_cpu,
+                Runtime::Openvino => providers.openvino_npu || providers.openvino_gpu,
+                Runtime::Cuda => providers.cuda,
+                Runtime::Vulkan => providers.vulkan,
+                Runtime::Hip => {
+                    current.backend.runtime == Runtime::Hip
+                        && native_runtime_probe(&current, config_path).loadable
+                }
+            };
+            let label = format!(
+                "{}{}",
+                runtime_name(*runtime),
+                if *runtime == recommendation.runtime {
+                    " · recommended"
+                } else {
+                    ""
+                }
+            );
+            if detected {
+                MenuItem::available(label, "Provider detected")
+            } else {
+                MenuItem::available(
+                    label,
+                    "Provider not detected. Configure it with `omawake setup runtime` first.",
+                )
+            }
+        })
+        .collect::<Vec<_>>();
+    let preferred_runtime = runtimes
+        .iter()
+        .position(|runtime| *runtime == recommendation.runtime)
+        .unwrap_or(0);
+    let report = crate::audio_devices::inventory("input", &current.audio.device);
+    let audio = report["devices"]
+        .as_array()
+        .context("device inventory has no devices")?
+        .iter()
+        .map(|device| {
+            let selector = device["selector"].as_str().unwrap_or("default").to_owned();
+            (
+                selector.clone(),
+                MenuItem::available(
+                    device["label"].as_str().unwrap_or(&selector),
+                    selector.clone(),
+                ),
+            )
+        })
+        .collect::<Vec<_>>();
+    let models = crate::catalog::models();
+    let choices = app_setup::tabbed::run(
+        &["Runtime", "Device", "Model", "Microphone", "Apply"],
+        |tab, picks| {
+            let runtime = runtimes[picks[0].unwrap_or(preferred_runtime)];
+            let devices = match runtime {
+                Runtime::Default => &[("cpu", "CPU")][..],
+                Runtime::Openvino => &[
+                    ("npu", "Intel NPU"),
+                    ("gpu", "Intel GPU"),
+                    ("cpu", "Intel CPU"),
+                ][..],
+                Runtime::Cuda | Runtime::Vulkan | Runtime::Hip => {
+                    &[("auto", "Automatic"), ("gpu", "GPU")][..]
+                }
+            };
+            let device = devices[picks[1].unwrap_or(0)].0;
+            let selection = RuntimeSelection {
+                runtime,
+                device: device.into(),
+            };
+            let candidate =
+                runtime_selection_candidate(&current, config_path, &selection, None, None)?;
+            Ok(match tab {
+                0 => app_setup::tabbed::Page::new(
+                    "Choose runtime",
+                    plan.summary.clone(),
+                    runtime_items.clone(),
+                    preferred_runtime,
+                ),
+                1 => app_setup::tabbed::Page::new(
+                    "Choose device",
+                    "Select a device for this runtime.",
+                    devices
+                        .iter()
+                        .map(|(name, detail)| MenuItem::available(*name, *detail))
+                        .collect(),
+                    devices
+                        .iter()
+                        .position(|(name, _)| *name == recommendation.device)
+                        .unwrap_or(0),
+                ),
+                2 => {
+                    let items = models.iter().map(|model| {
+                        let ready = model.downloadable || app_setup::model::verify(paths, model).is_ok();
+                        let detail = format!(
+                            "{} · {} · {:.1} MiB",
+                            model.description,
+                            model.license,
+                            model.total_size() as f64 / 1_048_576.0
+                        );
+                        if ready && model.compatible_with(&candidate.backend.kind, runtime, device) {
+                            MenuItem::available(model.name, detail)
+                        } else {
+                            MenuItem::unavailable(model.name, format!(
+                                "{detail} · incompatible or needs `omawake setup model --download {} --source PATH`",
+                                model.id
+                            ))
+                        }
+                    }).collect();
+                    let preferred = models
+                        .iter()
+                        .position(|model| model.id == candidate.model.name)
+                        .unwrap_or(0);
+                    app_setup::tabbed::Page::new(
+                        "Choose model",
+                        "Only compatible models with available downloads or verified local files are selectable.",
+                        items,
+                        preferred,
+                    )
+                }
+                3 => app_setup::tabbed::Page::new(
+                    "Choose microphone",
+                    report["error"]
+                        .as_str()
+                        .unwrap_or("System defaults are unchanged."),
+                    audio.iter().map(|(_, item)| item.clone()).collect(),
+                    audio
+                        .iter()
+                        .position(|(selector, _)| *selector == current.audio.device)
+                        .unwrap_or(0),
+                ),
+                4 => {
+                    let model = models[picks[2].context("select a model")?];
+                    let mic = &audio[picks[3].context("select a microphone")?].0;
+                    app_setup::tabbed::Page::new(
+                        "Review and apply",
+                        format!(
+                            "Runtime: {} · Device: {}\nModel: {}\nMicrophone: {}\nDownloads and compilation start after Apply.",
+                            runtime_name(runtime),
+                            device,
+                            model.name,
+                            mic
+                        ),
+                        vec![MenuItem::available(
+                            "Apply setup",
+                            "Install and verify the model, then save settings",
+                        )],
+                        0,
+                    )
+                }
+                _ => unreachable!(),
+            })
+        },
+    )?;
+    let Some(choices) = choices else {
+        println!("Setup cancelled; no changes were made.");
+        return Ok(());
+    };
+    let runtime = runtimes[choices[0]];
+    let devices = match runtime {
+        Runtime::Default => &["cpu"][..],
+        Runtime::Openvino => &["npu", "gpu", "cpu"][..],
+        Runtime::Cuda | Runtime::Vulkan | Runtime::Hip => &["auto", "gpu"][..],
+    };
+    let selection = RuntimeSelection {
+        runtime,
+        device: devices[choices[1]].into(),
+    };
+    let mut candidate = runtime_selection_candidate(&current, config_path, &selection, None, None)?;
+    validate_runtime_candidate(&candidate, config_path)?;
+    let model = &models[choices[2]];
+    model.activate(&mut candidate);
+    candidate.audio.device = audio[choices[3]].0.clone();
+    let edit = managed_service_active_for_config(config_path, paths)?;
+    install_everything_with_config(
+        model,
+        candidate,
+        config_path,
+        paths,
+        None,
+        ProgressFormat::Human,
+        edit.managed_running,
+        app_setup::model::install,
+        prove_setup_candidate,
+        app_setup::menu::install,
+        app_setup::systemd::reload_if_was_active,
+        |config, paths| app_setup::print_checks(config, paths, false),
+        app_setup::print_checks_event,
+    )?;
+    println!("Setup complete.");
+    Ok(())
+}
+
 fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) -> Result<()> {
     if let Some(error) = app_setup::config_recovery(config_path)? {
         eprintln!(
@@ -979,7 +1274,7 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
         );
     }
     if command.is_none() && setup_is_interactive() {
-        return guided_setup(config_path, paths);
+        return guided_tabbed_setup(config_path, paths);
     }
     if command.is_none() {
         println!(
@@ -1110,16 +1405,35 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
             } else if uninstall {
                 app_setup::systemd::uninstall(paths)
             } else {
+                if !app_setup::systemd::is_active() {
+                    app_setup::systemd::ensure_no_direct_daemon(paths)?;
+                }
                 let original = config_snapshot(config_path)?;
+                let original_link = match fs::symlink_metadata(config_path) {
+                    Ok(metadata) if metadata.file_type().is_symlink() => {
+                        Some(fs::read_link(config_path)?)
+                    }
+                    Ok(_) => None,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                    Err(error) => return Err(error).context("inspect config before service setup"),
+                };
+                let config_was_missing = !config_path.exists();
+                let repair_invalid = app_setup::config_recovery(config_path)?.is_some();
                 let result = (|| {
                     let config = app_setup::ensure_config(config_path)?;
-                    config.save(config_path)?;
+                    if repair_invalid {
+                        config.save(config_path)?;
+                    }
                     let path = app_setup::systemd::install(paths, config_path, !no_start)?;
                     println!("installed: {}", path.display());
                     Ok(())
                 })();
                 if let Err(error) = result {
-                    restore_config_snapshot(config_path, original.as_deref())?;
+                    if (config_was_missing || repair_invalid)
+                        && (original.is_some() || original_link.is_none())
+                    {
+                        restore_config_snapshot(config_path, original.as_deref())?;
+                    }
                     return Err(error);
                 }
                 Ok(())
@@ -1146,14 +1460,14 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
                 Some(id) => model_spec(id)?,
                 None => crate::catalog::setup_model(&current)?,
             };
-            let service_was_active = app_setup::systemd::is_active();
+            let edit = managed_service_active_for_config(config_path, paths)?;
             install_everything(
                 spec,
                 config_path,
                 paths,
                 source_dir.as_deref(),
                 progress_format,
-                service_was_active,
+                edit.managed_running,
                 |config, path| {
                     crate::runtime_inventory::apply_with(
                         config,
@@ -1288,9 +1602,11 @@ trait GuidedPrompts {
     ) -> Result<crate::runtime_inventory::Probe> {
         crate::runtime_inventory::apply_with(candidate, path, false, native_runtime_probe)
     }
+    #[cfg(test)]
     fn audio_device(&mut self, current: &str) -> Result<Option<String>> {
         Ok(Some(current.into()))
     }
+    #[cfg(test)]
     fn setup_mode(&mut self) -> Result<Option<SetupMode>>;
     fn runtime(&mut self, current: &Config) -> Result<Option<RuntimeSelection>>;
     fn runtime_library_dir(&mut self, _candidate: &Config) -> Result<Option<PathBuf>> {
@@ -1314,6 +1630,7 @@ trait GuidedPrompts {
         paths: &AppPaths,
         spec: &crate::catalog::ModelSpec,
     ) -> Result<Option<PathBuf>>;
+    #[cfg(test)]
     fn confirm(
         &mut self,
         selection: &RuntimeSelection,
@@ -1327,9 +1644,11 @@ struct TerminalGuidedPrompts {
 }
 
 impl GuidedPrompts for TerminalGuidedPrompts {
+    #[cfg(test)]
     fn audio_device(&mut self, current: &str) -> Result<Option<String>> {
-        choose_audio_device(current)
+        app_setup::audio::choose_horizontal(current, crate::audio::device_inventory)
     }
+    #[cfg(test)]
     fn setup_mode(&mut self) -> Result<Option<SetupMode>> {
         wizard::choose_setup_mode()
     }
@@ -1399,7 +1718,14 @@ impl GuidedPrompts for TerminalGuidedPrompts {
         paths: &AppPaths,
         current: &Config,
     ) -> Result<Option<&'static crate::catalog::ModelSpec>> {
-        choose_model(paths, current)
+        choose_model_with(paths, current, |items, preferred| {
+            wizard::select_horizontal(
+                "Wake-word model",
+                "● active · ○ installed · downloadable catalog models can be installed",
+                items,
+                preferred,
+            )
+        })
     }
 
     fn model_source_directory(
@@ -1414,6 +1740,7 @@ impl GuidedPrompts for TerminalGuidedPrompts {
         }
     }
 
+    #[cfg(test)]
     fn confirm(
         &mut self,
         selection: &RuntimeSelection,
@@ -1477,6 +1804,7 @@ pub(crate) fn setup_provider_availability(
     }
 }
 
+#[cfg(test)]
 fn guided_setup(config_path: &Path, paths: &AppPaths) -> Result<()> {
     guided_setup_with(
         config_path,
@@ -1487,6 +1815,7 @@ fn guided_setup(config_path: &Path, paths: &AppPaths) -> Result<()> {
     )
 }
 
+#[cfg(test)]
 fn guided_setup_with(
     config_path: &Path,
     paths: &AppPaths,
@@ -1631,18 +1960,20 @@ where
     )
 }
 
+#[cfg(test)]
 fn guided_all_with(
     config_path: &Path,
     paths: &AppPaths,
     prompts: &mut impl GuidedPrompts,
 ) -> Result<()> {
+    let edit = managed_service_active_for_config(config_path, paths)?;
     guided_all_with_services(
         config_path,
         paths,
         prompts,
         app_setup::model::install,
         app_setup::menu::install,
-        |_| app_setup::systemd::is_active(),
+        |_| edit.managed_running,
         app_setup::systemd::reload_if_was_active,
         |config, paths| app_setup::print_checks(config, paths, false),
         app_setup::print_checks_event,
@@ -1650,6 +1981,7 @@ fn guided_all_with(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 fn guided_all_with_services<FI, FM, FA, FR, CH, CJ>(
     config_path: &Path,
     paths: &AppPaths,
@@ -1690,6 +2022,7 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 fn guided_all_with_services_and_validator<FI, FP, FM, FA, FR, CH, CJ, FV>(
     config_path: &Path,
     paths: &AppPaths,
@@ -1783,20 +2116,6 @@ where
         check_human,
         check_json,
     )
-}
-
-fn choose_model(
-    paths: &AppPaths,
-    current: &Config,
-) -> Result<Option<&'static crate::catalog::ModelSpec>> {
-    choose_model_with(paths, current, |items, preferred| {
-        wizard::select(
-            "Wake-word model",
-            "● active · ○ installed · downloadable catalog models can be installed",
-            items,
-            preferred,
-        )
-    })
 }
 
 fn choose_model_with<S>(
@@ -2404,18 +2723,19 @@ fn config_snapshot(path: &Path) -> Result<Option<Vec<u8>>> {
 }
 
 fn restore_config_snapshot(path: &Path, bytes: Option<&[u8]>) -> Result<()> {
-    let temporary = path.with_extension("toml.tmp");
+    let target = crate::config::config_write_target(path)?;
+    let temporary = target.with_extension("toml.tmp");
     match bytes {
         Some(bytes) => {
-            if let Some(parent) = path.parent() {
+            if let Some(parent) = target.parent() {
                 fs::create_dir_all(parent)?;
             }
             fs::write(&temporary, bytes)?;
-            fs::rename(&temporary, path)?;
+            fs::rename(&temporary, &target)?;
         }
         None => {
-            if path.exists() {
-                fs::remove_file(path)?;
+            if target.exists() {
+                fs::remove_file(&target)?;
             }
             if temporary.exists() {
                 fs::remove_file(temporary)?;
@@ -2425,16 +2745,106 @@ fn restore_config_snapshot(path: &Path, bytes: Option<&[u8]>) -> Result<()> {
     Ok(())
 }
 
-fn save_and_reload_active(config: Config, config_path: &Path, _paths: &AppPaths) -> Result<bool> {
-    let owns_service_config = app_setup::systemd::targets_config(config_path);
+fn save_and_reload_active(config: Config, config_path: &Path, paths: &AppPaths) -> Result<bool> {
+    let edit = managed_service_active_for_config(config_path, paths)?;
+    let managed_running = edit.managed_running;
     save_and_reload_active_with(
         config,
         config_path,
-        owns_service_config,
-        app_setup::systemd::is_active,
+        managed_running,
+        || managed_running,
         app_setup::systemd::reload_if_was_active,
         app_setup::systemd::restart,
     )
+}
+
+struct ConfigEditState {
+    managed_running: bool,
+    _reservation: Option<Vec<UnixListener>>,
+}
+
+fn managed_service_active_for_config(
+    config_path: &Path,
+    paths: &AppPaths,
+) -> Result<ConfigEditState> {
+    let base_targets_config = app_setup::systemd::targets_config(config_path);
+    let default_may_target_config = config_path == AppPaths::discover().config_file
+        && !app_setup::systemd::loaded_managed_unit_targets_another_config(config_path);
+    let service_active =
+        (base_targets_config || default_may_target_config) && app_setup::systemd::is_active();
+    let effective_targets_config = base_targets_config
+        && service_active
+        && app_setup::systemd::effective_targets_config(config_path);
+    let managed_running =
+        managed_service_active_for_config_with(paths, service_active, effective_targets_config)?;
+    let reservation = if managed_running {
+        None
+    } else {
+        let held = bind_daemon_instance(paths)
+            .context("stop the running Omawake daemon before editing its configuration")?;
+        if crate::daemon_instance::socket_targets_config(paths)? == Some(true) {
+            bail!(
+                "a running Omawake daemon is not managed for this configuration; run `omawake stop` before editing, then start it again to apply the change"
+            );
+        }
+        Some(held)
+    };
+    Ok(ConfigEditState {
+        managed_running,
+        _reservation: reservation,
+    })
+}
+
+fn managed_service_active_for_config_with(
+    paths: &AppPaths,
+    service_active: bool,
+    owns_service_config: bool,
+) -> Result<bool> {
+    let managed_running = service_active && owns_service_config;
+    if service_active && !managed_running {
+        bail!(
+            "a running Omawake daemon is not managed for this configuration; stop its user service before editing, then restart it to apply the change"
+        );
+    }
+    if managed_running && manual_pause_state(paths)? == Some(true) {
+        bail!(
+            "the running Omawake daemon is manually paused; run `omawake resume` before changing its configuration, then pause it again afterward"
+        );
+    }
+    Ok(managed_running)
+}
+
+fn manual_pause_state(paths: &AppPaths) -> Result<Option<bool>> {
+    let mut stream = match connect_control_socket(&socket_path(paths)) {
+        Ok(stream) => stream,
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound
+                    | std::io::ErrorKind::ConnectionRefused
+                    | std::io::ErrorKind::ConnectionReset
+            ) =>
+        {
+            return Ok(None);
+        }
+        Err(error) => return Err(error).context("read daemon pause state before setup"),
+    };
+    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(10)))?;
+    let response = request_over_stream(&mut stream, Command::Status)?;
+    if !crate::daemon_instance::response_targets_config(&response, paths)? {
+        return Ok(None);
+    }
+    match response.result {
+        ResultPayload::State { details, .. } => details
+            .pointer("/pause/manual")
+            .and_then(Value::as_bool)
+            .map(Some)
+            .context("daemon status did not report its manual pause state"),
+        ResultPayload::Error { code, message } => {
+            bail!("could not read daemon pause state: {code}: {message}")
+        }
+    }
 }
 
 fn save_and_reload_active_with(
@@ -3227,8 +3637,13 @@ fn run_daemon_with_shutdown(
     paths: &AppPaths,
     shutdown_requested: Arc<AtomicBool>,
 ) -> Result<()> {
+    let _singleton = bind_daemon_instance(paths)?;
     let detector = Detector::load(config, paths)?;
     run_loaded_daemon(&detector, config, paths, shutdown_requested)
+}
+
+fn bind_daemon_instance(paths: &AppPaths) -> Result<Vec<UnixListener>> {
+    crate::daemon_instance::reserve(paths)
 }
 
 fn run_loaded_daemon(
@@ -3237,6 +3652,7 @@ fn run_loaded_daemon(
     paths: &AppPaths,
     shutdown_requested: Arc<AtomicBool>,
 ) -> Result<()> {
+    let config_identity = crate::daemon_instance::absolute_config_path(paths)?;
     let listener = bind_socket(paths)?;
     let socket_metadata = fs::symlink_metadata(socket_path(paths)).with_context(|| {
         format!(
@@ -3259,6 +3675,7 @@ fn run_loaded_daemon(
             &config.model.name,
             &config.model.language,
         );
+        details["config_path"] = json!(&config_identity);
         attach_engine_groups(&mut details, detector);
         control
             .borrow_mut()
@@ -3881,12 +4298,19 @@ fn setup_audio(
     }
     let mut save = apply;
     if interactive {
+        let apply_blocker = managed_service_active_for_config(config_path, paths)
+            .err()
+            .map(|error| format!("{error:#}"));
         loop {
             let items = [
-                MenuItem::available(
-                    "Apply",
-                    "Save this route and restart an already-active service.",
-                ),
+                if let Some(reason) = &apply_blocker {
+                    MenuItem::unavailable("Apply", reason)
+                } else {
+                    MenuItem::available(
+                        "Apply",
+                        "Save this route and restart an already-active service.",
+                    )
+                },
                 MenuItem::available(
                     "Test device",
                     "Run a short audio check without loading a model.",

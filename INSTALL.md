@@ -18,6 +18,11 @@ and then saves the config. The initial mapping listens for `Computer` and runs
 also installs a desktop launcher. It does not install or enable a service or a
 vendor runtime.
 
+For later changes, use `omawake setup runtime`, `omawake setup model`,
+`omawake setup audio`, `omawake word onboard`, and the `config` and `wake-word`
+commands. Install the optional user service explicitly with
+`omawake setup systemd`; setup checks its loaded unit before changing it.
+
 To install for one user:
 
 ```bash
