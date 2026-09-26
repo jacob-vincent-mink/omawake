@@ -30,11 +30,14 @@ def main():
     parser.add_argument("--customize", action="store_true")
     parser.add_argument("--customize-review", action="store_true")
     parser.add_argument("--customize-apply", action="store_true", help="apply the CPU runtime and selected model")
+    parser.add_argument("--shortcut", action="store_true", help="press r to review recommended defaults")
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--page-timeout", type=int, default=60)
     args = parser.parse_args()
     if sum((args.cancel_before_accept, args.customize, args.customize_review, args.customize_apply)) > 1:
         parser.error("choose one verification mode")
+    if args.shortcut and (args.customize or args.customize_review or args.customize_apply):
+        parser.error("--shortcut cannot be combined with custom selection modes")
     binary = args.binary.expanduser().resolve(strict=True)
     source = args.model_cache.expanduser().resolve(strict=True) if args.model_cache else None
     no_apply = args.cancel_before_accept or args.customize or args.customize_review
@@ -95,21 +98,25 @@ def main():
                 expected = source.name.split("-")[0]
                 if expected not in first.lower():
                     raise AssertionError(f"recommended model did not match cached {source.name}:\n{first}")
-            if args.customize_apply:
-                key("Home", "Space")
-            end = 2 if args.customize else len(CUSTOM_TABS) - 1
-            for index in range(end):
-                if args.customize_apply and index == 2:
-                    for _ in range(args.model_down):
-                        key("Down")
-                    key("Space")
-                key("Right")
-                await_text(CUSTOM_TABS[index + 1])
-            if args.customize_review:
-                key("Left")
-                await_text(CUSTOM_TABS[-2])
-                key("Right")
+            if args.shortcut:
+                key("r")
                 await_text(CUSTOM_TABS[-1])
+            else:
+                if args.customize_apply:
+                    key("Home", "Space")
+                end = 2 if args.customize else len(CUSTOM_TABS) - 1
+                for index in range(end):
+                    if args.customize_apply and index == 2:
+                        for _ in range(args.model_down):
+                            key("Down")
+                        key("Space")
+                    key("Right")
+                    await_text(CUSTOM_TABS[index + 1])
+                if args.customize_review:
+                    key("Left")
+                    await_text(CUSTOM_TABS[-2])
+                    key("Right")
+                    await_text(CUSTOM_TABS[-1])
             if no_apply:
                 key("q")
             else:

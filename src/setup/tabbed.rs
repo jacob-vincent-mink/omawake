@@ -1,4 +1,4 @@
-//! One transaction-shaped setup UI. Choices stay in memory until final Accept.
+//! One transaction-shaped setup UI. Choices stay in memory until final Apply.
 
 use std::io;
 
@@ -90,6 +90,28 @@ impl State {
         Ok(())
     }
 
+    fn review_defaults(
+        &mut self,
+        page: &impl Fn(usize, &[Option<usize>]) -> Result<Page>,
+    ) -> Result<()> {
+        let mut defaults = vec![None; self.choices.len()];
+        for tab in 0..defaults.len().saturating_sub(1) {
+            let view = page(tab, &defaults)?;
+            let preferred = view
+                .items
+                .get(view.preferred)
+                .filter(|item| item.enabled)
+                .map(|_| view.preferred)
+                .or_else(|| view.items.iter().position(|item| item.enabled))
+                .ok_or_else(|| anyhow::anyhow!("{} has no available choices", view.title))?;
+            defaults[tab] = Some(preferred);
+        }
+        self.choices = defaults;
+        self.tab = self.choices.len() - 1;
+        self.hover = 0;
+        Ok(())
+    }
+
     fn handle(&mut self, key: KeyCode, page: &Page) -> Change {
         match key {
             KeyCode::Up | KeyCode::Char('k') => self.move_hover(&page.items, -1),
@@ -173,6 +195,11 @@ pub fn run(
         if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat)
             || !matches!(key.modifiers, KeyModifiers::NONE | KeyModifiers::SHIFT)
         {
+            continue;
+        }
+        if matches!(key.code, KeyCode::Char('r' | 'R')) {
+            state.review_defaults(&page)?;
+            last_tab = None;
             continue;
         }
         match state.handle(key.code, &current) {
@@ -274,7 +301,7 @@ fn render(frame: &mut ratatui::Frame, tabs: &[&str], page: &Page, state: &State)
     );
     frame.render_widget(
         Line::styled(
-            "↑↓ move  Space select  ←→ tabs  Enter continue / apply  Esc cancel",
+            "R review defaults  ←→ tabs  ↑↓ move  Space select  Enter next/apply  Esc cancel",
             Style::default().fg(Color::DarkGray),
         ),
         rows[5],
@@ -382,6 +409,35 @@ mod tests {
         state.handle(KeyCode::Right, &page());
         state.sync(&accept_page).unwrap();
         assert_eq!(state.handle(KeyCode::Enter, &accept_page), Change::Finish);
+    }
+
+    #[test]
+    fn shortcut_restores_recommended_choices_and_opens_apply_without_accepting() {
+        let mut state = State {
+            tab: 1,
+            hover: 1,
+            choices: vec![Some(2), Some(1), None],
+        };
+        state
+            .review_defaults(&|tab, choices| {
+                Ok(match tab {
+                    0 => page(),
+                    1 => Page::new(
+                        "Device",
+                        "",
+                        vec![
+                            MenuItem::available("CPU", ""),
+                            MenuItem::available("GPU", ""),
+                        ],
+                        if choices[0] == Some(0) { 0 } else { 1 },
+                    ),
+                    _ => unreachable!(),
+                })
+            })
+            .unwrap();
+        assert_eq!(state.tab, 2);
+        assert_eq!(state.choices, [Some(0), Some(0), None]);
+        assert_eq!(state.hover, 0);
     }
 
     #[test]

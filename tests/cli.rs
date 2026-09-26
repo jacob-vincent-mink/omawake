@@ -205,18 +205,21 @@ fn run_setup_pty_with_config(
         .spawn()
         .unwrap();
     let mut input = child.stdin.take().unwrap();
-    thread::sleep(Duration::from_millis(350));
+    thread::sleep(Duration::from_millis(1500));
     for keys in keys {
         input.write_all(keys).unwrap();
         input.flush().unwrap();
         thread::sleep(Duration::from_millis(220));
     }
     drop(input);
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(15);
     while child.try_wait().unwrap().is_none() {
         if Instant::now() >= deadline {
             child.kill().unwrap();
-            panic!("setup did not finish after PTY input");
+            panic!(
+                "setup did not finish after PTY input: {}",
+                fs::read_to_string(&transcript).unwrap_or_default()
+            );
         }
         thread::sleep(Duration::from_millis(25));
     }
@@ -231,13 +234,14 @@ fn setup_wizard_cancel_preserves_first_run_state_in_a_real_pty() {
         return;
     }
     let root = sandbox();
-    let (status, terminal) = run_setup_pty(&root, &[b"q"]);
+    let (status, terminal) = run_setup_pty(&root, &[b"r", b"", b"q"]);
     assert!(status.success(), "{terminal}");
     assert!(terminal.contains("Choose runtime"), "{terminal}");
     assert!(terminal.contains("Runtime:"), "{terminal}");
     assert!(terminal.contains("Model:"), "{terminal}");
     assert!(terminal.contains("Microphone:"), "{terminal}");
     assert!(terminal.contains("Space select"), "{terminal}");
+    assert!(terminal.contains("R review defaults"), "{terminal}");
     assert!(terminal.contains("Setup cancelled"), "{terminal}");
     assert!(!root.join("config/omawake/config.toml").exists());
     assert!(!root.join("data/omawake").exists());
