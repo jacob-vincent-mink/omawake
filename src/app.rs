@@ -1107,7 +1107,7 @@ fn guided_tabbed_setup(config_path: &Path, paths: &AppPaths) -> Result<()> {
         .iter()
         .position(|runtime| *runtime == recommendation.runtime)
         .unwrap_or(0);
-    let report = crate::audio::device_inventory(&current.audio.device);
+    let report = crate::audio_devices::inventory("input", &current.audio.device);
     let audio = report["devices"]
         .as_array()
         .context("device inventory has no devices")?

@@ -45,6 +45,16 @@ license notices must verify before the new model directory becomes active.
 Setup then initializes the provider and both models with a silent file-only
 proof before saving the config.
 
+The repeatable terminal E2E suite saves screen frames and JSON results in an
+artifact directory. CI runs the smoke scenarios, including navigation,
+backtracking, cancellation, the `r` shortcut, and rejection of a missing
+provider before download:
+
+```bash
+python3 scripts/verify-setup-tui.py --binary target/debug/omawake --suite smoke --artifacts /tmp/omawake-setup-e2e
+python3 scripts/verify-setup-tui.py --binary ~/.local/bin/omawake --suite full --model-cache ~/.local/share/omawake/models/moonshine-streaming-tiny-q8_0-silero-v6.2.1 --artifacts /tmp/omawake-setup-e2e-full
+```
+
 Setup installs the optional desktop settings launcher. It does **not** install
 or start a systemd service. Run on demand with `omawake daemon`, or explicitly
 install the user service later with `omawake setup systemd`.
