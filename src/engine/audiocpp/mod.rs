@@ -815,7 +815,7 @@ fn launch_worker(spec: &WorkerSpec) -> Result<(Child, ChildStdin, BufReader<Chil
         .env("TMPDIR", &spec.cache)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null());
+        .stderr(Stdio::inherit());
     prepend_library_directories(&mut command, &spec.library_dirs)?;
     let mut child = command.spawn().context("spawn isolated audio.cpp worker")?;
     let input = child.stdin.take().context("worker stdin is unavailable")?;
