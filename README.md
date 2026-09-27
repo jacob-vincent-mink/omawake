@@ -62,7 +62,7 @@ example above uses the Intel NPU recommendation. `scripts/verify-settings-e2e.py
 exercises every writable key and advertised enum choice with repeated set/unset
 checks in isolated profiles. `scripts/verify-cross-app-e2e.py` synthesizes speech
 with Omaspeak and verifies positive, negative, remove, and restore behavior in
-Omawake on CPU or Vulkan; run each script with `--help` for required paths.
+Omawake on CPU, Vulkan, or CUDA; run each script with `--help` for required paths.
 
 Setup installs the optional desktop settings launcher. It does **not** install
 or start a systemd service. Run on demand with `omawake daemon`, or explicitly

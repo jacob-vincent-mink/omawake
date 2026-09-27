@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run actual speech and wake inference with isolated CPU or Vulkan profiles.
+"""Run actual speech and wake inference with isolated CPU or GPU profiles.
 
 Example:
   python3 scripts/verify-cross-app-e2e.py \
@@ -27,7 +27,9 @@ def main():
     for name in ("omawake", "omaspeak", "wake-model", "speech-model", "cpu-provider", "artifacts"):
         parser.add_argument(f"--{name}", type=Path, required=True)
     parser.add_argument("--vulkan-provider", type=Path)
-    parser.add_argument("--runtime", choices=("default", "vulkan"), required=True)
+    parser.add_argument("--cuda-provider", type=Path)
+    parser.add_argument("--wake-cpu-provider", type=Path)
+    parser.add_argument("--runtime", choices=("default", "vulkan", "cuda"), required=True)
     args = parser.parse_args()
     wake = args.omawake.resolve(strict=True)
     speech = args.omaspeak.resolve(strict=True)
@@ -38,7 +40,10 @@ def main():
     root.mkdir(parents=True, exist_ok=True)
     if args.runtime == "vulkan" and args.vulkan_provider is None:
         parser.error("--vulkan-provider is required for Vulkan")
-    provider = args.vulkan_provider.resolve(strict=True) if args.vulkan_provider else None
+    if args.runtime == "cuda" and args.cuda_provider is None:
+        parser.error("--cuda-provider is required for CUDA")
+    selected_provider = args.vulkan_provider if args.runtime == "vulkan" else args.cuda_provider
+    provider = selected_provider.resolve(strict=True) if selected_provider else None
     steps = []
 
     def environment(app, model):
@@ -80,11 +85,14 @@ def main():
     try:
         run("pin-cpu-provider", speech, speech_env, "config", "set", "backend.library", str(cpu_provider))
         run("speech-model", speech, speech_env, "setup", "model", "--set", speech_model.name)
-        run("wake-model", wake, wake_env, "setup", "model", "--set", wake_model.name)
+        wake_setup_env = wake_env.copy()
+        if args.wake_cpu_provider:
+            wake_setup_env["OMAWAKE_AUDIOCPP_LIBRARY"] = str(args.wake_cpu_provider.resolve(strict=True))
+        run("wake-model", wake, wake_setup_env, "setup", "model", "--set", wake_model.name)
         if provider:
             for app, binary, env in (("speech", speech, speech_env), ("wake", wake, wake_env)):
-                proof = run(f"{app}-vulkan-apply", binary, env, "setup", "runtime",
-                            "--runtime", "vulkan", "--device", "gpu", "--device-id", "0",
+                proof = run(f"{app}-{args.runtime}-apply", binary, env, "setup", "runtime",
+                            "--runtime", args.runtime, "--device", "gpu", "--device-id", "0",
                             "--dir", str(provider), "--apply", json_output=True)
                 assert proof["applied"] and proof["probe"]["evidence"]["model_inference_verified"]
         for label, phrase in (("positive", "Computer"), ("negative", "Good morning")):
