@@ -543,15 +543,22 @@ fn whisper_library_can_be_selected_from_an_absolute_environment_path() {
 
 #[cfg(unix)]
 #[test]
-fn word_alias_add_remove_and_empty_configuration_round_trip() {
+fn word_alias_add_remove_and_last_word_guard_round_trip() {
     let root = sandbox();
+    let last = run(&root, &["word", "remove", "computer"]);
+    assert!(!last.status.success());
+    assert!(stderr(&last).contains("at least one wake word"));
+    let other = run(
+        &root,
+        &[
+            "word", "add", "--id", "hello", "--phrase", "Hello", "--", "true",
+        ],
+    );
+    assert!(other.status.success(), "{}", stderr(&other));
     let remove = run(&root, &["word", "remove", "computer"]);
     assert!(remove.status.success(), "{}", stderr(&remove));
     assert!(stdout(&remove).contains("removed wake word: computer"));
-    assert_eq!(
-        stdout(&run(&root, &["word", "list", "--json"])).trim(),
-        "[]"
-    );
+    assert!(stdout(&run(&root, &["word", "list", "--json"])).contains("hello"));
 
     let add = run(
         &root,
@@ -575,8 +582,14 @@ fn word_alias_add_remove_and_empty_configuration_round_trip() {
     assert!(stdout(&run(&root, &["word", "list"])).contains("computer"));
     let listed: serde_json::Value =
         serde_json::from_str(&stdout(&run(&root, &["word", "list", "--json"]))).unwrap();
+    let computer = listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|word| word["id"] == "computer")
+        .unwrap();
     assert_eq!(
-        listed[0]["aliases"],
+        computer["aliases"],
         serde_json::json!(["Come pewter", "Compute her"])
     );
     assert!(
@@ -595,6 +608,7 @@ fn word_alias_add_remove_and_empty_configuration_round_trip() {
             .success()
     );
     assert!(run(&root, &["word", "remove", "computer"]).status.success());
+    assert!(!run(&root, &["word", "remove", "hello"]).status.success());
     assert!(!run(&root, &["word", "remove", "missing"]).status.success());
 }
 

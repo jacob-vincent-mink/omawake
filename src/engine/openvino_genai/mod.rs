@@ -145,6 +145,26 @@ impl ProviderSpec {
                 }
             }
         }
+        let mut default_dirs = Vec::new();
+        if let Ok(executable) = env::current_exe()
+            && let Some(bin) = executable.parent()
+        {
+            default_dirs.push(bin.join("lib"));
+            if let Some(prefix) = bin.parent() {
+                default_dirs.push(prefix.join("lib/omawake"));
+            }
+        }
+        if let Some(home) = env::var_os("HOME") {
+            let home = PathBuf::from(home);
+            default_dirs.push(home.join(".local/lib/omawake"));
+            default_dirs.push(home.join(".local/lib"));
+            default_dirs.extend(user_openvino_archive_dirs(&home));
+        }
+        for directory in default_dirs {
+            if directory.is_dir() && !library_dirs.contains(&directory) {
+                library_dirs.push(directory);
+            }
+        }
         for directory in [
             "/usr/lib",
             "/usr/lib/openvino",
@@ -297,12 +317,35 @@ impl ProviderSpec {
     }
 }
 
+fn user_openvino_archive_dirs(home: &Path) -> Vec<PathBuf> {
+    let root = home.join(".local/opt");
+    let mut archives = fs::read_dir(root)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_dir()
+                && path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with("openvino_genai_"))
+        })
+        .collect::<Vec<_>>();
+    archives.sort_by(|left, right| right.cmp(left));
+    archives
+        .into_iter()
+        .map(|root| root.join("runtime/lib/intel64"))
+        .filter(|path| path.is_dir())
+        .collect()
+}
+
 fn find_library(directories: &[PathBuf], names: &[&str]) -> Option<PathBuf> {
-    let mut candidates = Vec::new();
     for directory in directories {
         let Ok(entries) = fs::read_dir(directory) else {
             continue;
         };
+        let mut candidates = Vec::new();
         for entry in entries.filter_map(Result::ok) {
             let file_name = entry.file_name();
             let file_name = file_name.to_string_lossy();
@@ -316,12 +359,25 @@ fn find_library(directories: &[PathBuf], names: &[&str]) -> Option<PathBuf> {
                 candidates.push(entry.path());
             }
         }
+        candidates.sort_by(|left, right| {
+            let left_exact = left
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| names.contains(&name));
+            let right_exact = right
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| names.contains(&name));
+            right_exact.cmp(&left_exact).then_with(|| right.cmp(left))
+        });
+        if let Some(path) = candidates
+            .into_iter()
+            .find_map(|path| path.canonicalize().ok())
+        {
+            return Some(path);
+        }
     }
-    candidates.sort();
-    candidates
-        .into_iter()
-        .next()
-        .and_then(|path| path.canonicalize().ok())
+    None
 }
 
 fn canonical_device(device: &str) -> Result<&'static str> {

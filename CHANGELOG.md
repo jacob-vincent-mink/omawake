@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Reopen setup with the saved runtime, device, and model selected; `r` still
+  restores hardware recommendations.
+- Search standard user library directories and installed OpenVINO GenAI archives
+  before asking for a provider path. Avoid treating an explicit CPU audio.cpp
+  library path as proof of Vulkan or CUDA support.
+- Add a repeatable TUI Apply case that verifies multilingual Whisper NPU cache
+  compilation.
+- Make schema-advertised provider options editable, reject removal of the last
+  enabled wake word, and add repeatable settings and cross-app inference E2E
+  drivers for CPU and Vulkan.
+
 ## 0.1.2-rc.1 - 2026-09-27
 
 - Replace guided setup with one tabbed terminal menu for runtime, device,

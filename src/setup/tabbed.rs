@@ -25,6 +25,7 @@ pub struct Page {
     pub help: String,
     pub items: Vec<MenuItem>,
     pub preferred: usize,
+    pub recommended: usize,
 }
 
 impl Page {
@@ -39,7 +40,13 @@ impl Page {
             help: help.into(),
             items,
             preferred,
+            recommended: preferred,
         }
+    }
+
+    pub fn with_recommended(mut self, recommended: usize) -> Self {
+        self.recommended = recommended;
+        self
     }
 }
 
@@ -99,9 +106,9 @@ impl State {
             let view = page(tab, &defaults)?;
             let preferred = view
                 .items
-                .get(view.preferred)
+                .get(view.recommended)
                 .filter(|item| item.enabled)
-                .map(|_| view.preferred)
+                .map(|_| view.recommended)
                 .or_else(|| view.items.iter().position(|item| item.enabled))
                 .ok_or_else(|| anyhow::anyhow!("{} has no available choices", view.title))?;
             defaults[tab] = Some(preferred);
@@ -159,14 +166,7 @@ impl State {
     }
 
     fn move_hover(&mut self, items: &[MenuItem], direction: isize) {
-        let mut next = self.hover;
-        loop {
-            next = (next as isize + direction).rem_euclid(items.len() as isize) as usize;
-            if items[next].enabled {
-                self.hover = next;
-                return;
-            }
-        }
+        self.hover = (self.hover as isize + direction).rem_euclid(items.len() as isize) as usize;
     }
 }
 
@@ -352,6 +352,11 @@ mod tests {
         state.sync(&page).unwrap();
         assert_eq!(state.choices[0], Some(0));
         state.handle(KeyCode::Down, &page);
+        assert_eq!(state.hover, 1);
+        assert_eq!(state.choices[0], Some(0));
+        state.handle(KeyCode::Char(' '), &page);
+        assert_eq!(state.choices[0], Some(0));
+        state.handle(KeyCode::Down, &page);
         assert_eq!(state.hover, 2);
         state.handle(KeyCode::Char(' '), &page);
         assert_eq!(state.choices[0], Some(2));
@@ -360,6 +365,7 @@ mod tests {
         state.choices[1] = Some(0);
         state.handle(KeyCode::Left, &page);
         state.sync(&page).unwrap();
+        state.handle(KeyCode::Up, &page);
         state.handle(KeyCode::Up, &page);
         state.handle(KeyCode::Char(' '), &page);
         assert_eq!(state.choices, [Some(0), None, None]);
@@ -441,6 +447,38 @@ mod tests {
     }
 
     #[test]
+    fn saved_choice_and_recommendation_remain_distinct() {
+        let page = Page::new(
+            "Runtime",
+            "",
+            vec![
+                MenuItem::available("CPU", ""),
+                MenuItem::available("NPU", ""),
+            ],
+            1,
+        )
+        .with_recommended(0);
+        let mut state = State::new(2);
+        state.sync(&page).unwrap();
+        assert_eq!(state.choices[0], Some(1));
+        state
+            .review_defaults(&|_, _| {
+                Ok(Page::new(
+                    "Runtime",
+                    "",
+                    vec![
+                        MenuItem::available("CPU", ""),
+                        MenuItem::available("NPU", ""),
+                    ],
+                    1,
+                )
+                .with_recommended(0))
+            })
+            .unwrap();
+        assert_eq!(state.choices[0], Some(0));
+    }
+
+    #[test]
     fn keyboard_moves_across_enabled_rows_and_cancels() {
         let page = page();
         let mut state = State::new(2);
@@ -477,6 +515,10 @@ mod tests {
         state.choices[0] = Some(1);
         state.sync(&page).unwrap();
         assert_eq!(state.hover, 0);
+        state.handle(KeyCode::Down, &page);
+        assert_eq!(state.hover, 1);
+        state.handle(KeyCode::Char(' '), &page);
+        assert_eq!(state.choices[0], Some(1));
         state.handle(KeyCode::Down, &page);
         assert_eq!(state.hover, 2);
         state.handle(KeyCode::Char(' '), &page);

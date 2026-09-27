@@ -866,11 +866,11 @@ fn word_alias_parses_remove() {
 }
 
 #[test]
-fn last_wake_word_can_be_removed() {
+fn last_wake_word_cannot_be_removed() {
     let mut config = Config::default();
-    remove_wake_word(&mut config, "computer").unwrap();
-    assert!(config.wake_words.is_empty());
-    assert!(validate_wake_words(&config.wake_words).is_ok());
+    let error = remove_wake_word(&mut config, "computer").unwrap_err();
+    assert!(error.to_string().contains("at least one wake word"));
+    assert_eq!(config.wake_words.len(), 1);
 }
 
 #[test]

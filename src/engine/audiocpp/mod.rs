@@ -559,6 +559,11 @@ fn package_library_dirs(executable: &Path) -> Vec<PathBuf> {
         candidates.push(prefix.join("lib"));
     }
     candidates.push(binary_dir.to_owned());
+    if let Some(home) = env::var_os("HOME") {
+        let home = PathBuf::from(home);
+        candidates.push(home.join(".local/lib/omawake"));
+        candidates.push(home.join(".local/lib"));
+    }
     candidates
 }
 

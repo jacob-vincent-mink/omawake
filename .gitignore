@@ -1,4 +1,5 @@
 /target
 /target-openvino
 /benchmark-artifacts
+**/__pycache__/
 /:memory:.ses

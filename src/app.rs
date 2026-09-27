@@ -824,6 +824,10 @@ fn config_mutation(
 }
 
 fn set_config(config: &mut Config, key: &str, value: &str) -> Result<()> {
+    if let Some(option) = config_option_name(key) {
+        config.backend.options.insert(option.into(), value.into());
+        return Ok(());
+    }
     match key {
         "backend.kind" => config.backend.kind = value.into(),
         "backend.runtime" => config.backend.runtime = parse_runtime(value)?,
@@ -853,6 +857,10 @@ fn set_config(config: &mut Config, key: &str, value: &str) -> Result<()> {
 }
 
 fn unset_config(config: &mut Config, key: &str) -> Result<()> {
+    if let Some(option) = config_option_name(key) {
+        config.backend.options.remove(option);
+        return Ok(());
+    }
     let defaults = Config::default();
     match key {
         "backend.kind" => config.backend.kind = defaults.backend.kind,
@@ -877,6 +885,11 @@ fn unset_config(config: &mut Config, key: &str) -> Result<()> {
         _ => bail!("unknown or unsupported config key {key}"),
     }
     Ok(())
+}
+
+fn config_option_name(key: &str) -> Option<&str> {
+    key.strip_prefix("backend.options.")
+        .filter(|name| !name.is_empty() && name.trim() == *name)
 }
 
 fn wake_word_command(
@@ -982,11 +995,17 @@ fn wake_word_command(
 }
 
 fn remove_wake_word(config: &mut Config, id: &str) -> Result<()> {
-    let before = config.wake_words.len();
-    config.wake_words.retain(|item| item.id != id);
-    if config.wake_words.len() == before {
+    if !config.wake_words.iter().any(|item| item.id == id) {
         bail!("unknown wake-word id {id}");
     }
+    if !config
+        .wake_words
+        .iter()
+        .any(|item| item.id != id && item.enabled)
+    {
+        bail!("at least one wake word must remain enabled");
+    }
+    config.wake_words.retain(|item| item.id != id);
     Ok(())
 }
 
@@ -1107,6 +1126,28 @@ fn guided_tabbed_setup(config_path: &Path, paths: &AppPaths) -> Result<()> {
         .iter()
         .position(|runtime| *runtime == recommendation.runtime)
         .unwrap_or(0);
+    let saved = config_path.exists();
+    let initial_runtime = if saved {
+        runtimes
+            .iter()
+            .position(|runtime| *runtime == current.backend.runtime)
+            .unwrap_or(preferred_runtime)
+    } else {
+        preferred_runtime
+    };
+    let summary = if saved {
+        format!(
+            "Current: {} · {} · {}\nRecommended: {} · {} · {}\nPress r to use recommendations, or review your saved choices.",
+            runtime_name(current.backend.runtime),
+            current.backend.device,
+            current.model.name,
+            runtime_name(recommendation.runtime),
+            recommendation.device,
+            plan.model.name,
+        )
+    } else {
+        plan.summary.clone()
+    };
     let report = crate::audio_devices::inventory("input", &current.audio.device);
     let audio = report["devices"]
         .as_array()
@@ -1127,7 +1168,7 @@ fn guided_tabbed_setup(config_path: &Path, paths: &AppPaths) -> Result<()> {
     let choices = app_setup::tabbed::run(
         &["Runtime", "Device", "Model", "Microphone", "Apply"],
         |tab, picks| {
-            let runtime = runtimes[picks[0].unwrap_or(preferred_runtime)];
+            let runtime = runtimes[picks[0].unwrap_or(initial_runtime)];
             let devices = match runtime {
                 Runtime::Default => &[("cpu", "CPU")][..],
                 Runtime::Openvino => &[
@@ -1149,10 +1190,11 @@ fn guided_tabbed_setup(config_path: &Path, paths: &AppPaths) -> Result<()> {
             Ok(match tab {
                 0 => app_setup::tabbed::Page::new(
                     "Choose runtime",
-                    plan.summary.clone(),
+                    summary.clone(),
                     runtime_items.clone(),
-                    preferred_runtime,
-                ),
+                    initial_runtime,
+                )
+                .with_recommended(preferred_runtime),
                 1 => app_setup::tabbed::Page::new(
                     "Choose device",
                     "Select a device for this runtime.",
@@ -1160,6 +1202,21 @@ fn guided_tabbed_setup(config_path: &Path, paths: &AppPaths) -> Result<()> {
                         .iter()
                         .map(|(name, detail)| MenuItem::available(*name, *detail))
                         .collect(),
+                    devices
+                        .iter()
+                        .position(|(name, _)| {
+                            *name
+                                == if saved && runtime == current.backend.runtime {
+                                    current.backend.device.as_str()
+                                } else if runtime == recommendation.runtime {
+                                    recommendation.device.as_str()
+                                } else {
+                                    ""
+                                }
+                        })
+                        .unwrap_or(0),
+                )
+                .with_recommended(
                     devices
                         .iter()
                         .position(|(name, _)| *name == recommendation.device)
@@ -1183,16 +1240,34 @@ fn guided_tabbed_setup(config_path: &Path, paths: &AppPaths) -> Result<()> {
                             ))
                         }
                     }).collect();
-                    let preferred = models
+                    let recommended = models
                         .iter()
-                        .position(|model| model.id == candidate.model.name)
+                        .position(|model| {
+                            model.id
+                                == if runtime == recommendation.runtime
+                                    && device == recommendation.device
+                                {
+                                    plan.model.id
+                                } else {
+                                    candidate.model.name.as_str()
+                                }
+                        })
                         .unwrap_or(0);
+                    let preferred = if saved && runtime == current.backend.runtime {
+                        models
+                            .iter()
+                            .position(|model| model.id == current.model.name)
+                            .unwrap_or(recommended)
+                    } else {
+                        recommended
+                    };
                     app_setup::tabbed::Page::new(
                         "Choose model",
                         "Only compatible models with available downloads or verified local files are selectable.",
                         items,
                         preferred,
                     )
+                    .with_recommended(recommended)
                 }
                 3 => app_setup::tabbed::Page::new(
                     "Choose microphone",
@@ -1777,10 +1852,9 @@ pub(crate) fn setup_provider_availability(
         crate::engine::audiocpp::probe_provider(&candidate, &paths).is_ok()
     };
     let accelerated_audio_is_explicit = |runtime| {
-        std::env::var_os("OMAWAKE_AUDIOCPP_LIBRARY").is_some()
-            || (current.backend.runtime == runtime
-                && (!current.backend.library.as_os_str().is_empty()
-                    || !current.backend.library_dirs.is_empty()))
+        current.backend.runtime == runtime
+            && (!current.backend.library.as_os_str().is_empty()
+                || !current.backend.library_dirs.is_empty())
     };
     let openvino_available = |device: &str| {
         let selection = RuntimeSelection {

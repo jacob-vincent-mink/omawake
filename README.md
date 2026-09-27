@@ -27,7 +27,8 @@ cd omawake-0.1.1-linux-x86_64
 ```
 
 Setup opens one menu with Runtime, Device, Model, Microphone, and Apply tabs.
-The detected recommendation is selected by default. Use Left/Right to move
+On later runs, saved settings are selected by default and the first page shows
+the hardware recommendation. Use Left/Right to move
 between tabs, Up/Down to highlight another option, and Space to select it.
 Press `r` to restore all recommended choices and jump to the final review;
 Enter there applies them. Enter also advances between tabs. Changing an
@@ -52,8 +53,16 @@ provider before download:
 
 ```bash
 python3 scripts/verify-setup-tui.py --binary target/debug/omawake --suite smoke --artifacts /tmp/omawake-setup-e2e
-python3 scripts/verify-setup-tui.py --binary ~/.local/bin/omawake --suite full --model-cache ~/.local/share/omawake/models/moonshine-streaming-tiny-q8_0-silero-v6.2.1 --artifacts /tmp/omawake-setup-e2e-full
+python3 scripts/verify-setup-tui.py --binary ~/.local/bin/omawake --suite full --model-cache ~/.local/share/omawake/models/whisper-base.en-int8-ov-silero-v6.2.1 --custom-model-cache ~/.local/share/omawake/models/moonshine-streaming-tiny-q8_0-silero-v6.2.1 --artifacts /tmp/omawake-setup-e2e-full
+python3 scripts/verify-setup-tui.py --binary ~/.local/bin/omawake --scenario openvino-apply --model-cache ~/.local/share/omawake/models/whisper-base-int8-ov-silero-v6.2.1 --model-down 1 --artifacts /tmp/omawake-multilingual-e2e
 ```
+
+The full suite's model cache must match this machine's recommendation. The
+example above uses the Intel NPU recommendation. `scripts/verify-settings-e2e.py`
+exercises every writable key and advertised enum choice with repeated set/unset
+checks in isolated profiles. `scripts/verify-cross-app-e2e.py` synthesizes speech
+with Omaspeak and verifies positive, negative, remove, and restore behavior in
+Omawake on CPU or Vulkan; run each script with `--help` for required paths.
 
 Setup installs the optional desktop settings launcher. It does **not** install
 or start a systemd service. Run on demand with `omawake daemon`, or explicitly
@@ -73,10 +82,10 @@ For an offline install, put both exact catalog filenames in one directory:
 omawake setup all --source-dir /absolute/path/to/assets
 ```
 
-`setup runtime` discovers and probes a complete `libaudiocpp` provider. On
-a fresh source build, run `omawake setup` and choose the provider directory
-and model together. Once the compatible model is installed, focused runtime
-selection can validate and apply a different provider directory:
+`setup runtime` discovers and probes a complete `libaudiocpp` provider. Setup
+searches the executable bundle, install prefix, `~/.local/lib/omawake`, and
+system directories. OpenVINO GenAI discovery also checks extracted archives
+under `~/.local/opt/openvino_genai_*`. A custom location can still be supplied:
 
 ```bash
 omawake setup runtime \
@@ -99,9 +108,9 @@ cached model, use `--customize-apply --model-cache ~/.local/share/omawake/models
 CUDA, Vulkan, and HIP also accept `--device-id N` for a zero-based GPU index.
 
 Ordinary setup does not install system runtimes. OpenVINO GenAI and audio.cpp
-CUDA, Vulkan, and HIP choices ask for a complete user-supplied provider
-directory. Setup probes the provider and requested device before it saves an
-accelerated configuration.
+CUDA, Vulkan, and HIP choices use a discovered compatible provider or ask for
+its directory. Setup probes the provider and requested device before it saves
+an accelerated configuration.
 
 On a new configuration, the guided picker recommends the first usable choice
 in this order: CUDA, Intel NPU through OpenVINO, Intel GPU through OpenVINO,
