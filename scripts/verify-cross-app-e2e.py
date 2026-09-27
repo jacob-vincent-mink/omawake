@@ -28,6 +28,8 @@ def main():
         parser.add_argument(f"--{name}", type=Path, required=True)
     parser.add_argument("--vulkan-provider", type=Path)
     parser.add_argument("--cuda-provider", type=Path)
+    parser.add_argument("--cuda-speech-provider", type=Path,
+                        help="CUDA audio.cpp build with speech family when separate from wake build")
     parser.add_argument("--wake-cpu-provider", type=Path)
     parser.add_argument("--runtime", choices=("default", "vulkan", "cuda"), required=True)
     args = parser.parse_args()
@@ -91,9 +93,12 @@ def main():
         run("wake-model", wake, wake_setup_env, "setup", "model", "--set", wake_model.name)
         if provider:
             for app, binary, env in (("speech", speech, speech_env), ("wake", wake, wake_env)):
+                app_provider = (args.cuda_speech_provider.resolve(strict=True)
+                                if app == "speech" and args.runtime == "cuda"
+                                and args.cuda_speech_provider else provider)
                 proof = run(f"{app}-{args.runtime}-apply", binary, env, "setup", "runtime",
                             "--runtime", args.runtime, "--device", "gpu", "--device-id", "0",
-                            "--dir", str(provider), "--apply", json_output=True)
+                            "--dir", str(app_provider), "--apply", json_output=True)
                 assert proof["applied"] and proof["probe"]["evidence"]["model_inference_verified"]
         for label, phrase in (("positive", "Computer"), ("negative", "Good morning")):
             run(f"say-{label}", speech, speech_env, "say", phrase, "--no-play", "--out",
