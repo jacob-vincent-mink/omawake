@@ -325,6 +325,7 @@ fn native_backend_load_failures_report_provider_and_fallback_context_without_cra
     let root = temp("native-load-failures");
     let paths = AppPaths {
         config_file: root.join("config/config.toml"),
+        config_home: root.to_path_buf(),
         data_dir: root.join("data"),
         cache_dir: root.join("cache"),
         state_dir: root.join("state"),
@@ -384,6 +385,7 @@ fn provider_neutral_loader_assembles_each_backend_and_exercises_cpu_fallbacks() 
     let root = temp("provider-neutral-load");
     let paths = AppPaths {
         config_file: root.join("config/config.toml"),
+        config_home: root.to_path_buf(),
         data_dir: root.join("data"),
         cache_dir: root.join("cache"),
         state_dir: root.join("state"),

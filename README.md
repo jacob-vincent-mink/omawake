@@ -26,8 +26,15 @@ cd omawake-0.1.1-linux-x86_64
 ./omawake setup
 ```
 
-Use the arrow keys and Enter to choose a provider and model, review the plan,
-and apply it. The default release provider is audio.cpp on CPU. Setup downloads
+Setup opens one menu with Runtime, Device, Model, Microphone, and Apply tabs.
+The detected recommendation is selected by default. Use Left/Right to move
+between tabs, Up/Down to highlight another option, and Space to select it.
+Press `r` to restore all recommended choices and jump to the final review;
+Enter there applies them. Enter also advances between tabs. Changing an
+earlier choice updates dependent defaults. Model download and installation
+start only after Apply. Esc or `q` cancels without applying. The same recommendation can
+be installed in one command with `omawake setup --recommended`. The default release provider
+is audio.cpp on CPU. Setup downloads
 and verifies these two pinned MIT-licensed assets as one model profile:
 
 - Moonshine Streaming Tiny Q8_0, 60,407,904 bytes
@@ -37,6 +44,16 @@ The install is atomic: both assets, their checksums, provenance manifest, and
 license notices must verify before the new model directory becomes active.
 Setup then initializes the provider and both models with a silent file-only
 proof before saving the config.
+
+The repeatable terminal E2E suite saves screen frames and JSON results in an
+artifact directory. CI runs the smoke scenarios, including navigation,
+backtracking, cancellation, the `r` shortcut, and rejection of a missing
+provider before download:
+
+```bash
+python3 scripts/verify-setup-tui.py --binary target/debug/omawake --suite smoke --artifacts /tmp/omawake-setup-e2e
+python3 scripts/verify-setup-tui.py --binary ~/.local/bin/omawake --suite full --model-cache ~/.local/share/omawake/models/moonshine-streaming-tiny-q8_0-silero-v6.2.1 --artifacts /tmp/omawake-setup-e2e-full
+```
 
 Setup installs the optional desktop settings launcher. It does **not** install
 or start a systemd service. Run on demand with `omawake daemon`, or explicitly
@@ -65,6 +82,19 @@ selection can validate and apply a different provider directory:
 omawake setup runtime \
   --runtime default --device cpu --dir /absolute/path/to/provider --apply
 ```
+
+To repeat a full TUI Apply without changing your active configuration, run
+`python3 scripts/verify-setup-tui.py --binary ~/.local/bin/omawake --model-cache ~/.local/share/omawake/models/moonshine-streaming-tiny-q8_0-silero-v6.2.1`.
+The script verifies the cached model first, then uses isolated XDG directories
+to check the final Accept page, model proof, config, and launcher.
+Use `python3 scripts/verify-setup-tui.py --binary ~/.local/bin/omawake --cancel-before-accept`
+to confirm that backing out of the final page creates no config, model,
+launcher, or cache files.
+Use `python3 scripts/verify-setup-tui.py --binary ~/.local/bin/omawake --customize`
+to navigate Customize through runtime and device, then cancel with no files changed.
+Use `--customize-review` to navigate every Customize tab through final Accept,
+revisit the previous tab, and cancel there. To test a full CPU Apply with a
+cached model, use `--customize-apply --model-cache ~/.local/share/omawake/models/moonshine-streaming-tiny-q8_0-silero-v6.2.1`.
 
 CUDA, Vulkan, and HIP also accept `--device-id N` for a zero-based GPU index.
 
@@ -111,9 +141,12 @@ When the optional user service is already active, successful `config`,
 Omawake restores the prior config and explicitly restarts the prior daemon if
 the updated daemon fails to start. A custom `--config` never restarts a unit
 that points at another file.
+Only one daemon per user can run for a configuration file, even across different
+`XDG_RUNTIME_DIR` values. Resume a manually paused service before editing.
+Automatic restarts require a recognized effective systemd unit without overrides.
 
 For names or coined words that the verifier spells inconsistently, use
-**Teach a wake word** in `omawake setup`, or run:
+the focused onboarding command:
 
 ```bash
 omawake word onboard jarvis

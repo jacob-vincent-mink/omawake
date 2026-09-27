@@ -1319,6 +1319,7 @@ mod tests {
         let (backend_root, verifier, vad) = fake_models("backend-lifecycle");
         let paths = AppPaths {
             config_file: backend_root.join("config/config.toml"),
+            config_home: backend_root.to_path_buf(),
             data_dir: backend_root.join("data"),
             cache_dir: backend_root.join("cache"),
             state_dir: backend_root.join("state"),
@@ -1437,6 +1438,7 @@ mod tests {
 
         let paths = AppPaths {
             config_file: config_dir.join("config.toml"),
+            config_home: root.to_path_buf(),
             data_dir: root.join("data"),
             cache_dir: root.join("cache"),
             state_dir: root.join("state"),

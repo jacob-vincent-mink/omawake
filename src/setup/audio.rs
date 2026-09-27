@@ -1,10 +1,17 @@
 //! Audio setup uses the same inventory contract as external settings clients.
-use super::wizard::{MenuItem, select};
+use super::wizard::{MenuItem, select, select_horizontal};
 use anyhow::{Context, Result};
 use serde_json::Value;
 
 pub fn choose(current: &str, inventory: impl Fn(&str) -> Value) -> Result<Option<String>> {
     choose_with(current, inventory, select)
+}
+
+pub fn choose_horizontal(
+    current: &str,
+    inventory: impl Fn(&str) -> Value,
+) -> Result<Option<String>> {
+    choose_with(current, inventory, select_horizontal)
 }
 
 fn choose_with(

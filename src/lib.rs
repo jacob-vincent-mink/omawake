@@ -3,6 +3,7 @@ pub mod audio;
 pub mod backend;
 pub mod catalog;
 pub mod config;
+mod daemon_instance;
 pub mod engine;
 pub mod enrollment;
 pub mod evaluation;

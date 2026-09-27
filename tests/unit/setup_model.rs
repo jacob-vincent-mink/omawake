@@ -81,6 +81,7 @@ fn fixture_spec(first: &'static [u8], second: &'static [u8]) -> &'static ModelSp
 fn paths(root: &Path) -> AppPaths {
     AppPaths {
         config_file: root.join("config/config.toml"),
+        config_home: root.to_path_buf(),
         data_dir: root.join("data"),
         cache_dir: root.join("cache"),
         state_dir: root.join("state"),

@@ -1108,6 +1108,7 @@ fn print_result(
     Ok(())
 }
 
+#[cfg(test)]
 pub(super) fn guided(config: Config, path: &Path, paths: &AppPaths) -> Result<()> {
     run(
         OnboardArgs {

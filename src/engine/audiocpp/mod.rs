@@ -1761,6 +1761,7 @@ int audiocpp_registry_family(const void *registry, size_t index, const char **ou
         let root = env::temp_dir().join(format!("omawake-audiocpp-{name}-{}", std::process::id()));
         let paths = AppPaths {
             config_file: root.join("config/omawake/config.toml"),
+            config_home: root.join("config"),
             data_dir: root.join("data/omawake"),
             cache_dir: root.join("cache/omawake"),
             state_dir: root.join("state/omawake"),
