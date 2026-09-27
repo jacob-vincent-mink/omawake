@@ -1,4 +1,18 @@
-# Omawake 0.1.1
+# Omawake 0.1.2-rc.1
+
+This release candidate introduces a single tabbed setup menu. Left and Right
+move between runtime, device, model, microphone, and final review; Up and Down
+highlight choices, Space selects, and Enter advances or applies. Press `r` to
+restore detected recommendations and jump to review. Model downloads,
+compilation, config changes, and the optional launcher install start only after
+Apply. `omawake setup --recommended` remains available for one-command setup.
+
+Setup now preserves an active daemon's config ownership and custom config
+paths during edits and service changes. The terminal E2E suite exercises
+navigation, cancellation, provider failures, and full Apply using isolated
+homes; CI saves the smoke-suite screen frames as an artifact.
+
+## Omawake 0.1.1
 
 This update fixes `setup runtime --dir /usr` with an explicit OpenVINO CPU or
 NPU device on Arch installations where OpenVINO plugins live in

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.2-rc.1 - 2026-09-27
+
+- Replace guided setup with one tabbed terminal menu for runtime, device,
+  model, and microphone choices. Choices can be revisited before Apply, and
+  `r` restores the detected recommendations.
+- Delay model download, compilation, and configuration changes until Apply.
+  Keep a one-command recommended setup path.
+- Preserve active daemon ownership and custom configuration identity across
+  setup and service changes.
+- Add repeatable real-terminal E2E coverage and CI artifacts for setup
+  navigation, cancellation, missing-provider rejection, and Apply paths.
+
 ## 0.1.1 - 2026-09-24
 
 - Discover Arch OpenVINO plugins in `lib/openvino` from a system prefix such as
