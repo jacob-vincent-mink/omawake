@@ -22,8 +22,9 @@ import uuid
 
 APP = "omawake"
 TABS = ("Choose runtime", "Choose device", "Choose model", "Choose microphone", "Review and apply")
-SMOKE = ("cancel-start", "cancel-review", "revise-reset", "shortcut-cancel", "missing-provider")
+SMOKE = ("cancel-start", "cancel-review", "revise-reset", "shortcut-cancel", "missing-provider", "saved-choices")
 FULL = (*SMOKE, "recommended-apply", "shortcut-apply", "custom-apply")
+SCENARIOS = (*FULL, "openvino-apply")
 
 
 class BlankStartupTimeout(AssertionError):
@@ -34,7 +35,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--suite", choices=("smoke", "full"))
-    parser.add_argument("--scenario", choices=FULL)
+    parser.add_argument("--scenario", choices=SCENARIOS)
     parser.add_argument("--artifacts", type=Path, help="directory for frames and JSON results")
     parser.add_argument("--model-cache", type=Path, help="verified installed recommended model")
     parser.add_argument("--custom-model-cache", type=Path, help="verified installed CPU model")
@@ -78,7 +79,7 @@ def parse_args():
     for source in (recommended, custom):
         if source is not None and not source.is_dir():
             parser.error("model caches must be installed catalog model directories")
-    if any(case in scenarios for case in ("recommended-apply", "shortcut-apply")) and recommended is None:
+    if any(case in scenarios for case in ("recommended-apply", "shortcut-apply", "openvino-apply")) and recommended is None:
         parser.error("--model-cache is required for recommended Apply")
     if "custom-apply" in scenarios and custom is None:
         parser.error("--custom-model-cache or --model-cache is required for custom Apply")
@@ -96,7 +97,7 @@ def run_case(args, binary, case, recommended, custom, artifacts, attempt):
     frames_dir = case_dir / "frames"
     frames_dir.mkdir(exist_ok=True)
     started = time.monotonic()
-    source = custom if case == "custom-apply" else recommended if case in ("recommended-apply", "shortcut-apply") else None
+    source = custom if case == "custom-apply" else recommended if case in ("recommended-apply", "shortcut-apply", "openvino-apply") else None
     with tempfile.TemporaryDirectory(prefix=f"{APP}-{case}-") as scratch:
         root = Path(scratch)
         (root / "run").mkdir()
@@ -164,17 +165,54 @@ def run_case(args, binary, case, recommended, custom, artifacts, attempt):
         config = root / "config" / APP / "config.toml"
         launcher = root / "data" / "applications" / f"{APP}-settings.desktop"
         downloads = root / "data" / APP / "downloads"
+        saved_config = None
+        if case == "saved-choices":
+            config.parent.mkdir(parents=True)
+            saved_config = '''[backend]
+kind = "openvino-genai"
+runtime = "openvino"
+device = "npu"
+threads = 2
+fallback = "error"
+device_id = 0
+[backend.options]
+[model]
+name = "whisper-base-int8-ov-silero-v6.2.1"
+directory = ""
+verifier = "."
+vad = "silero_vad_16k.safetensors"
+sample_rate = 16000
+[audio]
+device = "default"
+'''
+            config.write_text(saved_config)
         try:
             tmux("new-session", "-d", "-x", "100", "-y", "30", command)
             first = await_text(TABS[0], "initial")
-            match = re.search(r"Runtime:\s*(\w+)", first)
+            match = re.search(r"(?:Runtime|Recommended):\s*(\w+)", first)
             if not match:
                 raise AssertionError(f"recommendation is missing from first page:\n{first}")
             original_runtime = match.group(1)
+            if case == "saved-choices":
+                if "Current: openvino · npu · whisper-base-int8-ov-silero-v6.2.1" not in first:
+                    raise AssertionError(f"saved settings absent from first page:\n{first}")
+                key("Right")
+                device = await_text("Choose device", "saved-device")
+                if "[x] npu" not in device:
+                    raise AssertionError(f"saved device is not selected:\n{device}")
+                key("Right")
+                model = await_text("Choose model", "saved-model")
+                if "[x] Whisper Base" not in model and "[x] whisper-base-int8" not in model:
+                    raise AssertionError(f"saved model is not selected:\n{model}")
+                key("r")
+                await_text(TABS[-1], "recommended-review")
+                key("q")
             if case in ("recommended-apply", "shortcut-apply"):
                 if source.name.split("-")[0] not in first.lower():
                     raise AssertionError(f"recommended model differs from cache {source.name}:\n{first}")
-            if case == "cancel-start":
+            if case == "saved-choices":
+                pass
+            elif case == "cancel-start":
                 key("q")
             elif case in ("shortcut-cancel", "shortcut-apply"):
                 key("r")
@@ -182,7 +220,9 @@ def run_case(args, binary, case, recommended, custom, artifacts, attempt):
                 if case == "shortcut-cancel":
                     key("q")
             else:
-                if case in ("custom-apply", "missing-provider"):
+                if case == "openvino-apply":
+                    key("Home", "Down", "Space")
+                elif case in ("custom-apply", "missing-provider"):
                     key("Home", "Space")
                 elif case == "revise-reset":
                     key("Home")
@@ -190,12 +230,21 @@ def run_case(args, binary, case, recommended, custom, artifacts, attempt):
                         key("Down")
                     key("Space")
                 for index in range(len(TABS) - 1):
+                    if case == "openvino-apply" and index == 1:
+                        key("Home", "Space")
+                    if case == "openvino-apply" and index == 2:
+                        key("Home")
+                        for _ in range(args.model_down):
+                            key("Down")
+                        key("Space")
                     if case == "custom-apply" and index == 2:
                         for _ in range(args.model_down):
                             key("Down")
                         key("Space")
                     next_tab(index)
                 review = frame("review")
+                if case == "openvino-apply" and "Runtime: openvino · Device: npu" not in review:
+                    raise AssertionError(f"OpenVINO NPU choice is absent from review:\n{review}")
                 if case == "revise-reset":
                     selected_runtime = "openvino" if original_runtime == "default" else "default"
                     if f"Runtime: {selected_runtime}" not in review:
@@ -210,8 +259,8 @@ def run_case(args, binary, case, recommended, custom, artifacts, attempt):
                     key("q")
                 elif case in ("cancel-review",):
                     key("q")
-            if case in ("recommended-apply", "shortcut-apply", "custom-apply", "missing-provider"):
-                if config.exists() or launcher.exists() or downloads.exists():
+            if case in ("recommended-apply", "shortcut-apply", "custom-apply", "openvino-apply", "missing-provider"):
+                if config.exists() or launcher.exists() or downloads.exists() or list((root / "cache" / APP).rglob("*.blob")):
                     raise AssertionError("setup wrote files before final Apply")
                 frame("before-apply")
                 key("Enter")
@@ -221,7 +270,7 @@ def run_case(args, binary, case, recommended, custom, artifacts, attempt):
             if not exit_match:
                 raise AssertionError(f"setup did not exit:\n{final}")
             exit_code = int(exit_match.group(1))
-            applies = case in ("recommended-apply", "shortcut-apply", "custom-apply")
+            applies = case in ("recommended-apply", "shortcut-apply", "custom-apply", "openvino-apply")
             if applies and exit_code != 0:
                 raise AssertionError(f"setup failed:\n{final}")
             if case == "missing-provider" and exit_code == 0:
@@ -237,6 +286,19 @@ def run_case(args, binary, case, recommended, custom, artifacts, attempt):
                     raise AssertionError("saved model differs from the verified cached model")
                 if case == "custom-apply" and 'runtime = "default"' not in config_text:
                     raise AssertionError("custom CPU runtime was not saved")
+                if case == "openvino-apply":
+                    if 'runtime = "openvino"' not in config_text or 'device = "npu"' not in config_text:
+                        raise AssertionError("OpenVINO NPU runtime was not saved")
+                    blobs = list((root / "cache" / APP / "openvino" / "npu" / "compiled").glob("*.blob"))
+                    if not blobs or any(path.stat().st_size == 0 for path in blobs):
+                        raise AssertionError("OpenVINO NPU model was not compiled")
+                    (case_dir / "compiled-blobs.json").write_text(json.dumps(
+                        {path.name: path.stat().st_size for path in blobs}, indent=2) + "\n")
+            elif case == "saved-choices":
+                if config.read_text() != saved_config or launcher.exists() or downloads.exists():
+                    raise AssertionError("cancel changed saved settings or setup files")
+                if "Setup cancelled" not in final:
+                    raise AssertionError("cancel confirmation is missing")
             else:
                 if config.exists() or launcher.exists() or downloads.exists():
                     raise AssertionError("cancel or failed Apply changed setup files")

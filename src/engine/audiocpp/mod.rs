@@ -6,7 +6,7 @@ use std::env;
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::fs;
 use std::io::{self, BufReader, Read};
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
@@ -559,6 +559,11 @@ fn package_library_dirs(executable: &Path) -> Vec<PathBuf> {
         candidates.push(prefix.join("lib"));
     }
     candidates.push(binary_dir.to_owned());
+    if let Some(home) = env::var_os("HOME") {
+        let home = PathBuf::from(home);
+        candidates.push(home.join(".local/lib/omawake"));
+        candidates.push(home.join(".local/lib"));
+    }
     candidates
 }
 
@@ -810,7 +815,7 @@ fn launch_worker(spec: &WorkerSpec) -> Result<(Child, ChildStdin, BufReader<Chil
         .env("TMPDIR", &spec.cache)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null());
+        .stderr(Stdio::inherit());
     prepend_library_directories(&mut command, &spec.library_dirs)?;
     let mut child = command.spawn().context("spawn isolated audio.cpp worker")?;
     let input = child.stdin.take().context("worker stdin is unavailable")?;
@@ -1354,8 +1359,18 @@ pub(crate) fn worker_main(
     backend: &str,
     device: i32,
 ) -> Result<()> {
+    // CUDA providers can print diagnostics to stdout during inference. Keep
+    // the original pipe exclusively for framed responses.
+    unsafe { libc::fflush(std::ptr::null_mut()) };
+    let protocol_fd = unsafe { libc::dup(libc::STDOUT_FILENO) };
+    if protocol_fd < 0 {
+        return Err(io::Error::last_os_error()).context("duplicate worker protocol output");
+    }
+    let mut output = unsafe { fs::File::from_raw_fd(protocol_fd) };
+    if unsafe { libc::dup2(libc::STDERR_FILENO, libc::STDOUT_FILENO) } < 0 {
+        return Err(io::Error::last_os_error()).context("redirect native provider output");
+    }
     if let Err(error) = harden_worker_process() {
-        let mut output = io::stdout().lock();
         protocol::write_response(
             &mut output,
             &Response::Error {
@@ -1374,7 +1389,7 @@ pub(crate) fn worker_main(
         backend,
         device,
         &mut io::stdin().lock(),
-        &mut io::stdout().lock(),
+        &mut output,
     )
 }
 
