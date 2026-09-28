@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.2-rc.2 - 2026-09-27
 
 - Reopen setup with the saved runtime, device, and model selected; `r` still
   restores hardware recommendations.
@@ -12,6 +12,8 @@
 - Make schema-advertised provider options editable, reject removal of the last
   enabled wake word, and add repeatable settings and cross-app inference E2E
   drivers for CPU and Vulkan.
+- Keep CUDA provider output off the audio worker protocol, extend the cross-app
+  inference E2E driver to CUDA, and surface native worker failures in diagnostics.
 
 ## 0.1.2-rc.1 - 2026-09-27
 
