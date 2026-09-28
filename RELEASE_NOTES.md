@@ -1,4 +1,12 @@
-# Omawake 0.1.2-rc.1
+# Omawake 0.1.2-rc.2
+
+This candidate reopens setup with the saved runtime, device, and model selected
+while keeping `r` for hardware recommendations. It improves native provider
+discovery, exposes schema-advertised provider options, and reports native audio
+worker failures for diagnosis. The cross-app inference suite now exercises
+CPU, Vulkan, and CUDA paths.
+
+## Omawake 0.1.2-rc.1
 
 This release candidate introduces a single tabbed setup menu. Left and Right
 move between runtime, device, model, microphone, and final review; Up and Down
