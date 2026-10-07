@@ -193,6 +193,10 @@ pub fn worker_main(settings: &str) -> Result<()> {
     settings.validate()?;
     let mut input = BufReader::new(std::io::stdin().lock());
     let mut output = std::io::stdout().lock();
+    worker_io(&settings, &mut input, &mut output)
+}
+
+fn worker_io(settings: &Settings, mut input: impl BufRead, mut output: impl Write) -> Result<()> {
     loop {
         let mut frame = Vec::new();
         let n = input

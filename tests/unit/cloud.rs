@@ -357,3 +357,31 @@ fn direct_transcription_validates_final_vendor_payloads_and_multipart_boundary()
             .contains("multipart")
     );
 }
+
+#[test]
+fn worker_protocol_rejects_truncated_frames_and_returns_bounded_audio_errors() {
+    let settings = Settings {
+        kind: "openai-compatible".into(),
+        language: "en".into(),
+        cloud: CloudConfig {
+            base_url: "http://localhost:1234".into(),
+            ..Default::default()
+        },
+    };
+    assert!(worker_main("invalid").is_err());
+    assert!(worker_io(&settings, &b""[..], Vec::new()).is_ok());
+    assert!(worker_io(&settings, &b"truncated"[..], Vec::new()).is_err());
+    assert!(worker_io(&settings, &b"invalid\n"[..], Vec::new()).is_err());
+    let mut input = serde_json::to_vec(&Utterance {
+        start_sample: 42,
+        samples: vec![],
+    })
+    .unwrap();
+    input.push(b'\n');
+    let mut output = Vec::new();
+    worker_io(&settings, input.as_slice(), &mut output).unwrap();
+    let reply: Reply = serde_json::from_slice(&output).unwrap();
+    assert_eq!(reply.start_sample, 42);
+    assert!(reply.text.is_none());
+    assert!(reply.error.unwrap().contains("invalid bounded cloud audio"));
+}
