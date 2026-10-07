@@ -1072,7 +1072,7 @@ dependencies = [
 
 [[package]]
 name = "omawake"
-version = "0.1.2-rc.2"
+version = "0.1.2-rc.3"
 dependencies = [
  "anyhow",
  "clap",

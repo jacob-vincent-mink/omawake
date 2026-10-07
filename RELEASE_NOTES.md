@@ -1,4 +1,22 @@
-# Omawake 0.1.2-rc.2
+# Omawake 0.1.2-rc.3
+
+This RC adds opt-in cloud transcription through Deepgram and OpenAI-compatible
+file transcription APIs. Local energy endpointing produces bounded utterances;
+a supervised worker keeps microphone capture responsive. Queues are bounded,
+and pause/cancellation disposes of pending work without replaying speech.
+Whole-phrase wake matching remains local. These adapters upload voiced clips
+when selected; WebSocket realtime ASR remains future work.
+
+API keys are referenced through environment variables. Local HTTP fixtures
+verified requests, response/error handling, cancellation and matching; paid
+provider accounts and real-room latency/false-wake rates remain unqualified.
+See `docs/CLOUD.md` for configuration and limitations.
+
+This RC excludes the separate omarchy-voice consumer-events/D-Bus work and the
+pre-existing audio.cpp ABI relaxation. No new inference runtime is bundled and
+ONNX Runtime remains excluded from delivery. Existing local defaults remain.
+
+## Omawake 0.1.2-rc.2
 
 This candidate reopens setup with the saved runtime, device, and model selected
 while keeping `r` for hardware recommendations. It improves native provider

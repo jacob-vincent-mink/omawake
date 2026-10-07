@@ -125,3 +125,7 @@ pub fn read_json(response: ureq::Response) -> Result<serde_json::Value> {
     ensure!(bytes.len() <= 1_048_576, "cloud response exceeds 1 MiB");
     serde_json::from_slice(&bytes).map_err(|_| anyhow::anyhow!("cloud response is not valid JSON"))
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/cloud_http.rs"]
+mod tests;

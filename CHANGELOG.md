@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2-rc.3 - 2026-10-07
+
+- Add Deepgram and OpenAI-compatible cloud transcription adapters.
+- Add bounded local endpointing and supervised asynchronous cloud workers.
+- Keep consumer-events/D-Bus and unrelated ABI changes separate.
+
 ## 0.1.2-rc.2 - 2026-09-27
 
 - Reopen setup with the saved runtime, device, and model selected; `r` still
