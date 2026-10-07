@@ -21,3 +21,6 @@ pub mod setup;
 mod test_support;
 
 pub mod audio_devices;
+
+pub mod cloud;
+pub mod cloud_http;

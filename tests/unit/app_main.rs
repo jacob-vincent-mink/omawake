@@ -4154,3 +4154,41 @@ fn mixed_runtime_reports_never_claim_the_default_device_for_all_groups() {
             .contains("Silero VAD runs on CPU")
     );
 }
+
+#[test]
+fn cloud_configuration_fields_reset_to_defaults_and_reject_non_numeric_limits() {
+    let mut config = Config::default();
+    for (key, value) in [
+        ("backend.cloud.base_url", "http://localhost:1234/v1"),
+        ("backend.cloud.api_key_env", "TEST_API_KEY"),
+        ("backend.cloud.model", "custom"),
+        ("backend.cloud.timeout_seconds", "15"),
+        ("backend.cloud.max_audio_seconds", "20"),
+        ("backend.cloud.vad_threshold", "0.02"),
+        ("backend.cloud.endpoint_milliseconds", "300"),
+    ] {
+        set_config(&mut config, key, value).unwrap();
+    }
+    assert_eq!(config.backend.cloud.api_key_env, "TEST_API_KEY");
+    assert_eq!(config.backend.cloud.endpoint_milliseconds, 300);
+    for key in [
+        "backend.cloud.base_url",
+        "backend.cloud.api_key_env",
+        "backend.cloud.model",
+        "backend.cloud.timeout_seconds",
+        "backend.cloud.max_audio_seconds",
+        "backend.cloud.vad_threshold",
+        "backend.cloud.endpoint_milliseconds",
+    ] {
+        unset_config(&mut config, key).unwrap();
+    }
+    assert_eq!(config.backend.cloud, Config::default().backend.cloud);
+    for key in [
+        "backend.cloud.timeout_seconds",
+        "backend.cloud.max_audio_seconds",
+        "backend.cloud.vad_threshold",
+        "backend.cloud.endpoint_milliseconds",
+    ] {
+        assert!(set_config(&mut config, key, "invalid").is_err());
+    }
+}

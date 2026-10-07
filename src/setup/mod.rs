@@ -135,6 +135,25 @@ fn checks_with(
         }
     };
 
+    if crate::cloud::is_cloud(&config.backend.kind) {
+        result.push(ok(
+            "backend",
+            format!(
+                "{} HTTP utterance adapter is available",
+                config.backend.kind
+            ),
+        ));
+        result.push(ok(
+            "model",
+            "remote model; local assets and native runtime are not required",
+        ));
+        match crate::cloud::CloudBackend::load(&config) {
+            Ok(_) => result.push(ok("cloud", "configuration, endpointing, phrases and credential reference validated; no upload made")),
+            Err(error) => result.push(fail("cloud", format!("{error:#}"), "configure backend.cloud, wake words and the API-key environment variable")),
+        }
+        return result;
+    }
+
     match catalog::backends()
         .iter()
         .find(|backend| backend.kind == config.backend.kind)

@@ -53,6 +53,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum TopCommand {
+    #[command(name = "__cloud-worker", hide = true)]
+    CloudWorker { settings: String },
     #[command(name = "__embedding-worker", hide = true)]
     EmbeddingWorker { socket: PathBuf },
     #[command(name = "__model-cache-prepare", hide = true)]
@@ -368,6 +370,9 @@ pub fn entry() -> ExitCode {
 }
 
 fn run_entry(cli: Cli) -> Result<()> {
+    if let TopCommand::CloudWorker { settings } = &cli.command {
+        return crate::cloud::worker_main(settings);
+    }
     if let TopCommand::EmbeddingWorker { socket } = &cli.command {
         return crate::engine::embedding_worker::main(socket);
     }
@@ -784,6 +789,7 @@ where
         }
         TopCommand::ModelCachePrepare { .. }
         | TopCommand::NativeJson { .. }
+        | TopCommand::CloudWorker { .. }
         | TopCommand::EmbeddingWorker { .. }
         | TopCommand::AudioCppWorker { .. }
         | TopCommand::OpenVinoGenAiWorker { .. }
@@ -829,6 +835,17 @@ fn set_config(config: &mut Config, key: &str, value: &str) -> Result<()> {
         return Ok(());
     }
     match key {
+        "backend.cloud.base_url" => config.backend.cloud.base_url = value.into(),
+        "backend.cloud.api_key_env" => config.backend.cloud.api_key_env = value.into(),
+        "backend.cloud.model" => config.backend.cloud.model = value.into(),
+        "backend.cloud.timeout_seconds" => config.backend.cloud.timeout_seconds = value.parse()?,
+        "backend.cloud.max_audio_seconds" => {
+            config.backend.cloud.max_audio_seconds = value.parse()?
+        }
+        "backend.cloud.vad_threshold" => config.backend.cloud.vad_threshold = value.parse()?,
+        "backend.cloud.endpoint_milliseconds" => {
+            config.backend.cloud.endpoint_milliseconds = value.parse()?
+        }
         "backend.kind" => config.backend.kind = value.into(),
         "backend.runtime" => config.backend.runtime = parse_runtime(value)?,
         "backend.device" => config.backend.device = value.into(),
@@ -863,6 +880,24 @@ fn unset_config(config: &mut Config, key: &str) -> Result<()> {
     }
     let defaults = Config::default();
     match key {
+        "backend.cloud.base_url" => config.backend.cloud.base_url = defaults.backend.cloud.base_url,
+        "backend.cloud.api_key_env" => {
+            config.backend.cloud.api_key_env = defaults.backend.cloud.api_key_env
+        }
+        "backend.cloud.model" => config.backend.cloud.model = defaults.backend.cloud.model,
+        "backend.cloud.timeout_seconds" => {
+            config.backend.cloud.timeout_seconds = defaults.backend.cloud.timeout_seconds
+        }
+        "backend.cloud.max_audio_seconds" => {
+            config.backend.cloud.max_audio_seconds = defaults.backend.cloud.max_audio_seconds
+        }
+        "backend.cloud.vad_threshold" => {
+            config.backend.cloud.vad_threshold = defaults.backend.cloud.vad_threshold
+        }
+        "backend.cloud.endpoint_milliseconds" => {
+            config.backend.cloud.endpoint_milliseconds =
+                defaults.backend.cloud.endpoint_milliseconds
+        }
         "backend.kind" => config.backend.kind = defaults.backend.kind,
         "backend.runtime" => config.backend.runtime = defaults.backend.runtime,
         "backend.device" => config.backend.device = defaults.backend.device,
@@ -3261,7 +3296,7 @@ where
     let context = EvaluationContext {
         config_sha256: evaluation::sha256_bytes(&serde_json::to_vec(config)?),
         enabled_keyword_ids: enabled_keywords.iter().cloned().collect(),
-        model_name: config.model.name.clone(),
+        model_name: crate::cloud::model_name(config),
         model_directory: config.model_directory(paths).display().to_string(),
         model_language: config.model.language.clone(),
         application_version: env!("CARGO_PKG_VERSION").into(),
@@ -3351,7 +3386,7 @@ fn benchmark_report(
             "kind": detector.backend_kind(),
             "requested_runtime": config.backend.runtime,
             "requested_device": config.backend.canonical_device()?,
-            "effective_runtime": detector.effective_runtime(),
+            "effective_runtime": if crate::cloud::is_cloud(detector.backend_kind()) { json!("remote") } else { json!(detector.effective_runtime()) },
             "fallback_used": detector.fallback_used(),
             "placement_verified": placement_verified,
             "placement_evidence": placement_evidence,
@@ -3387,6 +3422,10 @@ fn runtime_placement(runtime: Runtime) -> (bool, &'static str) {
 
 fn backend_placement(kind: &str, runtime: Runtime) -> (bool, &'static str) {
     match (kind, runtime) {
+        ("deepgram" | "openai-compatible", _) => (
+            false,
+            "remote API; local accelerator placement does not apply",
+        ),
         ("multi-engine", _) => (false, "placement belongs to individual engine groups"),
         ("trained-whisper-encoder", Runtime::Openvino) => (
             true,
@@ -3616,7 +3655,16 @@ fn attach_engine_groups(report: &mut Value, detector: &impl DetectorControl) {
 }
 fn attach_group_values(report: &mut Value, groups: Vec<crate::engine::GroupStatus>) {
     if !groups.is_empty() {
-        report["backend"]["groups"] = json!(groups);
+        let mut values = serde_json::to_value(&groups).unwrap_or_else(|_| json!([]));
+        if let Some(values) = values.as_array_mut() {
+            for group in values {
+                if crate::cloud::is_cloud(group["backend"].as_str().unwrap_or("")) {
+                    group["runtime"] = json!("remote");
+                    group["requested_device"] = json!("remote");
+                }
+            }
+        }
+        report["backend"]["groups"] = values;
         // A mixed detector has no single effective runtime.
         report["backend"]["effective_runtime"] = json!("mixed");
         if report["backend"].get("requested_device").is_some() {
@@ -3695,7 +3743,7 @@ fn detections_report(
         "keywords_buffer": keywords_buffer,
         "detections": detections,
         "actions": actions,
-        "backend": {"kind": backend_kind, "effective_runtime": effective_runtime, "fallback_used": fallback_used}
+        "backend": {"kind": backend_kind, "effective_runtime": if crate::cloud::is_cloud(backend_kind) { json!("remote") } else { json!(effective_runtime) }, "fallback_used": fallback_used}
     })
 }
 
@@ -3746,7 +3794,7 @@ fn run_loaded_daemon(
             detector.fallback_used(),
             detector.load_time(),
             audio,
-            &config.model.name,
+            &crate::cloud::model_name(config),
             &config.model.language,
         );
         details["config_path"] = json!(&config_identity);
@@ -4077,7 +4125,7 @@ fn daemon_details(
     json!({
         "backend": {
             "kind": backend_kind,
-            "effective_runtime": effective_runtime,
+            "effective_runtime": if crate::cloud::is_cloud(backend_kind) { json!("remote") } else { json!(effective_runtime) },
             "fallback_used": fallback_used,
         },
         "model": {
@@ -4245,8 +4293,8 @@ fn request_id() -> String {
 
 fn stopped_status(config: &Config, paths: &AppPaths) -> serde_json::Value {
     json!({"status_version":1,"app":"omawake","daemon":{"running":false,"state":"stopped"},
-        "backend":{"kind":config.backend.kind,"requested":{"runtime":config.backend.runtime,"device":config.backend.device},"effective":null,"supported_capabilities":supported_capabilities(),"fallback_policy":config.backend.fallback,"fallback_used":false,"placement_verified":false,"evidence":[]},
-        "model":{"name":config.model.name,"language":config.model.language,"path":config.model_directory(paths),"loaded":false},"last_error":null,"details":{"audio":crate::audio_devices::status(&config.audio.device,None,None)}})
+        "backend":{"kind":config.backend.kind,"requested":{"runtime":config.backend.runtime,"device":config.backend.device},"effective":null,"supported_capabilities":if crate::cloud::is_cloud(&config.backend.kind) {json!(["remote"])} else {json!(supported_capabilities())},"fallback_policy":config.backend.fallback,"fallback_used":false,"placement_verified":false,"evidence":[]},
+        "model":{"name":crate::cloud::model_name(config),"language":config.model.language,"path":if crate::cloud::is_cloud(&config.backend.kind) {Value::Null} else {json!(config.model_directory(paths))},"loaded":false},"last_error":null,"details":{"audio":crate::audio_devices::status(&config.audio.device,None,None)}})
 }
 
 /// Language choices for the verifier-language schema key: every token the
@@ -4281,16 +4329,27 @@ fn schema(config: &Config, config_path: &Path, paths: &AppPaths) -> serde_json::
     let current_audio = |runtime| {
         config.backend.kind == "audiocpp" && config.backend.runtime == runtime && selected_ready
     };
-    let runtime_choices = vec![
-        json!({"value":"default","available":packaged_ready || current_audio(Runtime::Default),"capability":"cpu"}),
-        json!({"value":"cuda","available":current_audio(Runtime::Cuda),"capability":"cuda"}),
-        json!({"value":"vulkan","available":current_audio(Runtime::Vulkan),"capability":"vulkan"}),
-        json!({"value":"hip","available":current_audio(Runtime::Hip),"capability":"hip"}),
-        json!({"value":"openvino","available":config.backend.kind == "openvino-genai" && config.backend.runtime == Runtime::Openvino && selected_ready,"capability":"openvino"}),
-    ];
+    let runtime_choices = if crate::cloud::is_cloud(&config.backend.kind) {
+        vec![json!({"value":"default","available":true,"capability":"remote"})]
+    } else {
+        vec![
+            json!({"value":"default","available":packaged_ready || current_audio(Runtime::Default),"capability":"cpu"}),
+            json!({"value":"cuda","available":current_audio(Runtime::Cuda),"capability":"cuda"}),
+            json!({"value":"vulkan","available":current_audio(Runtime::Vulkan),"capability":"vulkan"}),
+            json!({"value":"hip","available":current_audio(Runtime::Hip),"capability":"hip"}),
+            json!({"value":"openvino","available":config.backend.kind == "openvino-genai" && config.backend.runtime == Runtime::Openvino && selected_ready,"capability":"openvino"}),
+        ]
+    };
     json!({"schema_version":1,"app":"omawake","app_version":env!("CARGO_PKG_VERSION"),"daemon_version":env!("CARGO_PKG_VERSION"),"config_path":config_path,
         "keys":[
-            {"key":"backend.kind","type":"enum","section":"Backend","label":"Backend","description":"Complete native inference provider","value":config.backend.kind,"file_value":null,"supported":true,"restart_required":true,"choices":["audiocpp","openvino-genai","whispercpp"]},
+            {"key":"backend.cloud.base_url","type":"string","section":"Cloud","label":"base_url","description":"Remote provider base_url","value":config.backend.cloud.base_url,"file_value":null,"supported":true,"restart_required":true},
+            {"key":"backend.cloud.api_key_env","type":"string","section":"Cloud","label":"api_key_env","description":"Remote provider api_key_env","value":config.backend.cloud.api_key_env,"file_value":null,"supported":true,"restart_required":true},
+            {"key":"backend.cloud.model","type":"string","section":"Cloud","label":"model","description":"Remote provider model","value":config.backend.cloud.model,"file_value":null,"supported":true,"restart_required":true},
+            {"key":"backend.cloud.timeout_seconds","type":"integer","section":"Cloud","label":"timeout_seconds","description":"Remote provider timeout_seconds","value":config.backend.cloud.timeout_seconds,"file_value":null,"supported":true,"restart_required":true},
+            {"key":"backend.cloud.max_audio_seconds","type":"integer","section":"Cloud","label":"max_audio_seconds","description":"Remote provider max_audio_seconds","value":config.backend.cloud.max_audio_seconds,"file_value":null,"supported":true,"restart_required":true},
+            {"key":"backend.cloud.vad_threshold","type":"number","section":"Cloud","label":"vad_threshold","description":"Remote provider vad_threshold","value":config.backend.cloud.vad_threshold,"file_value":null,"supported":true,"restart_required":true},
+            {"key":"backend.cloud.endpoint_milliseconds","type":"integer","section":"Cloud","label":"endpoint_milliseconds","description":"Remote provider endpoint_milliseconds","value":config.backend.cloud.endpoint_milliseconds,"file_value":null,"supported":true,"restart_required":true},
+            {"key":"backend.kind","type":"enum","section":"Backend","label":"Backend","description":"Complete native inference provider","value":config.backend.kind,"file_value":null,"supported":true,"restart_required":true,"choices":["audiocpp","openvino-genai","whispercpp","deepgram","openai-compatible"]},
             {"key":"backend.runtime","type":"enum","section":"Backend","label":"Runtime","description":"Qualified provider runtime; availability means a matching complete provider was detected","value":config.backend.runtime,"file_value":null,"supported":true,"restart_required":true,"choices":runtime_choices},
             {"key":"backend.device","type":"string","section":"Backend","label":"Device","description":"Runtime-specific device","value":config.backend.device,"file_value":null,"supported":true,"restart_required":true},
             {"key":"backend.device_id","type":"integer","section":"Backend","label":"Device index","description":"Zero-based GPU index for CUDA, Vulkan, or HIP","value":config.backend.device_id,"file_value":null,"supported":true,"restart_required":true,"min":0},
@@ -4311,7 +4370,7 @@ fn schema(config: &Config, config_path: &Path, paths: &AppPaths) -> serde_json::
             {"prefix":"backend.options.","type":"string-map","section":"Backend","label":"Provider options","description":"Provider-specific load and session options","restart_required":true},
             {"key":"wake_words","id_key":"id","label":"Wake words","description":"Phrase-to-command mappings with exact alternate ASR transcripts","items":config.wake_words}],
         "constraints":[
-            {"kind":"matrix","keys":["backend.runtime","backend.device"],"rows":[{"backend.runtime":"default","backend.device":["auto","cpu"]},{"backend.runtime":"cuda","backend.device":["auto","gpu"]},{"backend.runtime":"vulkan","backend.device":["auto","gpu"]},{"backend.runtime":"hip","backend.device":["auto","gpu"]},{"backend.runtime":"openvino","backend.device":["npu","gpu","cpu"]}]},
+            {"kind":"matrix","keys":["backend.runtime","backend.device"],"rows":[{"backend.runtime":"default","backend.device":if crate::cloud::is_cloud(&config.backend.kind) {json!(["remote","auto","cpu"])} else {json!(["auto","cpu"])}},{"backend.runtime":"cuda","backend.device":["auto","gpu"]},{"backend.runtime":"vulkan","backend.device":["auto","gpu"]},{"backend.runtime":"hip","backend.device":["auto","gpu"]},{"backend.runtime":"openvino","backend.device":["npu","gpu","cpu"]}]},
             {"kind":"runtime-only","key":"backend.device_id","runtimes":["cuda","vulkan","hip"]}]})
 }
 
