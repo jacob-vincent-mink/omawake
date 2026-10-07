@@ -25,6 +25,7 @@ sha2 = "0.10"
 signal-hook = "0.3"
 thiserror = "2"
 toml = "0.9"
+url = "2"
 ureq = { version = "2.12", default-features = false, features = ["tls"] }
 unicode-width = "0.2"
 unicode-normalization = "0.1"

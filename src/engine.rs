@@ -140,6 +140,18 @@ impl Detector {
                 started.elapsed(),
             );
         }
+        if crate::cloud::is_cloud(&config.backend.kind) {
+            let started = Instant::now();
+            let backend = crate::cloud::CloudBackend::load(config)?;
+            return Self::from_backend(
+                config,
+                Box::new(backend),
+                String::new(),
+                Runtime::Default,
+                false,
+                started.elapsed(),
+            );
+        }
         Self::load_with(
             config,
             paths,
@@ -470,7 +482,7 @@ fn device_path_component(device: &str) -> String {
         .collect()
 }
 
-fn detect_samples(
+pub(crate) fn detect_samples(
     stream: &dyn WakeWordStream,
     sample_rate: i32,
     samples: &[f32],
