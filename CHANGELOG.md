@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.3-rc.2 - 2026-10-08
+
+- Add guided cloud setup, private API-key files shared by CLI/daemon, and offline client/daemon credential checks.
+- Add explicit cloud smoke tests and a repeatable collaborator qualification driver.
+- Add opt-in Deepgram WebSocket recognition with provider endpointing, final-segment accumulation, duplicate suppression and bounded supervised queues.
+- Keep capture responsive and dispose of failed/paused sessions without reconnecting or replaying audio.
+- Keep paid-account and real-room recognition qualification pending.
+
 ## 0.1.3-rc.1 - 2026-10-07
 
 - Start the next version series for the cloud/audio feature set.

@@ -1,6 +1,6 @@
 [package]
 name = "omawake"
-version = "0.1.3-rc.1"
+version = "0.1.3-rc.2"
 edition = "2024"
 description = "Local wake-word detection CLI and daemon with runtime-selectable inference backends"
 license = "MIT"
@@ -30,3 +30,6 @@ ureq = { version = "2.12", default-features = false, features = ["tls"] }
 unicode-width = "0.2"
 unicode-normalization = "0.1"
 ratatui = { version = "0.29.0", default-features = false, features = ["crossterm"] }
+
+# Synchronous WebSocket transport reuses rustls; no Tokio or inference runtime.
+tungstenite = { version = "0.30", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }

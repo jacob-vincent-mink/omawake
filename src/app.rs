@@ -53,8 +53,15 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum TopCommand {
+    /// Configure cloud credentials or explicitly test a provider.
+    Cloud {
+        #[command(subcommand)]
+        command: crate::cloud_cli::CloudCommand,
+    },
     #[command(name = "__cloud-worker", hide = true)]
     CloudWorker { settings: String },
+    #[command(name = "__cloud-stream-worker", hide = true)]
+    CloudStreamWorker { settings: String },
     #[command(name = "__embedding-worker", hide = true)]
     EmbeddingWorker { socket: PathBuf },
     #[command(name = "__model-cache-prepare", hide = true)]
@@ -272,6 +279,11 @@ enum WakeWordCommand {
 
 #[derive(Subcommand)]
 enum SetupCommand {
+    /// Configure a remote provider; omit --provider for guided cloud setup.
+    Cloud {
+        #[command(flatten)]
+        options: crate::cloud_cli::CloudOptions,
+    },
     /// Select or test the audio device without loading an inference model.
     Audio {
         #[arg(long)]
@@ -370,6 +382,9 @@ pub fn entry() -> ExitCode {
 }
 
 fn run_entry(cli: Cli) -> Result<()> {
+    if let TopCommand::CloudStreamWorker { settings } = &cli.command {
+        return crate::cloud::realtime_worker_main(settings);
+    }
     if let TopCommand::CloudWorker { settings } = &cli.command {
         return crate::cloud::worker_main(settings);
     }
@@ -653,6 +668,10 @@ where
             crate::native_worker::write_json(&response, &paths.runtime_dir, &report)?;
             return Ok(());
         }
+        TopCommand::Cloud { command } => {
+            crate::cloud_cli::run(command, &config_path, &paths)?;
+            return Ok(());
+        }
         TopCommand::Setup {
             command,
             recommended,
@@ -789,6 +808,7 @@ where
         }
         TopCommand::ModelCachePrepare { .. }
         | TopCommand::NativeJson { .. }
+        | TopCommand::CloudStreamWorker { .. }
         | TopCommand::CloudWorker { .. }
         | TopCommand::EmbeddingWorker { .. }
         | TopCommand::AudioCppWorker { .. }
@@ -796,6 +816,7 @@ where
         | TopCommand::OpenVinoRuntimeWorker { .. }
         | TopCommand::WhisperProbe { .. }
         | TopCommand::WhisperWorker { .. }
+        | TopCommand::Cloud { .. }
         | TopCommand::Setup { .. } => unreachable!(),
         TopCommand::Config { command } => config_mutation(command, config, &config_path, &paths),
     }
@@ -836,7 +857,9 @@ fn set_config(config: &mut Config, key: &str, value: &str) -> Result<()> {
     }
     match key {
         "backend.cloud.base_url" => config.backend.cloud.base_url = value.into(),
+        "backend.cloud.realtime" => config.backend.cloud.realtime = value.parse()?,
         "backend.cloud.api_key_env" => config.backend.cloud.api_key_env = value.into(),
+        "backend.cloud.api_key_file" => config.backend.cloud.api_key_file = value.into(),
         "backend.cloud.model" => config.backend.cloud.model = value.into(),
         "backend.cloud.timeout_seconds" => config.backend.cloud.timeout_seconds = value.parse()?,
         "backend.cloud.max_audio_seconds" => {
@@ -880,7 +903,11 @@ fn unset_config(config: &mut Config, key: &str) -> Result<()> {
     }
     let defaults = Config::default();
     match key {
+        "backend.cloud.api_key_file" => {
+            config.backend.cloud.api_key_file = defaults.backend.cloud.api_key_file
+        }
         "backend.cloud.base_url" => config.backend.cloud.base_url = defaults.backend.cloud.base_url,
+        "backend.cloud.realtime" => config.backend.cloud.realtime = defaults.backend.cloud.realtime,
         "backend.cloud.api_key_env" => {
             config.backend.cloud.api_key_env = defaults.backend.cloud.api_key_env
         }
@@ -1392,6 +1419,7 @@ fn setup(command: Option<SetupCommand>, config_path: &Path, paths: &AppPaths) ->
         );
     }
     match command.unwrap_or(SetupCommand::Check { json: false }) {
+        SetupCommand::Cloud { options } => crate::cloud_cli::configure(options, config_path),
         SetupCommand::Audio {
             device,
             apply,
@@ -4344,6 +4372,8 @@ fn schema(config: &Config, config_path: &Path, paths: &AppPaths) -> serde_json::
         "keys":[
             {"key":"backend.cloud.base_url","type":"string","section":"Cloud","label":"base_url","description":"Remote provider base_url","value":config.backend.cloud.base_url,"file_value":null,"supported":true,"restart_required":true},
             {"key":"backend.cloud.api_key_env","type":"string","section":"Cloud","label":"api_key_env","description":"Remote provider api_key_env","value":config.backend.cloud.api_key_env,"file_value":null,"supported":true,"restart_required":true},
+            {"key":"backend.cloud.realtime","type":"boolean","section":"Cloud","label":"realtime","description":"Stream complete session audio to Deepgram","value":config.backend.cloud.realtime,"file_value":null,"supported":true,"restart_required":true},
+            {"key":"backend.cloud.api_key_file","type":"string","section":"Cloud","label":"api_key_file","description":"Private API key file","value":config.backend.cloud.api_key_file,"file_value":null,"supported":true,"restart_required":true},
             {"key":"backend.cloud.model","type":"string","section":"Cloud","label":"model","description":"Remote provider model","value":config.backend.cloud.model,"file_value":null,"supported":true,"restart_required":true},
             {"key":"backend.cloud.timeout_seconds","type":"integer","section":"Cloud","label":"timeout_seconds","description":"Remote provider timeout_seconds","value":config.backend.cloud.timeout_seconds,"file_value":null,"supported":true,"restart_required":true},
             {"key":"backend.cloud.max_audio_seconds","type":"integer","section":"Cloud","label":"max_audio_seconds","description":"Remote provider max_audio_seconds","value":config.backend.cloud.max_audio_seconds,"file_value":null,"supported":true,"restart_required":true},

@@ -34,3 +34,8 @@ id = "computer"
 phrase = "Computer"
 enabled = true
 command = ["notify-send", "Wake word heard"]
+
+# Optional cloud configuration: see docs/CLOUD.md.
+# [backend.cloud]
+# api_key_file = "/absolute/private/key-file" # configured by cloud credential install --stdin
+# realtime = true # Deepgram only; sends all session audio, including silence

@@ -306,5 +306,10 @@ Pinned routing requires PipeWire’s `pw-dump` and `pw-record` (Omawake) or
 See [Audio device selection](docs/AUDIO-DEVICES.md) for configuration,
 service restart behavior, discovery JSON, and disconnect recovery.
 
+Use `omawake setup cloud` for guided provider configuration and
+`omawake cloud credential install --stdin` for a private CLI/daemon key file.
+See [collaborator qualification](docs/CLOUD-QUALIFICATION.md) for explicit smoke
+tests and reproducible results.
+
 Cloud inference is available as an explicit opt-in; see [cloud adapters](docs/CLOUD.md)
 for providers, configuration, credential references and qualification limits.
