@@ -1,4 +1,7 @@
-# Omawake 0.1.2-rc.3
+# Omawake 0.1.3-rc.1
+
+Starts the next version series for these features and supersedes the incorrectly
+numbered `0.1.2-rc.3` candidate. The implementation is unchanged.
 
 This RC adds opt-in cloud transcription through Deepgram and OpenAI-compatible
 file transcription APIs. Local energy endpointing produces bounded utterances;

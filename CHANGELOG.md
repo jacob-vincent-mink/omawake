@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3-rc.1 - 2026-10-07
+
+- Start the next version series for the cloud/audio feature set.
+- Supersede the incorrectly numbered 0.1.2-rc.3 candidate; implementation unchanged.
+
 ## 0.1.2-rc.3 - 2026-10-07
 
 - Add Deepgram and OpenAI-compatible cloud transcription adapters.
