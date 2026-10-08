@@ -17,6 +17,7 @@ jobs:
         with:
           tool: cargo-about@0.9.2,cargo-deny@0.20.2
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ca-certificates libasound2-dev python3 tmux
+      - run: python3 -m unittest discover -s benchmarks/cloud -p "test_*.py"
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo deny check licenses

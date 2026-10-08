@@ -45,6 +45,10 @@ struct Settings {
 }
 impl Settings {
     fn validate(&self) -> Result<()> {
+        ensure!(
+            !self.cloud.realtime || self.kind == "deepgram",
+            "realtime cloud ASR requires Deepgram"
+        );
         ensure!(is_cloud(&self.kind), "unsupported cloud ASR provider");
         cloud_http::base_url(&self.cloud, self.defaults().0)?;
         cloud_http::credential(
@@ -182,7 +186,7 @@ struct Utterance {
     start_sample: u64,
     samples: Vec<f32>,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Reply {
     start_sample: u64,
     text: Option<String>,
@@ -403,6 +407,9 @@ impl CloudBackend {
         })
     }
     fn make_stream(&self, live: bool) -> Box<dyn WakeWordStream + '_> {
+        if self.settings.cloud.realtime {
+            return Box::new(realtime::RealtimeStream::new(self, live));
+        }
         Box::new(CloudStream {
             backend: self,
             live,
@@ -591,3 +598,8 @@ impl WakeWordStream for CloudStream<'_> {
 #[cfg(test)]
 #[path = "../tests/unit/cloud.rs"]
 mod tests;
+
+mod realtime;
+pub fn realtime_worker_main(settings: &str) -> Result<()> {
+    realtime::worker_main(settings)
+}

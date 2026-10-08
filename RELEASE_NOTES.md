@@ -1,23 +1,25 @@
-# Omawake 0.1.3-rc.1
+# Omawake 0.1.3-rc.2
 
-Starts the next version series for these features and supersedes the incorrectly
-numbered `0.1.2-rc.3` candidate. The implementation is unchanged.
+Adds guided cloud setup, private API-key files shared by CLI/daemon, offline
+credential checks, and explicit file smoke tests that never execute wake actions.
+A repeatable qualification driver records results for an independent collaborator.
 
-This RC adds opt-in cloud transcription through Deepgram and OpenAI-compatible
-file transcription APIs. Local energy endpointing produces bounded utterances;
-a supervised worker keeps microphone capture responsive. Queues are bounded,
-and pause/cancellation disposes of pending work without replaying speech.
-Whole-phrase wake matching remains local. These adapters upload voiced clips
-when selected; WebSocket realtime ASR remains future work.
+Deepgram now supports opt-in WebSocket recognition. Provider VAD endpoints final
+segments; utterance accumulation and duplicate suppression prevent interim or
+repeated results from triggering actions. Network work runs in a supervised
+process with bounded queues, keepalive/heartbeats and cancellation cleanup.
+Disconnections, timeouts and overflow end the session without reconnect/replay.
 
-API keys are referenced through environment variables. Local HTTP fixtures
-verified requests, response/error handling, cancellation and matching; paid
-provider accounts and real-room latency/false-wake rates remain unqualified.
-See `docs/CLOUD.md` for configuration and limitations.
+HTTP utterance transcription remains available through Deepgram and
+OpenAI-compatible APIs. Local whole-phrase matching, aliases and cooldown policy
+apply to both transports. Realtime sends all session audio, including silence and
+unrelated speech; HTTP sends locally gated voiced clips.
 
-This RC excludes the separate omarchy-voice consumer-events/D-Bus work and the
-pre-existing audio.cpp ABI relaxation. No new inference runtime is bundled and
-ONNX Runtime remains excluded from delivery. Existing local defaults remain.
+Paid-account access, recognition accuracy and real-room false-wake/latency
+qualification remain pending. See `docs/CLOUD-QUALIFICATION.md` and `docs/CLOUD.md`.
+Consumer-events/D-Bus and the unrelated audio.cpp ABI change remain separate.
+No Tokio or new inference runtime is bundled; ONNX Runtime remains excluded.
+Existing local defaults and previously published RCs remain unchanged.
 
 ## Omawake 0.1.2-rc.2
 
