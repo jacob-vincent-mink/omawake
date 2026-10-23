@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3 - 2026-10-23
+
+- Promote the approved 0.1.3-rc.2 candidate to stable; application implementation unchanged.
+
 ## 0.1.3-rc.2 - 2026-10-08
 
 - Add guided cloud setup, private API-key files shared by CLI/daemon, and offline client/daemon credential checks.
