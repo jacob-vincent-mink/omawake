@@ -1,4 +1,7 @@
-# Omawake 0.1.3-rc.2
+# Omawake 0.1.3
+
+Promotes the approved `0.1.3-rc.2` candidate to stable. Application
+implementation is unchanged.
 
 Adds guided cloud setup, private API-key files shared by CLI/daemon, offline
 credential checks, and explicit file smoke tests that never execute wake actions.
